@@ -1,0 +1,45 @@
+CREATE OR REPLACE PACKAGE GZ_PROJECTION
+AUTHID CURRENT_USER
+AS
+
+TYPE VCHAR30_ARRAY IS VARRAY(1048576) OF VARCHAR2(30);
+TYPE VCHAR100_ARRAY IS VARRAY(1048576) OF VARCHAR2(100);
+
+
+
+
+  /* TODO enter package declarations (types, exceptions, methods etc) here */
+PROCEDURE PROJECT_2007_TO_ALBERS(pTopology VARCHAR2,pTable_name VARCHAR2,pGeometry_Column VARCHAR2,pID_Column VARCHAR2,pSCHEMA_NAME VARCHAR2,
+pOutput_Table VARCHAR2,pNew_Geom_Column VARCHAR2 default 'NEW_GEOMETRY',EXCLUDE VARCHAR2 DEFAULT NULL,pID_is_NUMBER VARCHAR2 default 'TRUE',plog_type   VARCHAR2 DEFAULT 'PROJECTION'
+,seq_name VARCHAR2  default 'GZ_PROJECT_SEQ',Wrk_table2003 VARCHAR2 DEFAULT 'GZ_PROJECT_WRK2003',Wrk_tablearea VARCHAR2 DEFAULT 'GZ_PROJECT_WRKAREA',
+Wrk_tableout VARCHAR2 DEFAULT 'GZ_PROJECT_WRKOUT') ;
+
+PROCEDURE PROJECT_TO_ALBERS(pTable_name VARCHAR2,pGeometry_Column VARCHAR2,pID_Column VARCHAR2,WrkArea_Table VARCHAR2,pSCHEMA_NAME VARCHAR2,pOutput_Table VARCHAR2,pNew_Geom_Column VARCHAR2 default 'NEW_GEOMETRY',EXCLUDE VARCHAR2 DEFAULT NULL);
+
+PROCEDURE FETCH_GEOMETRIES(Table_cursor IN OUT NOCOPY SYS_REFCURSOR,
+                           Compid_Array IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
+                           OID_Array IN OUT NOCOPY VCHAR100_ARRAY,
+                           Geometry_Array IN OUT NOCOPY GZ_TYPES.SDO_GEOMETRY_ARRAY,
+                           row_limit PLS_INTEGER);
+FUNCTION PROJECT_GEOMETRIES(SRID NUMBER,scale NUMBER,xshift NUMBER, yshift NUMBER,sin0 NUMBER,cos0 NUMBER,Face_ids IN OUT NOCOPY VCHAR100_ARRAY,
+                           Geometry_Array IN OUT NOCOPY GZ_TYPES.SDO_GEOMETRY_ARRAY) RETURN GZ_TYPES.SDO_GEOMETRY_ARRAY;
+
+FUNCTION CONVERT_2007_TO_2003(Topology VARCHAR2,pInTable VARCHAR2,pInSDOGeomColumn VARCHAR2,pIdColumn VARCHAR2,pOutTable VARCHAR2,Compid_fld VARCHAR2 default 'COMPID',seq_name VARCHAR2) RETURN NUMBER;
+FUNCTION ANGLE(x0 NUMBER,y0 NUMBER,x1 NUMBER,y1 NUMBER,x2 NUMBER,y2 NUMBER,SRID NUMBER) RETURN NUMBER DETERMINISTIC;
+PROCEDURE Add_geom_metadata(pTableName VARCHAR2,pColumnName VARCHAR2,pInSchema VARCHAR2,SRID NUMBER,xLL NUMBER default -180,yLL NUMBER default -90.,xUR NUMBER default 180.,yUR NUMBER default 90.,tolerance NUMBER default 0.005);
+
+Function Distance_Fcn(x1 NUMBER, y1 NUMBER,x2 NUMBER,y2 NUMBER,SRID NUMBER default 8265.) Return NUMBER;
+FUNCTION FAST_ATAN2(YIn NUMBER, XIn NUMBER) RETURN NUMBER Deterministic;
+FUNCTION GEO_BEARING(px0 NUMBER,py0 NUMBER,px1 NUMBER,py1 NUMBER,old_bearing IN OUT NOCOPY NUMBER,SRID NUMBER)
+                RETURN NUMBER DETERMINISTIC;
+-- This function removes vertices from a geometry that are less than straight_len apart and have angles greater than
+-- Straight_angle. Defaults preserve lines 10 km long and remove vertices whose angles are greater than 175 degrees.
+
+FUNCTION Remove_Too_Straight(Geom IN OUT NOCOPY MDSYS.SDO_GEOMETRY,
+                      Straight_len NUMBER default 1000000.,
+                      Straight_angle NUMBER default 175.) RETURN PLS_INTEGER;
+
+FUNCTION sincos(InX NUMBER,COSX IN OUT NOCOPY NUMBER) RETURN NUMBER DETERMINISTIC;
+PROCEDURE try_remove_too_straight(Geom MDSYS.SDO_GEOMETRY default NULL, pstraight_angle NUMBER default 179.9,px NUMBER default NULL,py NUMBER default 40.,pxdelta NUMBER default NULL, pydelta NUMBER default NULL);
+END GZ_PROJECTION;
+/
