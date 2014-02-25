@@ -94,7 +94,7 @@ BEGIN
 
 
    --Get ref schemas filters out schemas that dont exist on this DB
-   legal_users := GZ_UTILITIES.GET_REF_SCHEMAS(v_current_user, ref_table);
+   legal_users := GZ_BUSINESS_UTILS.GET_REF_SCHEMAS(v_current_user, ref_table);
 
    --legal_users looks something like
    --(GZDEC10ST99) SELECT

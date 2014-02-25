@@ -31,7 +31,7 @@ AS
 
       GZ_CLIP.CREATE_GEN_CLIP_TRACKING_LOG(p_schema, p_project_id || p_jobid || '_CLIP_TRACKING');
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,
                                          'START_CLIP_LOGGING',
                                          'STARTING JOB');
 
@@ -56,7 +56,7 @@ AS
       --Matt! 7/31/10
       --Make the <release>_CLIP_JOBRUNS table if it doesn't exist
       --Populate with this the parameters of this job
-      
+
       --the <release>_clip_jobruns table and this function serve to allow input parameters
       --to morph and take on all kinds of new meanings over time
       --Then this set_up step performs whatever contortions of non-logic are necessary to
@@ -112,57 +112,57 @@ AS
       --after this the job will always go to the <release>_clip_jobruns
 
       proj_parms := GZ_CLIP.GET_CLIP_PROJECT_PARAMETERS(p_release, p_project_id);
-      
-      
+
+
       IF p_topo IS NULL
       THEN
 
-         --single biggie topology from which we will be extracting parts. 
+         --single biggie topology from which we will be extracting parts.
          --one and only topology is in gen_clip_parameters.gen_topology_name
 
          --proj_parms.gen_topology_name := p_topo;  dont mess with this, its in there already
-         
+
          --we giving the name to one and only <input_topo>_<edge work table>
          --will actually create this table in TRANSFER_ATTRIBUTES
-         
+
          --Why does it take 10 lines of comments to explain 2 lines of code?
          --If the input topology is local, the value of proj_parms.edge_input table is a stub like EWRK
          --If the input topology is remote and edge input table already exists, user enters full, like gzcpb1.z699in_ewrk
-         
+
          IF GZ_CLIP.GET_SOURCE_SCHEMA(proj_parms.edge_input_table) = UPPER(p_schema)
          THEN
 
             --returned current schema, SOP
             --so our edge input table will be created (or has been, step 1) in this work schema
             --and be named like MYSCHEMA.Z699IN_EWRK
-            
+
             IF GZ_CLIP.GET_SOURCE_SCHEMA(proj_parms.gen_topology_name) = UPPER(p_schema)
             THEN
-            
-               --no special schema name on the front of the gen_topology_name parameter 
+
+               --no special schema name on the front of the gen_topology_name parameter
                -- =clipping from topo build in local schema
                proj_parms.edge_input_table  := UPPER(p_schema) || '.' || proj_parms.gen_topology_name || '_' || proj_parms.edge_input_table;
-               
+
             ELSE
-            
+
                --some sort of schema name in front of gen_topology_name parameter, like GZCPB1.Z699IN
                -- =clipping from a remote schema topo build, but creating local edge attribute table
-            
+
                --ex ME.z699in_EWRK. Add my local schema, strip the remote topo out, and append the edge stub
-               proj_parms.edge_input_table  := UPPER(p_schema) || '.' || 
-                                               GZ_CLIP.GET_SOURCE_TOPOLOGY(proj_parms.gen_topology_name) || '_' || 
-                                               proj_parms.edge_input_table;               
-            
+               proj_parms.edge_input_table  := UPPER(p_schema) || '.' ||
+                                               GZ_CLIP.GET_SOURCE_TOPOLOGY(proj_parms.gen_topology_name) || '_' ||
+                                               proj_parms.edge_input_table;
+
             END IF;
-            
+
          ELSE
-         
+
             --some other schema to the left of the dot, full remote table entered by user. Dont change it
             --REMOTESCHEMA.Z699IN_EWRK
             NULL;
-            
+
             --also, leave face input table as is, ex gzcpb1.z699in_face
-         
+
          END IF;
 
          --dont mess with this, its THE face input table for all jobs on this project
@@ -173,11 +173,11 @@ AS
 
          --state based topo input at runtime.  This is not common post-TAB10
          --I think this could also be a national topo where we are clipping the whole thing, no interior states
-         
+
          proj_parms.gen_topology_name := p_topo;
          proj_parms.edge_input_table  := p_topo || '_' || proj_parms.edge_input_table;
          proj_parms.face_input_table  := p_topo || '_' || proj_parms.face_input_table;
-         
+
          --Note that this flavor is not prepared to handle the remote schema step 1 business
 
       END IF;
@@ -293,7 +293,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MASKS',NULL,'STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MASKS',NULL,'STARTING');
 
 
       --get input parms
@@ -329,7 +329,7 @@ AS
       IF output.COUNT = 0
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MASKS',NULL,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MASKS',NULL,
                                             'Nothing returned from query, going with mask ' || p_clip_mask);
 
          --if nothing is an interior edge, then we probably have DC or something
@@ -339,7 +339,7 @@ AS
       END IF;
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MASKS',clip_parms.edge_input_table,'COMPLETED',start_time,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MASKS',clip_parms.edge_input_table,'COMPLETED',start_time,
                                           NULL,NULL,psql);
 
       ----------------------------------------------------------------------------------
@@ -377,7 +377,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MODULES','GEN_CLIP_PARMS','STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MODULES','GEN_CLIP_PARMS','STARTING');
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release,p_project_id, p_jobid);
@@ -401,7 +401,7 @@ AS
          RAISE_APPLICATION_ERROR(-20001,'Wrong number of modules in gen_clip_modules: ' || clip_parms.gen_clip_modules);
       END IF;
 
-      output := GZ_UTILITIES.SPLIT(clip_parms.gen_clip_modules);
+      output := GZ_BUSINESS_UTILS.SPLIT(clip_parms.gen_clip_modules);
 
       IF output.COUNT != 10
       THEN
@@ -409,7 +409,7 @@ AS
       END IF;
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MODULES','GEN_CLIP_PARMS','COMPLETED',start_time);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_MODULES','GEN_CLIP_PARMS','COMPLETED',start_time);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -421,7 +421,7 @@ AS
       RETURN output;
 
    END GET_MODULES;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --PRIVATE--------------------------------------------------------------------------------
@@ -481,12 +481,12 @@ AS
 
 
    END GET_NODE_GEOMETRY;
-   
-   
+
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --PUBLIC---------------------------------------------------------------------------------
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
@@ -587,108 +587,108 @@ AS
       RETURN output;
 
    END GET_CLIP_PROJECT_PARAMETERS;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
-   
+
    FUNCTION GET_SOURCE_SCHEMA (
       p_input                    IN VARCHAR2
    ) RETURN VARCHAR2 DETERMINISTIC
    AS
-   
+
       --Matt! 2/8/13
       --For some gen_clip_parameters.topology_name like input, return the schema name
       --Input could be either <schema>.<topo> --return--> schema
       --                   or      <topo>     --return--> current schema
-      
+
    BEGIN
-   
+
       IF INSTR(p_input,'.') = 0
       THEN
-      
+
          --specific inplementation overrides get_x_of_tha_dot NULL
          RETURN SYS_CONTEXT('USERENV','CURRENT_SCHEMA');
-         
+
       ELSE
-      
-         RETURN GZ_UTILITIES.GET_X_OF_THA_DOT(p_input, 'LEFT');
-         
-      END IF;   
-   
-   
+
+         RETURN GZ_TOPO_UTIL.GET_X_OF_THA_DOT(p_input, 'LEFT');
+
+      END IF;
+
+
    END GET_SOURCE_SCHEMA;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
-   
+
    FUNCTION GET_SOURCE_TOPOLOGY (
       p_input                    IN VARCHAR2
    ) RETURN VARCHAR2 DETERMINISTIC
    AS
-   
+
       --Matt! 2/8/13
       --For some gen_clip_parameters.topology_name like input, return the schema name
       --Input could be either <schema>.<topo> --return--> schema
       --                   or      <topo>     --return--> current schema
-      
+
    BEGIN
-   
+
       IF INSTR(p_input,'.') = 0
       THEN
-      
+
          --specific inplementation overrides get_x_of_tha_dot NULL
          RETURN UPPER(p_input);
-         
+
       ELSE
-      
-         RETURN GZ_UTILITIES.GET_X_OF_THA_DOT(p_input, 'RIGHT');
-         
-      END IF;   
-   
-   
+
+         RETURN GZ_TOPO_UTIL.GET_X_OF_THA_DOT(p_input, 'RIGHT');
+
+      END IF;
+
+
    END GET_SOURCE_TOPOLOGY;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
-   
+
    FUNCTION GET_EDGE_TABLE (
       p_project_id            IN VARCHAR2,
       p_jobid                 IN VARCHAR2,
       p_edge_input_table      IN VARCHAR2
    ) RETURN VARCHAR2 DETERMINISTIC
    AS
-   
+
       --Matt! 2/15/13
-      
-      --This is meant to replace all of the 
+
+      --This is meant to replace all of the
       --newedgetable := p_project_id || p_jobid || '_' || clip_parms.edge_input_table;
       --   shoo, love of mine
-      
+
       --p_project_id            Z6
       --p_jobid                 01CL
       --p_edge_input_table      Z699IN_EWRK
-      --                or      SCHEL010.Z699IN_EWRK      
-      --our working edge table  Z601CL_Z699IN_EWRK 
-   
+      --                or      SCHEL010.Z699IN_EWRK
+      --our working edge table  Z601CL_Z699IN_EWRK
+
    BEGIN
-   
-      IF GZ_UTILITIES.GET_X_OF_THA_DOT(p_edge_input_table, 'RIGHT') IS NULL
+
+      IF GZ_TOPO_UTIL.GET_X_OF_THA_DOT(p_edge_input_table, 'RIGHT') IS NULL
       THEN
-      
+
          --SOP
          RETURN p_project_id || p_jobid || '_' || p_edge_input_table;
-      
+
       ELSE
-      
-         RETURN p_project_id || p_jobid || '_' || GZ_UTILITIES.GET_X_OF_THA_DOT(p_edge_input_table, 'RIGHT');
-      
-      END IF;  
-   
+
+         RETURN p_project_id || p_jobid || '_' || GZ_TOPO_UTIL.GET_X_OF_THA_DOT(p_edge_input_table, 'RIGHT');
+
+      END IF;
+
    END GET_EDGE_TABLE;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
@@ -755,7 +755,7 @@ AS
       OR p_modules LIKE 'Y%'
       THEN
 
-         yandns := GZ_UTILITIES.split(p_modules);
+         yandns := GZ_BUSINESS_UTILS.SPLIT(p_modules);
 
          --Update all modules we are about to run back to N
          psql := 'UPDATE ' || p_project_id || '_CLIP_MODULES' || ' a '
@@ -868,7 +868,7 @@ AS
 
                --some other job started simultaneously
                --this is some shameful stuff
-               GZ_UTILITIES.CPB_SLEEP(3);
+               GZ_BUSINESS_UTILS.CPB_SLEEP(3);
 
                kount := 1;
 
@@ -1021,13 +1021,13 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',NULL,'STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',NULL,'STARTING');
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release,p_project_id,p_jobid);
-      
+
        --return includes geoid
-      face_fields := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      face_fields := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                             p_project_id,
                                                             'ATTRIBUTE',
                                                             clip_parms.left_right_attributes);
@@ -1042,7 +1042,7 @@ AS
 
 
       --1. usually <input_topology>_FACE
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(clip_parms.face_input_table)
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(clip_parms.face_input_table)
       THEN
 
          output := output || 'Dude, ' || clip_parms.face_input_table || ' doesnt exist. Check gen_clip_parameters.face_input_table | ';
@@ -1050,7 +1050,7 @@ AS
       END IF;
 
       --2. Input topo edge$
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(clip_parms.gen_topology_name || '_EDGE$')
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(clip_parms.gen_topology_name || '_EDGE$')
       THEN
 
          output := output || 'Dude, ' || clip_parms.gen_topology_name || '_EDGE$ doesnt exist | ';
@@ -1058,7 +1058,7 @@ AS
       END IF;
 
       --3. Input topo face$
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(clip_parms.gen_topology_name || '_FACE$')
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(clip_parms.gen_topology_name || '_FACE$')
       THEN
 
          output := output || 'Dude, ' || clip_parms.gen_topology_name || '_FACE$ doesnt exist | ';
@@ -1072,7 +1072,7 @@ AS
       FOR i IN 1 .. ref_tables.COUNT
       LOOP
 
-         IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(ref_tables(i))
+         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(ref_tables(i))
          THEN
 
             output := output || 'Dude, reference table ' || ref_tables(i) || ' doesnt exist | ';
@@ -1084,7 +1084,7 @@ AS
 
       --5. clipping table, ex 'DADSGEN.STEDZ6V5'
       IF p_clip_edge_tab IS NOT NULL AND
-      NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_clip_edge_tab)
+      NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_clip_edge_tab)
       THEN
 
          output := output || 'Dude, table ' || p_clip_edge_tab || ' doesnt exist. Check input parameters to generalization_clip | ';
@@ -1092,7 +1092,7 @@ AS
       END IF;
 
       --6. left right attributes ref table, ex 'REFERENCE_FACE_FIELDS'
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(clip_parms.left_right_attributes)
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(clip_parms.left_right_attributes)
       THEN
 
          output := output || 'Dude, table ' || clip_parms.left_right_attributes || ' doesnt exist. Check gen_clip_parameters.left_right_attributes | ';
@@ -1103,26 +1103,26 @@ AS
       --   At this stage we are looking at the jobrun version of edge_input_table, the "transfer attributes" table name
       --   Its name is like <topo_in>_clip_parms.edge_input_table
       --   This now effectively the table extension, which we limit to 14 characters
-      
-      IF GZ_UTILITIES.GET_X_OF_THA_DOT(clip_parms.edge_input_table,'LEFT') IS NULL
+
+      IF GZ_TOPO_UTIL.GET_X_OF_THA_DOT(clip_parms.edge_input_table,'LEFT') IS NULL
       THEN
-      
+
          --just a table name
          IF LENGTH(clip_parms.edge_input_table) > 14
          THEN
 
             output := output || 'Dude, this is my bad but the edge_input_table name (' || clip_parms.edge_input_table || ') is too long. | ';
-         
+
          END IF;
-         
+
       ELSE
-      
+
          --strip just the table to tha right of tha dot
-         IF LENGTH(GZ_UTILITIES.GET_X_OF_THA_DOT(clip_parms.edge_input_table,'RIGHT')) > 14
+         IF LENGTH(GZ_TOPO_UTIL.GET_X_OF_THA_DOT(clip_parms.edge_input_table,'RIGHT')) > 14
          THEN
-         
+
             output := output || 'Dude, this is my bad but the edge_input_table name (' || clip_parms.edge_input_table || ') is too long. | ';
-         
+
          END IF;
 
       END IF;
@@ -1152,20 +1152,20 @@ AS
       --Delete the universal face
       --psql := 'DELETE FROM ' || clip_parms.face_input_table || ' a '
         --   || 'WHERE a.face_id = :p1 ';
-        
+
       --I think its safe to now just check for it rather than assume its there
-      
-      psql := 'SELECT COUNT(*) ' 
+
+      psql := 'SELECT COUNT(*) '
            || 'FROM ' || clip_parms.face_input_table || ' a '
            || 'WHERE a.face_id = :p1 ';
 
       EXECUTE IMMEDIATE psql INTO badkount USING -1;
-      
+
       IF badkount <> 0
       THEN
-      
+
          output := output || clip_parms.face_input_table || ' has a face feature with face id -1 | ';
-      
+
       END IF;
 
 
@@ -1210,7 +1210,7 @@ AS
       THEN
 
          --1. usually <work_topology>_EWRK
-         IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(clip_parms.edge_input_table)
+         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(clip_parms.edge_input_table)
          THEN
 
             output := output || 'Dude, ' || clip_parms.edge_input_table || ' doesnt exist. Check gen_clip_parameters.edge_input_table | ';
@@ -1253,8 +1253,8 @@ AS
 
          --after transfer attributes we should have built face_id index on the input face table
          --if it wasnt there.  Check now, this scenario can happen if the tranfer attributes step gets skipped
-         
-         IF NOT GZ_UTILITIES.INDEX_EXISTS(clip_parms.face_input_table,
+
+         IF NOT GZ_BUSINESS_UTILS.INDEX_EXISTS(clip_parms.face_input_table,
                                           'FACE_ID',
                                           'NORMAL')
          THEN
@@ -1262,12 +1262,12 @@ AS
             output := output || ' ' || clip_parms.face_input_table || ' is missing an index on face_id | ';
 
          END IF;
-         
+
          --check that the columns on the edge work table match the reference_face_fields requested
          --Added this now that edge work table could be in a remote schema.  Must ensure that the
          --reference_face_fields in the current job are the same or a subset of whatever ran for step 1 over yonder
          --also applies to local jobs too
-         
+
          FOR i IN 1 .. face_fields.COUNT
          LOOP
 
@@ -1275,32 +1275,32 @@ AS
 
             IF i <> face_fields.COUNT
             THEN
- 
+
                column_str2 := column_str2 || '''L_' || face_fields(i) || ''',''R_' || face_fields(i) || ''',';
- 
+
             ELSE
- 
+
                column_str2 := column_str2 || '''L_' || face_fields(i) || ''',''R_' || face_fields(i) || '''';
- 
+
             END IF;
 
          END LOOP;
-             
-         IF NOT GZ_UTILITIES.COLUMN_EXISTS(clip_parms.edge_input_table,
+
+         IF NOT GZ_BUSINESS_UTILS.COLUMN_EXISTS(clip_parms.edge_input_table,
                                            column_str2,
                                            (face_fields.COUNT * 2))
          THEN
-      
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',clip_parms.edge_input_table,
+
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',clip_parms.edge_input_table,
                                                'Table ' || clip_parms.edge_input_table ||
                                                ' is missing L_ or R_ attributes requested in ' || clip_parms.left_right_attributes);
 
             output := output || 'Table ' || clip_parms.edge_input_table ||
                                 ' is missing L_ or R_ attributes requested in ' || clip_parms.left_right_attributes || ' ';
-      
+
          END IF;
-         
-         
+
+
       END IF;
 
 
@@ -1393,18 +1393,18 @@ AS
 
       END LOOP;
 
-      IF NOT GZ_UTILITIES.COLUMN_EXISTS(clip_parms.face_input_table,
+      IF NOT GZ_BUSINESS_UTILS.COLUMN_EXISTS(clip_parms.face_input_table,
                                         column_str,
                                         face_fields.COUNT)
       THEN
-      
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',clip_parms.edge_input_table,
+
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',clip_parms.edge_input_table,
                                             'Table ' || clip_parms.face_input_table ||
                                             ' is missing attributes requested in ' || clip_parms.left_right_attributes);
 
          output := output || 'Table ' || clip_parms.face_input_table ||
                              ' is missing attributes requested in ' || clip_parms.left_right_attributes || ' ';
-      
+
       END IF;
 
 
@@ -1418,8 +1418,8 @@ AS
       --check that input face table has a spatial index
       --it can get lost in copies
 
-      
-      IF NOT GZ_UTILITIES.INDEX_EXISTS(clip_parms.face_input_table,
+
+      IF NOT GZ_BUSINESS_UTILS.INDEX_EXISTS(clip_parms.face_input_table,
                                        'SDOGEOMETRY',
                                        'DOMAIN')
       THEN
@@ -1427,8 +1427,8 @@ AS
          output := output || 'Table ' || clip_parms.face_input_table || ' is missing a spatial index on sdogeometry |';
 
       END IF;
-      
-      IF NOT GZ_UTILITIES.INDEX_EXISTS(clip_parms.face_input_table,
+
+      IF NOT GZ_BUSINESS_UTILS.INDEX_EXISTS(clip_parms.face_input_table,
                                        'TOPOGEOM',
                                        'DOMAIN')
       THEN
@@ -1447,7 +1447,7 @@ AS
          output := '0';
       END IF;
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',clip_parms.edge_input_table,'COMPLETED',start_time);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY_CLIP_INPUTS',clip_parms.edge_input_table,'COMPLETED',start_time);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -1490,23 +1490,23 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',NULL,'STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',NULL,'STARTING');
 
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release,p_project_id,p_jobid);
-      
+
       IF INSTR(clip_parms.edge_input_table, '.') = 0
       THEN
-      
+
          edge_table := clip_parms.edge_input_table;
-      
+
       ELSE
-      
+
          --Could be remote or local, whatever, get the schema off it
          --SCHEL010.Z699IN_EWRK
-         edge_table := GZ_UTILITIES.GET_X_OF_THA_DOT(clip_parms.edge_input_table, 'RIGHT');
-      
+         edge_table := GZ_TOPO_UTIL.GET_X_OF_THA_DOT(clip_parms.edge_input_table, 'RIGHT');
+
       END IF;
 
       ----------------------------------------------------------------------------------
@@ -1515,21 +1515,21 @@ AS
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('TRANSFER_ATTRIBUTES: Add spatial index to face table');
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
-      
+
       --I think this step was only necessary in classic topo build where the face table spatial index was a crapshoot
       --Will switch now to assume that its there
-      
-      IF NOT GZ_UTILITIES.INDEX_EXISTS(clip_parms.face_input_table,
+
+      IF NOT GZ_BUSINESS_UTILS.INDEX_EXISTS(clip_parms.face_input_table,
                                        'SDOGEOMETRY',
                                        'DOMAIN')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.face_input_table,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.face_input_table,
                                              'Add spatial index to ' || clip_parms.face_input_table || ', this could take a while');
 
          BEGIN
 
-            GZ_UTILITIES.ADD_SPATIAL_INDEX(clip_parms.face_input_table,
+            GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(clip_parms.face_input_table,
                                            'SDOGEOMETRY',
                                            clip_parms.gen_clip_job_srid,
                                            clip_parms.gen_clip_tolerance);
@@ -1537,16 +1537,16 @@ AS
          EXCEPTION
             WHEN OTHERS
             THEN
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.face_input_table,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.face_input_table,
                                                   'Add spatial index failed, see SQLERRM-->',NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
          END;
-         
+
       ELSE
-      
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.face_input_table,
+
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.face_input_table,
                                             'Looks like spatial index on ' || clip_parms.face_input_table || '.sdogeometry already exists');
-      
+
       END IF;
 
 
@@ -1564,7 +1564,7 @@ AS
       --Edge table should not pre-exist
       --We will create it and populate left and right fields
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.edge_input_table,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.edge_input_table,
                                           'Build edge attribute table and transfer attributes. ZZZZzzzzz...',NULL,NULL,NULL,NULL);
 
       GZ_CLIP.BUILD_EDGE_ATTRIBUTE_TABLE(p_schema,
@@ -1589,7 +1589,7 @@ AS
 
       END IF;
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.edge_input_table,'COMPLETED',start_time);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER_ATTRIBUTES',clip_parms.edge_input_table,'COMPLETED',start_time);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -1602,7 +1602,7 @@ AS
 
    END TRANSFER_ATTRIBUTES;
 
-  
+
 
 
    -----------------------------------------------------------------------------------------
@@ -1635,7 +1635,7 @@ AS
 
    END ZAP_MODULES;
 
-   
+
 
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -1669,7 +1669,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',NULL,'STARTING ' || p_mask);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',NULL,'STARTING ' || p_mask);
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
@@ -1731,7 +1731,7 @@ AS
                                       sdo_list_type(),
                                       sdo_list_type();
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',newtopo || '_XX',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',newtopo || '_XX',
                                              'COMPLETED ' || p_mask,start_time);
 
       ELSE
@@ -1739,7 +1739,7 @@ AS
 
          --state based, copy entier topology
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',
                                             NULL,'STARTING copy of ' || p_topo || ' to ' || newtopo);
 
          --topo already exists, we just wish to copy it
@@ -1760,7 +1760,7 @@ AS
                THEN
 
                   --voodoo java memory
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',
                                                      NULL,'Copy failed, increasing java heap size ');
 
                   SDO_TOPO_MAP.SET_MAX_MEMORY_SIZE(2147483648);
@@ -1782,12 +1782,12 @@ AS
 
          --We copied over the face feature table
          --Get rid of it from the topo and drop tables (and any others should they exist)
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',NULL,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',NULL,
                                           'Removing the face table from ' || newtopo);
 
-         GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(p_schema,newtopo);
+         GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(p_schema,newtopo);
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',newtopo || '_XX',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',newtopo || '_XX',
                                             'Copied ' || p_topo,start_time);
 
 
@@ -1814,7 +1814,7 @@ AS
 --                                      sdo_list_type(),
 --                                      sdo_list_type();
 --
---         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',newtopo || '_XX',
+--         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',newtopo || '_XX',
 --                                             'COMPLETED ' || p_mask,start_time);
 
 
@@ -1831,9 +1831,9 @@ AS
 
       --relation$ doesnt exist at this point
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_EDGE$');
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_FACE$');
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_HISTORY$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_EDGE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_FACE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_HISTORY$');
 
 
 
@@ -1974,7 +1974,7 @@ AS
       ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -2053,7 +2053,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_table,
                                                   p_topo_col,
                                                   tg_layer_type);
@@ -2109,7 +2109,7 @@ AS
 
       topomap := p_topo || '_TOPOMAP';
 
-      ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(topomap,p_topo,2);
+      ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(topomap,p_topo,2);
 
       psql := 'SELECT e.edge_id '
            || 'FROM ' || p_topo || '_edge$ e '
@@ -2139,7 +2139,7 @@ AS
                --ORA-06512: at "MDSYS.SDO_TOPO_MAP", line 344
                --I dont know what this is all about
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REMOVE_EXTERIOR_EDGES ' || p_topo, p_topo || '_EDGE$',
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REMOVE_EXTERIOR_EDGES ' || p_topo, p_topo || '_EDGE$',
                                           'Got one of the weird ''is not on the boundary'' errors, lets ignore it ' ,
                                            NULL,NULL,NULL,'SDO_TOPO_MAP.REMOVE_EDGE(''' || p_topo || ''',' || edges(i)|| ');',
                                            NULL,SQLERRM);
@@ -2158,7 +2158,7 @@ AS
 
 
       --clean out topomap and update the dollar tables
-      ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(topomap,p_topo,ez_topo_mgr);
+      ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(topomap,p_topo,ez_topo_mgr);
 
       RETURN '0';
 
@@ -2201,7 +2201,7 @@ AS
 
       topomap := p_topo || '_TOPOMAP';  --not used
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_edge_table,
                                                   'TOPOGEOM',
                                                   'LINE');
@@ -2237,7 +2237,7 @@ AS
                                                 --clip edge we get dupes
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REMOVE_TOUCHY_EDGES ' || p_edge_table,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REMOVE_TOUCHY_EDGES ' || p_edge_table,
                                          p_edge_table,'Collect touchy edges ' ,
                                          NULL,NULL,NULL,psql);
 
@@ -2246,7 +2246,7 @@ AS
                                                USING 'mask=ANYINTERACT',
                                                      'TRUE';
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REMOVE_TOUCHY_EDGES ' || p_edge_table,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REMOVE_TOUCHY_EDGES ' || p_edge_table,
                                          p_edge_table,'Removing edges for ' || feature_edges.COUNT || ' records in ' || p_edge_table ,
                                          NULL,NULL,NULL,NULL);
 
@@ -2281,8 +2281,8 @@ AS
          COMMIT;
 
       --topomap must be updated to key off of node$
-      --Doesnt load topomap, uses implicit
-      GZ_UTILITIES.REMOVE_ISOLATED_NODES(p_topo);
+      --Loads lots of small explicit topomaps
+      GZ_TOPO_UTIL.REMOVE_ISOLATED_NODES_CACHE(p_topo);
 
 
       RETURN '0';
@@ -2414,7 +2414,7 @@ AS
       THEN
 
          --entire topology topomap, can be expensive unless empty (empty for for clip)
-         ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,toponame,2);
+         ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,toponame,2);
 
       ELSE
 
@@ -2427,7 +2427,7 @@ AS
 
          END IF;
 
-         ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,
+         ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,
                                                         toponame,
                                                         2,
                                                         p_topomap_mbr.sdo_ordinates(1),
@@ -2457,7 +2457,7 @@ AS
 
       END IF;
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                          featuretable,'Opening cursor to call add_linear_geometry ' ,
                                          NULL,NULL,NULL,psql);
 
@@ -2489,7 +2489,7 @@ AS
                WHEN OTHERS
                THEN
 
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                                      featuretable,'ADD_LINEAR_GEOMETRY error message--> ' ,
                                                      NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -2516,7 +2516,7 @@ AS
 
                      END IF;
 
-                     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+                     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                          featuretable,'NULLing out any ' || featuretable_id || 's we updated in ' || featuretable,
                                          NULL,NULL,NULL,psql);
 
@@ -2524,7 +2524,7 @@ AS
                      COMMIT;
 
 
-                     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+                     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                                      featuretable,
                                                      'Memory error, gonna call the magick java_memory_manager ',
                                                      NULL,NULL,NULL,NULL,NULL,NULL);
@@ -2538,7 +2538,7 @@ AS
 
                         --this is just a placeholder, not expecting it to work at present
 
-                        GZ_UTILITIES.JAVA_MEMORY_MANAGER(featuretable,
+                        GZ_BUSINESS_UTILS.JAVA_MEMORY_MANAGER(featuretable,
                                                          'SDOGEOMETRY',
                                                          SQLERRM);  --<-- handle it wizard!
 
@@ -2546,7 +2546,7 @@ AS
                      WHEN OTHERS
                      THEN
 
-                        GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+                        GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                                      featuretable,'JAVA_MEMORY_MANAGER failed to clean house--> ' ,
                                                      NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -2588,7 +2588,7 @@ AS
                                                   'edges for ' || featuretable || ' ' || featuretable_pkc || ': ' || topotab(i).id);
 
 
-                   GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+                   GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                                       featuretable,'Got ' || stupid_number_array.COUNT || ' ' ||
                                                       'edges for ' || featuretable || ' ' || featuretable_pkc || ': ' || topotab(i).id ,
                                                       NULL,NULL,NULL,NULL);
@@ -2635,7 +2635,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                          featuretable,'Commit and drop topo map ',
                                          NULL,NULL,NULL,NULL);
 
@@ -2676,7 +2676,7 @@ AS
       IF kount != 0
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                          featuretable,'Yo, ' || kount || ' edges in ' || featuretable || ' have no matching edge in edge$ ',
                                          NULL,NULL,NULL,psql);
 
@@ -2691,7 +2691,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-       GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
+       GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_LINES_FROM_SPATIAL',
                                          featuretable,'Done ',
                                          NULL,NULL,NULL,psql);
 
@@ -2699,6 +2699,506 @@ AS
 
 
    END ADD_LINES_FROM_SPATIAL;
+
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public for debug-----------------------------------------------------------------------
+
+   PROCEDURE CONNECT_DANGLE_TO_NN_NODE (
+      p_topo               IN VARCHAR2,
+      p_source_table       IN VARCHAR2,
+      p_source_pkc         IN VARCHAR2,
+      p_source_value       IN NUMBER,
+      p_tolerance          IN NUMBER,
+      p_how_desperate      IN NUMBER DEFAULT 10   --will jump 10 meters
+   )
+   AS
+
+      --M@! 8/28/13
+      --Conditional compiler flags used so that if, god forbid, any of this code
+      --is still operational in 12 someone has to see the same buggy behavior happening
+      --and come back in here and agree to turn this mess back on
+      --dont do it. Heaven is high and the emperor is far away
+
+      --Increasing levels of desperation to work around combinations of
+      --"attempt to add an iso node that lies..." and also
+      --"attempt to add an edge that ends in different faces"
+      --In this case if all else has failed attempt to manually
+      --connect a dangle to the nearest node on the state outline
+
+      psql                 VARCHAR2(4000);
+      uf_psql              VARCHAR2(4000);
+      dangle_geom          SDO_GEOMETRY;
+      start_pt             SDO_GEOMETRY;
+      end_pt               SDO_GEOMETRY;
+      start_node_id        NUMBER;
+      end_node_id          NUMBER;
+      start_dist           NUMBER;
+      end_dist             NUMBER;
+      start_node_geom      SDO_GEOMETRY;
+      end_node_geom        SDO_GEOMETRY;
+
+   BEGIN
+
+      $IF dbms_db_version.ver_le_11_2
+      $then
+
+         psql := 'SELECT a.sdogeometry FROM '
+              || p_source_table || ' a '
+              || 'WHERE a.' || p_source_pkc || ' = :p1 ';
+
+         EXECUTE IMMEDIATE psql INTO dangle_geom USING p_source_value;
+
+         --1. From both ends of the dangle, find which is closest to a universal node
+         --   Hard coded distance of 10m is as far as I want to stretch right now
+         --   The case this is attempting to work around in ~9m away
+
+         --start
+         start_pt := SDO_GEOMETRY
+                  (  2001,
+                     dangle_geom.sdo_srid,
+                     SDO_POINT_TYPE
+                     (
+                        dangle_geom.sdo_ordinates(1),
+                        dangle_geom.sdo_ordinates(2),
+                        NULL
+                     ),
+                     NULL,
+                     NULL
+                  );
+
+         --other end
+         end_pt := start_pt;
+         end_pt.SDO_POINT.X := dangle_geom.sdo_ordinates(dangle_geom.sdo_ordinates.COUNT - 1);
+         end_pt.SDO_POINT.Y := dangle_geom.sdo_ordinates(dangle_geom.sdo_ordinates.COUNT);
+
+         uf_psql := 'SELECT node_id, geom, dist FROM ('
+                 || 'SELECT /*+ FIRST_ROWS */ n.node_id, n.geometry geom, sdo_nn_distance(1) dist '
+                 || 'FROM ' || p_topo || '_node$ n '
+                 || 'WHERE '
+                 || 'SDO_NN(n.geometry, :p1, ''sdo_batch_size=2 dist=' || p_how_desperate || ''', 1) = :p4 '
+                 || 'ORDER BY DIST '
+                 || ') WHERE rownum = 1 ';
+
+
+         BEGIN
+
+            EXECUTE IMMEDIATE uf_psql INTO start_node_id,
+                                           start_node_geom,
+                                           start_dist USING start_pt,
+                                                            'TRUE';
+
+         EXCEPTION
+         WHEN NO_DATA_FOUND
+         THEN
+
+            start_node_id := NULL;
+
+         WHEN OTHERS
+         THEN
+
+            RAISE;
+
+         END;
+
+         IF start_node_id IS NOT NULL
+         AND (start_dist > p_how_desperate  --just in case sdo_nn wack
+         OR NOT GZ_TOPOFIX.IS_NODE_UNIVERSAL(p_topo, start_node_id))
+         THEN
+
+            start_node_id := NULL;
+
+         END IF;
+
+         BEGIN
+
+            EXECUTE IMMEDIATE uf_psql INTO end_node_id,
+                                           end_node_geom,
+                                           end_dist USING end_pt,
+                                                          'TRUE';
+
+         EXCEPTION
+         WHEN NO_DATA_FOUND
+         THEN
+
+            end_node_id := NULL;
+
+         WHEN OTHERS
+         THEN
+
+            RAISE;
+
+         END;
+
+         IF end_node_id IS NOT NULL
+         AND (end_dist > p_how_desperate  --just in case sdo_nn wack
+         OR NOT GZ_TOPOFIX.IS_NODE_UNIVERSAL(p_topo, end_node_id))
+         THEN
+
+            end_node_id := NULL;
+
+         END IF;
+
+         IF start_node_id IS NULL
+         AND end_node_id IS NULL
+         THEN
+
+            RAISE_APPLICATION_ERROR(-20001, 'Investigate, cant find a close UF node');
+
+         ELSIF start_node_id IS NOT NULL
+         AND end_node_id IS NOT NULL
+         THEN
+
+            RAISE_APPLICATION_ERROR(-20001,'Investigate, this BS workaround expects edges that have just one end near a line of latitude on the UF');
+
+         ELSIF start_node_id IS NOT NULL
+         THEN
+
+            --replace start with exact node
+            dangle_geom.sdo_ordinates(1) := start_node_geom.sdo_point.X;
+            dangle_geom.sdo_ordinates(2) := start_node_geom.sdo_point.Y;
+
+         ELSE
+
+            dangle_geom.sdo_ordinates(dangle_geom.sdo_ordinates.COUNT - 1) := end_node_geom.sdo_point.X;
+            dangle_geom.sdo_ordinates(dangle_geom.sdo_ordinates.COUNT)     := end_node_geom.sdo_point.Y;
+
+         END IF;
+
+         --dbms_output.put_line(gz_geom_utils.dump_sdo(dangle_geom));
+
+         psql := 'UPDATE ' || p_source_table || ' a '
+              || 'SET a.sdogeometry = :p1 '
+              || 'WHERE a.' || p_source_pkc || ' = :p2 ';
+
+         EXECUTE IMMEDIATE psql USING dangle_geom,
+                                      p_source_value;
+
+         COMMIT;
+
+         --caller retries the edge add
+
+      $else
+
+         --version 12 and later
+         RAISE_APPLICATION_ERROR(-20001, 'Connect_dangle_to_nn_node is intended to work around bugs in 11.2.04 only');
+
+      $end
+
+
+   END CONNECT_DANGLE_TO_NN_NODE;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public for debug-----------------------------------------------------------------------
+
+   PROCEDURE ADD_NODES_AROUND_DANGLE(
+      p_topo               IN VARCHAR2,
+      p_source_table       IN VARCHAR2,
+      p_source_pkc         IN VARCHAR2,
+      p_source_value       IN NUMBER,
+      p_tolerance          IN NUMBER
+   )
+   AS
+
+      --M@! 8/8/13
+      --Basically a hard coded workaround for an add_linear_geometry interior edge
+      --that throws:
+      --"Attempted to add an iso node that lies on an existing edge or node"
+      --This is the only workaround that I could come up with, after ~10 workarounds failed
+      --I'm embrassed to be associated with this, hopefully no one ever looks at it, including me, after 8/8/13
+
+      --Conditional compiler flags used so that if, god forbid, any of this code
+      --is still operational in 12 someone has to see the same buggy behavior unfixed
+      --and come back in here and agree to turn this mess back on
+
+      --1. From both ends of the dangle, find which is closest to a universal edge
+      --2. Verify that that distance is tiny.  If big bail out, dont want this called on anything untested
+      --3. Use null geom srids and project from the dangle to the UF edge
+      --4. Determine the coord index of that location
+      --5. Turn a vtx into a node at the start of that segment
+      --6. Commit topomap
+      --7. Determine the new closest edge id and coord index
+      --8. Should be 0 or last.  If 0, convert node to vtx at coord index 1. If last at ordkount/2-1
+
+      psql                 VARCHAR2(4000);
+      uf_psql              VARCHAR2(4000);
+      dangle_geom          SDO_GEOMETRY;
+      edge_geom            SDO_GEOMETRY;
+      coord_index          NUMBER;
+      start_pt             SDO_GEOMETRY;
+      start_edge_id        NUMBER;
+      start_dist           NUMBER;
+      end_pt               SDO_GEOMETRY;
+      end_edge_id          NUMBER;
+      end_dist             NUMBER;
+      the_uf_edge_id       NUMBER;
+      the_uf_edge_geom     SDO_GEOMETRY;
+      the_uf_edge_mbr      SDO_GEOMETRY;
+      the_dangle_pt        SDO_GEOMETRY;
+      tolerance            NUMBER;
+      project_pt_geom      SDO_GEOMETRY;
+      start_seg_pt         SDO_GEOMETRY;
+      end_seg_pt           SDO_GEOMETRY;
+      create_it            NUMBER;
+      new_node_id          NUMBER;
+      final_uf_edge_id     NUMBER;
+
+   BEGIN
+
+      $IF dbms_db_version.ver_le_11_2
+      $then
+
+         psql := 'SELECT a.sdogeometry FROM '
+              || p_source_table || ' a '
+              || 'WHERE a.' || p_source_pkc || ' = :p1 ';
+
+         EXECUTE IMMEDIATE psql INTO dangle_geom USING p_source_value;
+
+         --1. From both ends of the dangle, find which is closest to a universal edge
+
+         --start
+         start_pt := SDO_GEOMETRY
+                  (  2001,
+                     dangle_geom.sdo_srid,
+                     SDO_POINT_TYPE
+                     (
+                        dangle_geom.sdo_ordinates(1),
+                        dangle_geom.sdo_ordinates(2),
+                        NULL
+                     ),
+                     NULL,
+                     NULL
+                  );
+
+         --other end
+         end_pt := start_pt;
+         end_pt.SDO_POINT.X := dangle_geom.sdo_ordinates(dangle_geom.sdo_ordinates.COUNT - 1);
+         end_pt.SDO_POINT.Y := dangle_geom.sdo_ordinates(dangle_geom.sdo_ordinates.COUNT);
+
+         uf_psql := 'SELECT edge_id, dist FROM ('
+                 || 'SELECT /*+ FIRST_ROWS */ e.edge_id, sdo_nn_distance(1) dist '
+                 || 'FROM ' || p_topo || '_edge$ e '
+                 || 'WHERE (e.left_face_id = :p1 OR e.right_face_id = :p2) AND '
+                 || 'SDO_NN(e.geometry, :p3, ''sdo_batch_size=2 dist=100'', 1) = :p4 '
+                 || 'ORDER BY DIST '
+                 || ') WHERE rownum = 1 ';
+
+         --dbms_output.put_line(gz_geom_utils.dump_sdo(start_pt));
+         --dbms_output.put_line(uf_psql);
+
+         BEGIN
+
+            EXECUTE IMMEDIATE uf_psql INTO start_edge_id,
+                                           start_dist USING -1, -1,
+                                                            start_pt,
+                                                            'TRUE';
+
+         EXCEPTION
+         WHEN NO_DATA_FOUND
+         THEN
+
+            start_edge_id := NULL;
+            start_dist    := 999999999999999999;
+
+         WHEN OTHERS
+         THEN
+
+            RAISE;
+
+         END;
+
+         --dbms_output.put_line(gz_geom_utils.dump_sdo(end_pt));
+         --dbms_output.put_line(uf_psql);
+
+         BEGIN
+
+            EXECUTE IMMEDIATE uf_psql INTO end_edge_id,
+                                           end_dist USING -1, -1,
+                                                          end_pt,
+                                                          'TRUE';
+
+         EXCEPTION
+         WHEN NO_DATA_FOUND
+         THEN
+
+            end_edge_id := NULL;
+            end_dist    := 999999999999999999;
+
+         WHEN OTHERS
+         THEN
+
+            RAISE;
+
+         END;
+
+
+
+         IF start_edge_id IS NULL
+         AND end_edge_id IS NULL
+         THEN
+
+            RAISE_APPLICATION_ERROR(-20001, 'Investigate, cant find a close edge');
+
+         ELSIF start_dist > 10
+         AND end_dist > 10
+         THEN
+
+            RAISE_APPLICATION_ERROR(-20001,'Investigate, this workaround is expected for edges that throw errors because they touch lines of latitude');
+
+         ELSIF start_dist < end_dist
+         THEN
+
+            the_dangle_pt := start_pt;
+            the_uf_edge_id   := start_edge_id;
+
+         ELSE
+
+            the_dangle_pt  := end_pt;
+            the_uf_edge_id := end_edge_id;
+
+         END IF;
+
+         psql := 'SELECT e.geometry, sdo_geom.sdo_mbr(e.geometry) FROM '
+              || p_topo || '_edge$ e '
+              || 'WHERE e.edge_id = :p1 ';
+
+         EXECUTE IMMEDIATE psql INTO the_uf_edge_geom,
+                                     the_uf_edge_mbr USING the_uf_edge_id;
+
+         --3. Use null geom srids and project from the dangle to the UF edge
+
+         tolerance := GZ_CLIP.TOLERANCE_CONVERTER(p_tolerance,
+                                                  TO_CHAR(the_uf_edge_geom.sdo_srid),
+                                                  'NULL');
+
+         the_uf_edge_geom.sdo_srid := NULL;
+         the_dangle_pt.sdo_srid := NULL;
+
+         project_pt_geom := GZ_CLIP.GZ_PROJECT_PT(the_dangle_pt, the_uf_edge_geom, tolerance);
+
+         coord_index := GZ_CLIP.ACCURATE_FIND_COORD_INDEX(project_pt_geom,the_uf_edge_geom);
+
+         the_uf_edge_geom.sdo_srid := dangle_geom.sdo_srid;
+
+         --5. Turn a vtx into a node at the start of that segment
+         --   save the other point while we've got it
+
+         start_seg_pt := SDO_GEOMETRY
+                        (  2001,
+                           dangle_geom.sdo_srid,
+                           SDO_POINT_TYPE
+                           (
+                              the_uf_edge_geom.sdo_ordinates((coord_index + 1) * 2 - 1),
+                              the_uf_edge_geom.sdo_ordinates((coord_index + 1) * 2),
+                              NULL
+                           ),
+                           NULL,
+                           NULL
+                        );
+
+         end_seg_pt := SDO_GEOMETRY
+                        (  2001,
+                           dangle_geom.sdo_srid,
+                           SDO_POINT_TYPE
+                           (
+                              the_uf_edge_geom.sdo_ordinates((coord_index + 2) * 2 - 1),
+                              the_uf_edge_geom.sdo_ordinates((coord_index + 2) * 2),
+                              NULL
+                           ),
+                           NULL,
+                           NULL
+                        );
+
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
+                                                      p_topo,
+                                                      2,
+                                                      the_uf_edge_mbr.sdo_ordinates(1),
+                                                      the_uf_edge_mbr.sdo_ordinates(2),
+                                                      the_uf_edge_mbr.sdo_ordinates(3),
+                                                      the_uf_edge_mbr.sdo_ordinates(4));
+
+         new_node_id := SDO_TOPO_MAP.ADD_NODE(NULL,
+                                              the_uf_edge_id, --edge id
+                                              start_seg_pt,
+                                              coord_index,
+                                              'N'); --not new shape point
+
+         --6. Commit topomap
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+
+         --7. Determine the new closest edge id and coord index
+
+         the_dangle_pt.sdo_srid := dangle_geom.sdo_srid;
+
+         EXECUTE IMMEDIATE uf_psql INTO final_uf_edge_id,
+                                        start_dist USING -1, -1,
+                                                         the_dangle_pt,
+                                                         'TRUE';
+
+         psql := 'SELECT e.geometry, sdo_geom.sdo_mbr(e.geometry) FROM '
+              || p_topo || '_edge$ e '
+              || 'WHERE e.edge_id = :p1 ';
+
+         EXECUTE IMMEDIATE psql INTO the_uf_edge_geom,
+                                     the_uf_edge_mbr USING final_uf_edge_id;
+
+         --AGAIN Use null geom srids and project from the dangle to the UF edge
+
+         the_uf_edge_geom.sdo_srid := NULL;
+         the_dangle_pt.sdo_srid := NULL;
+
+         project_pt_geom := GZ_CLIP.GZ_PROJECT_PT(the_dangle_pt, the_uf_edge_geom, tolerance);
+
+         coord_index := GZ_CLIP.ACCURATE_FIND_COORD_INDEX(project_pt_geom,the_uf_edge_geom);
+
+         --8. Should be 0 or last.  If 0, convert node to vtx at coord index 1. If last at ordkount/2-1
+
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
+                                                      p_topo,
+                                                      2,
+                                                      the_uf_edge_mbr.sdo_ordinates(1),
+                                                      the_uf_edge_mbr.sdo_ordinates(2),
+                                                      the_uf_edge_mbr.sdo_ordinates(3),
+                                                      the_uf_edge_mbr.sdo_ordinates(4));
+
+         IF coord_index = 0
+         THEN
+
+            new_node_id := SDO_TOPO_MAP.ADD_NODE(NULL,
+                                                 final_uf_edge_id, --edge id
+                                                 end_seg_pt,
+                                                 coord_index + 1,
+                                                 'N'); --not new shape point
+
+         ELSIF ((coord_index + 2) * 2) = the_uf_edge_geom.sdo_ordinates.COUNT
+         THEN
+
+            new_node_id := SDO_TOPO_MAP.ADD_NODE(NULL,
+                                                 final_uf_edge_id, --edge id
+                                                 end_seg_pt,
+                                                 (the_uf_edge_geom.sdo_ordinates.COUNT/2 - 1),
+                                                 'N'); --not new shape point
+
+         ELSE
+
+            RAISE_APPLICATION_ERROR(-20001, 'The only solution is Happy Hour');
+
+         END IF;
+
+
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+
+      $else
+
+         --Oracle 12
+         RAISE_APPLICATION_ERROR(-20001,'Add_nodes_around_dangle is intended to work around bugs in 11.2.0.4 only');
+
+      $end
+
+
+   END ADD_NODES_AROUND_DANGLE;
 
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -2723,31 +3223,33 @@ AS
       --Added state based steps 10/28/10
 
 
-      psql           VARCHAR2(4000);
-      psql2          VARCHAR2(4000);
-      clip_parms     GZ_TYPES.GEN_CLIP_JOBRUNS_REC;
-      output         VARCHAR2(4000) := '0';
-      start_time     TIMESTAMP;
-      newedgetable   VARCHAR2(32);
-      newtopo        VARCHAR2(32);
-      srid           NUMBER;
-      layerkount     PLS_INTEGER;
-      retval         VARCHAR2(1);
-      newcliptable   VARCHAR2(32);
-      shared_edges   GZ_TYPES.stringarray;
-      kount          PLS_INTEGER;
+      psql              VARCHAR2(4000);
+      psql2             VARCHAR2(4000);
+      clip_parms        GZ_TYPES.GEN_CLIP_JOBRUNS_REC;
+      output            VARCHAR2(4000) := '0';
+      start_time        TIMESTAMP;
+      newedgetable      VARCHAR2(32);
+      newtopo           VARCHAR2(32);
+      srid              NUMBER;
+      layerkount        PLS_INTEGER;
+      retval            VARCHAR2(1);
+      newcliptable      VARCHAR2(32);
+      shared_edges      GZ_TYPES.stringarray;
+      kount             PLS_INTEGER;
+      single_edges      GZ_TYPES.numberarray;
+      edge_mbrs         GZ_TYPES.geomarray;
 
    BEGIN
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',NULL,'STARTING ' || p_mask);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',NULL,'STARTING ' || p_mask);
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
       --set up basic names
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
 
       newcliptable := p_project_id || p_jobid || '_' || clip_parms.gen_clip_table;
@@ -2763,16 +3265,16 @@ AS
       ----------------------------------------------------------------------------------
 
       --First find out if job SRID matches input SRID
-      
-      srid := GZ_UTILITIES.GET_SDO_TOPO_METADATA_NUM(clip_parms.gen_topology_name,
+
+      srid := GZ_TOPO_UTIL.GET_SDO_TOPO_METADATA_NUM(clip_parms.gen_topology_name,
                                                      clip_parms.face_input_table,   --face is the only one we know exists
                                                      'srid');
 
      -- I think this is correct
      -- Create with both geometry and empty topo
      -- Topo gets populated in a bit
-     
-     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,'STARTING: Create table ' || newedgetable);
+
+     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,'STARTING: Create table ' || newedgetable);
 
       psql := 'CREATE TABLE ' || newedgetable || ' NOPARALLEL NOLOGGING '
            || 'AS '
@@ -2829,7 +3331,7 @@ AS
 
            --No bind vars allowed in DDL
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,'Create ' || newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,'Create ' || newedgetable,
                                           NULL,NULL,NULL,psql);
 
       --private procedure
@@ -2869,11 +3371,11 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                          'Spatially index ' || newedgetable,NULL,NULL,NULL,psql);
 
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(newedgetable,
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(newedgetable,
                                      'SDOGEOMETRY',
                                      clip_parms.gen_clip_job_srid,
                                      clip_parms.gen_clip_tolerance);
@@ -2890,33 +3392,8 @@ AS
       AND p_add_linear IS NULL  --never
       THEN
 
-         --THIS section is defunct
+         --THIS section is defunct, used create feature
          RAISE_APPLICATION_ERROR(-20001,'Bridge out ahead');
-
-         --old slow method, use create feature on each edge
-
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
-                                          'STARTING: Create topogeom via build_topo_from_spatial for ' || newedgetable);
-
-         --This is a national topology, we are going to build topo for our new sdogeometry
-         --   using create_feature
-
-         --Code here moved to GZ_Utilities build_topo_from_spatial
-         GZ_UTILITIES.BUILD_TOPO_FROM_SPATIAL(newtopo,
-                                              newedgetable,
-                                              'LINE',
-                                              'EDGE_ID',
-                                              'YES',
-                                              clip_parms.gen_clip_tolerance,
-                                              'YES',
-                                              'TOPOGEOM',
-                                              'SDOGEOMETRY',
-                                              'OID');
-
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
-                                          'COMPLETE: Create topogeom via build_topo_from_spatial for ' || newedgetable);
-         --no need to remove exterior (aka state boundary) edges, the table creation SQL
-         --only got interiors in this national path
 
       ELSIF p_topo IS NULL   --topo would be populated with state input topology
       AND p_add_linear = 'Y'
@@ -2925,44 +3402,191 @@ AS
          --THIS IS SOP, 2012 going forward I hope
          --Use add_linear_geometry
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
-                                            'STARTING: Calling add_topo_from_spatial for ' || newedgetable);
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+                                                 'STARTING: Calling add_topo_from_spatial for ' || newedgetable);
 
-
-         --call the java memory manager
-         --should call set_max_memory_size for the biggies
-         --I dont trust this, too inconsistent
-         --GZ_UTILITIES.JAVA_MEMORY_MANAGER(newedgetable);
-
-         --And I think I realize that theres no harm here, except for memory leaks which weve never seen
+         --Exadata, b*tches
          SDO_TOPO_MAP.SET_MAX_MEMORY_SIZE(2147483648);
 
-         --Call the all purposed wrapper
+         --Call the all purpose wrapper
          --will add geometries to the topo, register the table, and use constructors
          --Im not sure why this doesnt run out of java memory sometimes
 
          --if this throws memory errors consider either tiles, or
          -- an error handler with a dumb edge by edge "subset" loop. Would be slow for the unlucky ones
-         GZ_UTILITIES.ADD_TOPO_FROM_SPATIAL(newtopo,
-                                            newedgetable,
-                                            'EDGE_ID',
-                                            'LINE',
-                                            'CLIP',      --generic logger
-                                            'SDOGEOMETRY',
-                                            NULL,         --no subset
-                                            NULL,
-                                            'Y',          --yes allow splits. Mad intersects with state outline, went in first
-                                            'Y');         --yes new layer
+
+         BEGIN
+
+            GZ_TOPO_UTIL.ADD_TOPO_FROM_SPATIAL(newtopo,
+                                               newedgetable,
+                                               'EDGE_ID',
+                                               'LINE',
+                                               'CLIP',      --generic logger
+                                               'SDOGEOMETRY',
+                                               NULL,         --no subset
+                                               NULL,
+                                               'Y',          --yes allow splits. Mad intersects with state outline, went in first
+                                               'Y');         --yes new layer
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            IF SQLERRM LIKE '%SINGLE RECORD MODE%'
+            THEN
+
+               --there was an error hosing the topo map.  Its not recoverable
+               --usually this happens due to Oracle bugs preventing the interior lines
+               --from snapping correctly to lines of latitude
+               --process line by line to allow for slow but nimble response
+
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+                                                       'Going into single record mode add_topo_from_spatial for ' || newedgetable);
+
+               --add_topo_from_spatial subset mode assumes this is done
+               SDO_TOPO.ADD_TOPO_GEOMETRY_LAYER(newtopo,newedgetable,'TOPOGEOM','LINE');
+               SDO_TOPO.INITIALIZE_METADATA(newtopo);
+
+               psql := 'SELECT edge_id, sdo_geom.sdo_mbr(sdogeometry) FROM ' || newedgetable;
+
+               --hopefully not hundreds of thousands, and mbrs better than sdo
+               EXECUTE IMMEDIATE psql BULK COLLECT INTO single_edges,
+                                                        edge_mbrs;
+
+               FOR i IN 1 .. single_edges.COUNT
+               LOOP
+
+                  --this will make for very verbose logging out of add_topo_from_spatial
+                  --should be pretty noticeable
+                  --also slow
+
+                  BEGIN
+
+                     GZ_TOPO_UTIL.ADD_TOPO_FROM_SPATIAL(newtopo,
+                                                        newedgetable,
+                                                        'EDGE_ID',
+                                                        'LINE',
+                                                        'CLIP',            --generic logger
+                                                        'SDOGEOMETRY',
+                                                        'EDGE_ID',         --primary key
+                                                        single_edges(i),   --single edge
+                                                        'Y',               --yes allow splits. Mad intersects with state outline, went in first
+                                                        'N',               --not a new layer, added above
+                                                         edge_mbrs(i));
+
+                  EXCEPTION
+                  WHEN OTHERS
+                  THEN
+
+                     IF SQLERRM LIKE '%SINGLE RECORD MODE%'  --attempt to add iso node
+                     THEN
+
+                        GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+                                                                'On ' || single_edges(i) || ' calling ADD_NODES_AROUND_DANGLE, '
+                                                                || 'same error in single record mode add_topo_from_spatial for ' || newedgetable);
+
+                        --expect to catch the same error in single edge mode. It like to got dealt with
+
+                        --workaround number 1.  Convert vertices to nodes on the universal that are near this dangle
+                        --this is harmless
+                        GZ_CLIP.ADD_NODES_AROUND_DANGLE(newtopo,
+                                                        newedgetable,
+                                                        'EDGE_ID',
+                                                        single_edges(i),
+                                                        clip_parms.gen_clip_tolerance);
+
+                         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+                                                                 'Trying edge ' || single_edges(i) || ' again ');
+
+                        BEGIN
+
+                           GZ_TOPO_UTIL.ADD_TOPO_FROM_SPATIAL(newtopo,
+                                                              newedgetable,
+                                                              'EDGE_ID',
+                                                              'LINE',
+                                                              'CLIP',            --generic logger
+                                                              'SDOGEOMETRY',
+                                                              'EDGE_ID',         --primary key
+                                                              single_edges(i),   --single edge
+                                                              'Y',               --yes allow splits. Mad intersects with state outline, went in first
+                                                              'N',               --not a new layer, added above
+                                                               edge_mbrs(i));
+
+                        EXCEPTION
+                        WHEN OTHERS
+                        THEN
+
+                           --It's turtles all the way down!
+                           IF SQLERRM LIKE '%SINGLE RECORD MODE%'
+                           OR SQLERRM LIKE '%add an edge that ends in different faces%'
+                           THEN
+
+                              --converting vtxs to nodes near the dangle didnt work
+                              --next awful plan is to manually switch out the final coordinate pair
+                              --in the dangle with the close node.  10 meters is the limit for stretching
+                              --This is of course a terrible and potentially harmful idea, but slightly better
+                              --than stopping production and editing vertices by hand
+
+                              GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+                                                                      'On ' || single_edges(i) || ' got error ' || SQLERRM || ', '
+                                                                      || 'Calling connect_dangle_to_nn_node ');
+
+                              GZ_CLIP.CONNECT_DANGLE_TO_NN_NODE(newtopo,
+                                                                newedgetable,
+                                                                'EDGE_ID',
+                                                                single_edges(i),
+                                                                clip_parms.gen_clip_tolerance,
+                                                                10); --willing to connect 10 meters away
+
+                              GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+                                                                      'Trying edge ' || single_edges(i) || ' again ');
+
+                              --one more time!  No handler
+                              GZ_TOPO_UTIL.ADD_TOPO_FROM_SPATIAL(newtopo,
+                                                              newedgetable,
+                                                              'EDGE_ID',
+                                                              'LINE',
+                                                              'CLIP',            --generic logger
+                                                              'SDOGEOMETRY',
+                                                              'EDGE_ID',         --primary key
+                                                              single_edges(i),   --single edge
+                                                              'Y',               --yes allow splits. Mad intersects with state outline, went in first
+                                                              'N',               --not a new layer, added above
+                                                               edge_mbrs(i));
+
+                           ELSE
+
+                              RAISE_APPLICATION_ERROR(-20001,SQLERRM || Chr(10) || DBMS_UTILITY.format_error_backtrace);
+
+                           END IF;
+
+                        END;
+
+                     ELSE
+
+                        RAISE_APPLICATION_ERROR(-20001,SQLERRM || Chr(10) || DBMS_UTILITY.format_error_backtrace);
+
+                     END IF;
 
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+                  END;
+
+               END LOOP;
+
+            ELSE
+
+               RAISE_APPLICATION_ERROR(-20001,SQLERRM || Chr(10) || DBMS_UTILITY.format_error_backtrace);
+
+            END IF;
+
+         END;
+
+
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                             'COMPLETE: Called ADD_TOPO_FROM_SPATIAL for ' || newedgetable);
 
 
-         --?????????Why does everything run fine if I leave this out?
          SDO_TOPO.INITIALIZE_METADATA(newtopo);
-
-         --no need to remove exterior, universal face facing edges
 
 
       ELSE
@@ -2975,7 +3599,7 @@ AS
          --we will use topology constructors to associate feature edges with their edge$ counterparts
 
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                           'STARTING: Calling BUILD_TOPO_FROM_TOPO constructorfest for ' || newedgetable);
 
          --This call will add the new edge table to the topology (first one we want)
@@ -2990,7 +3614,7 @@ AS
                                                 'EDGE_ID',    --copy means edge id = edge id
                                                 2);
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                             'COMPETE: Called BUILD_TOPO_FROM_TOPO constructorfest for ' || newedgetable);
 
          --this is where we delete exterior, universal face facing edges
@@ -2998,7 +3622,7 @@ AS
          --Do not need them
          --Also do not want them to interfere with state outline
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                             'Starting: Calling remove_exterior_edges for ' || newedgetable);
 
          retval := GZ_CLIP.REMOVE_EXTERIOR_EDGES(p_schema,
@@ -3006,7 +3630,7 @@ AS
                                                  p_jobid,
                                                  newtopo);
 
-          GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+          GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                              'Complete: Called remove_exterior_edges for ' || newedgetable);
          --We also need to remove all feature edges that touch the state outline
          --If they are entrenched in the topo the state outline shifts around, we need it to be exact
@@ -3024,10 +3648,10 @@ AS
       --we probably also did this in the previous module, add_clip_mask, but what the what
       --GZ_UTILITIES.GATHER_TABLE_STATS(newtopo || '_RELATION$');
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                          'Calling GZ_TOPO_TUNE_UP on ' || newtopo);
 
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(newtopo);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(newtopo);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3058,7 +3682,7 @@ AS
            || '   ) ';                                --But just in case
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES ' || p_mask,newcliptable,'Find shared edges ',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES ' || p_mask,newcliptable,'Find shared edges ',
                                           NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql BULK COLLECT INTO shared_edges;
@@ -3067,7 +3691,7 @@ AS
       LOOP
 
          --lets log these in case we need them
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES ' || p_mask,newcliptable ,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES ' || p_mask,newcliptable ,
                                              'WARNING: Found this edge shared by ' || newcliptable
                                               || ' and ' ||  newedgetable || ': ' || shared_edges(i));
 
@@ -3091,7 +3715,7 @@ AS
       IF kount > 0
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES ' || p_mask,newcliptable ,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES ' || p_mask,newcliptable ,
                                           'WARNING: Found ' || kount || ' edges in ' || newedgetable ||
                                           ' with reversed direction ');
       END IF;
@@ -3104,7 +3728,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',newedgetable,
                                          'Complete ADD_INTERIOR_LINES for ' || newtopo);
 
       --Not really sure what errors to be trapping and returning...?
@@ -3168,12 +3792,12 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',NULL,'STARTING ' || p_mask);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',NULL,'STARTING ' || p_mask);
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
       newcliptable := p_project_id || p_jobid || '_' || clip_parms.gen_clip_table; --our task at hand
 
@@ -3225,7 +3849,7 @@ AS
       ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,'STARTING: Create table ' || newcliptable);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,'STARTING: Create table ' || newcliptable);
 
 
 
@@ -3314,7 +3938,7 @@ AS
 
            --No bind vars allowed in DDL
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,'SQL to create table ' || newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,'SQL to create table ' || newcliptable,
                                           NULL,NULL,NULL,psql);
 
       --private procedure
@@ -3331,7 +3955,7 @@ AS
       psql := 'SELECT COUNT(*) '
            || 'FROM '
            || newcliptable || ' a '
-           || 'WHERE GZ_UTILITIES.validate_lines_with_context(a.sdogeometry, :p1) != :p2 ';
+           || 'WHERE GZ_GEOM_UTILS.validate_lines_with_context(a.sdogeometry, :p1) != :p2 ';
 
       EXECUTE IMMEDIATE psql INTO kount USING clip_parms.gen_clip_tolerance,
                                               'TRUE';
@@ -3339,7 +3963,7 @@ AS
       IF kount > 0
       THEN
 
-          GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
+          GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                              'Error: validation problem with ' || newcliptable,
                                              NULL,NULL,NULL,psql);
 
@@ -3347,7 +3971,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                             'Great, ' || newcliptable || ' sdogeometry validates ',
                                             NULL,NULL,NULL,psql);
 
@@ -3361,18 +3985,18 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                             'Spatially indexing  ' || newcliptable,
                                              NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(newcliptable,
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(newcliptable,
                                      'SDOGEOMETRY',
                                      clip_parms.gen_clip_job_srid,
                                      clip_parms.gen_clip_tolerance);
 
       --not used AND ALSO was overwriting the sdogeometry spatial index
       --Do not resurrect without good reason
-      --GZ_UTILITIES.ADD_SPATIAL_INDEX(newcliptable,
+      --GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(newcliptable,
                                      --'BUF_SDOGEOMETRY',
                                      --clip_parms.gen_clip_job_srid,
                                      --clip_parms.gen_clip_tolerance);
@@ -3397,7 +4021,7 @@ AS
       --   This is what's different about the _interior touchers_ we do ultimately want them
 
       /*
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                         'STARTING: Remove touchy edges from ' || newedgetable);
 
 
@@ -3423,13 +4047,13 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                          'STARTING: ADD_TOPO_FROM_SPATIAL on ' || newcliptable);
 
 
       --generic add_linear_geometry + constructors call
 
-      GZ_UTILITIES.ADD_TOPO_FROM_SPATIAL(newtopo,
+      GZ_TOPO_UTIL.ADD_TOPO_FROM_SPATIAL(newtopo,
                                          newcliptable,
                                          'ID',
                                          'LINE',
@@ -3450,15 +4074,15 @@ AS
 
       --Check that everything is closed loops of edges and nodes, no gaps or three-way intersections
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                          'STARTING: Closed loop check on topo of ' || newcliptable);
 
 
       --NOTE that this step can be extremely slow for an occasional call
       --Should look into this
-      loopcheck := GZ_UTILITIES.CLOSED_LOOPS(newcliptable,newtopo);
+      loopcheck := GZ_TOPO_UTIL.CLOSED_LOOPS(newcliptable,newtopo);
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id  || p_jobid,'ADD_CLIP_MASK',newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id  || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                           'FINISHED: Closed loop check on ' || newcliptable);
 
 
@@ -3475,7 +4099,7 @@ AS
       /*
       TOUCHY EDGES defunct fall 2012
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id  || p_jobid,'ADD_CLIP_MASK',newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id  || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                          'Adding touchy edges back into ' || newedgetable);
 
       --Use combined add_linear_geometry + constructor
@@ -3503,7 +4127,7 @@ AS
 
       EXECUTE IMMEDIATE psql INTO kount;
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id  || p_jobid,'ADD_CLIP_MASK',newcliptable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id  || p_jobid,'ADD_CLIP_MASK',newcliptable,
                                          'Completed adding touchy edges back into ' || newedgetable ||
                                           '. ' || kount || ' feature edges have NULL topogeom');
 
@@ -3519,17 +4143,17 @@ AS
 
       --Now that we have something in the topology we can grant these selects
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_RELATION$');
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_NODE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_RELATION$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_NODE$');
 
       --now run tune up
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',newedgetable,
                                          'Calling gz_topo_tune_up on ' || newtopo);
 
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(newtopo);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(newtopo);
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK ' || p_mask,newcliptable ,'COMPLETED',start_time);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK ' || p_mask,newcliptable ,'COMPLETED',start_time);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3649,13 +4273,13 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,NULL,'STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,NULL,'STARTING');
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
       --set up basic names
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
 
       -- ie STATEFP02
@@ -3702,7 +4326,7 @@ AS
            || '  (e.left_face_id = -1) or (e.right_face_id = -1) ) '
            || ')';
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,'Update ' || newedgetable || ' ' ,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,'Update ' || newedgetable || ' ' ,
                                           NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql USING 'Y';
@@ -3776,7 +4400,7 @@ AS
            || 'GROUP BY nodes '
            || 'HAVING COUNT(nodes) > 1 '; --Count greater than 1 meaning V against the orginal state
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,'ID ' || newedgetable || ' V dangles' ,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,'ID ' || newedgetable || ' V dangles' ,
                                           NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql BULK COLLECT INTO nodes USING '00', '00';
@@ -3862,7 +4486,7 @@ AS
                || 'AND r.topo_id = e.edge_id '
                || ') ';
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,
                                                 'Checking if node ' || nodes(i) || ' is a V dangle' ,
                                                  NULL,NULL,NULL,psql);
 
@@ -3955,7 +4579,7 @@ AS
             END LOOP;
 
             --update all_edges for next time through
-            all_edges := GZ_UTILITIES.stringarray_add(all_edges,edges);
+            all_edges := GZ_BUSINESS_UTILS.stringarray_add(all_edges,edges);
 
          END IF;  --end if on i = 1
 
@@ -3964,7 +4588,7 @@ AS
 
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,'COMPLETED',start_time);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES ' || p_mask,newedgetable,'COMPLETED',start_time);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -4022,7 +4646,7 @@ AS
       IF p_delta IS NULL
       THEN
 
-         create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
                                                       p_topo,
                                                       2,
                                                       window_geom.sdo_ordinates(1),
@@ -4033,7 +4657,7 @@ AS
 
       ELSE
 
-         create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
                                                       p_topo,
                                                       2,
                                                       window_geom.sdo_ordinates(1),
@@ -4048,7 +4672,7 @@ AS
       --no error handler here, let the caller trap and release
       SDO_TOPO_MAP.REMOVE_EDGE(NULL,p_edge_id);
 
-      create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+      create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
 
 
    END GZ_REMOVE_EDGE;
@@ -4216,7 +4840,7 @@ AS
                   --especially topomaps covering lots of geodetic ground
                   --resolve by shifting the topomap a little
 
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_topo, p_topo || '_EDGE$',
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_topo, p_topo || '_EDGE$',
                                              'Got one of the weird ''is not on the boundary'' errors, lets shift the topomap ' ,
                                               NULL,NULL,NULL,'SDO_TOPO_MAP.REMOVE_EDGE(''' || p_topo || ''',' || edge_id|| ');',
                                               NULL,SQLERRM);
@@ -4283,20 +4907,20 @@ AS
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,NULL,'STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,NULL,'STARTING');
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
       --set up basic names
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
 
       newtopo := p_topo_out;
       topomap := newtopo || '_TOPOMAP';
 
       --usually 1
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(newtopo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(newtopo,
                                                   newedgetable,
                                                   'TOPOGEOM',
                                                   'LINE');
@@ -4322,7 +4946,7 @@ AS
 
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,
                                           newedgetable,'Collect dangling edges ' ,
                                           NULL,NULL,NULL,psql);
 
@@ -4349,7 +4973,7 @@ AS
       --No topomap for the entire topology, too costly. Used to do this
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,
                                           newedgetable,'Deleting ' || feature_edges.COUNT || ' dangling edges ',
                                           NULL,NULL,NULL,NULL);
 
@@ -4374,7 +4998,7 @@ AS
 
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,newtopo || '_RELATION$',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES ' || p_mask,newtopo || '_RELATION$',
                                           'COMPLETED',start_time);
 
       ----------------------------------------------------------------------------------
@@ -4436,13 +5060,13 @@ AS
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask,NULL,'STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask,NULL,'STARTING');
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
       --set up basic names
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
 
       newtopo := p_topo_out;
@@ -4452,7 +5076,7 @@ AS
       newcliptable := p_project_id || p_jobid || '_' || clip_parms.gen_clip_table; --our task at hand
 
       --usually 1
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(newtopo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(newtopo,
                                                   newedgetable,
                                                   'TOPOGEOM',
                                                   'LINE');
@@ -4492,7 +5116,7 @@ AS
             || ') ';
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable, 'Select dangling edges',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable, 'Select dangling edges',
                                            NULL,NULL,NULL,psql1);
 
       EXECUTE IMMEDIATE psql1 BULK COLLECT INTO feature_edges,
@@ -4613,7 +5237,7 @@ AS
 
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable,
                                          'Check for any edges on the clip outline that are reversed ' ,
                                           NULL,NULL,NULL,psql1);
 
@@ -4629,7 +5253,7 @@ AS
       FOR i in 1 .. feature_edges.COUNT
       LOOP
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable,
                                             'Jackpot! Edge ' || dangles(i) || ' of feature edge ' || feature_edges(i) || ' is reversed ',
                                             NULL,NULL,NULL,psql1);
 
@@ -4649,12 +5273,12 @@ AS
       END LOOP;
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask, newedgetable,
                                          'Finished removing ' || feature_edges.COUNT || ' edges ',
                                           NULL,NULL,NULL,NULL);
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask,newedgetable,'COMPLETED',start_time);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES ' || p_mask,newedgetable,'COMPLETED',start_time);
 
 
       ----------------------------------------------------------------------------------
@@ -4710,7 +5334,7 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'UHAUL_NODE', p_topo || '_edge$',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'UHAUL_NODE', p_topo || '_edge$',
                                           'Backing up node ' || p_dangle_node || ' on ' || p_dangle_edge);
 
 
@@ -4884,7 +5508,7 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REAREND_NODE', p_topo || '_edge$',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REAREND_NODE', p_topo || '_edge$',
                                           'Further backing up node ' || p_dangle_node || ' on ' || p_dangle_edge);
 
 
@@ -4898,7 +5522,7 @@ AS
       IF danglegeom.SDO_ORDINATES.COUNT < 6
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REAREND_NODE', p_topo || '_edge$',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'REAREND_NODE', p_topo || '_edge$',
                                           'Exiting without action, edge ' || p_dangle_edge || ' only has '
                                           || danglegeom.SDO_ORDINATES.COUNT || ' ordinates ');
          RETURN;
@@ -5354,7 +5978,7 @@ AS
 
 
          --log us a clue
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt initial failure ' ,p_topo || '_XX',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt initial failure ' ,p_topo || '_XX',
                                             'Adding node to edge ' || p_edge || ', coord idx is ' || p_coord_index ||
                                             ',is new shape pt is ' || p_is_new_shape_pt,NULL,NULL,NULL,NULL,NULL,
                                             SQLERRM,p_node );
@@ -5396,7 +6020,7 @@ AS
                   THEN
 
                      --log us a brand new clue from the cluephone
-                     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt second failure ' ,p_topo || '_XX',
+                     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt second failure ' ,p_topo || '_XX',
                                             'SIDEY POWER ENGAGE: Adding node to edge ' || p_edge || ', coord idx is ' || p_coord_index ||
                                             ',is new shape pt is ' || p_is_new_shape_pt,NULL,NULL,NULL,NULL,NULL,
                                             SQLERRM,p_node );
@@ -5443,7 +6067,7 @@ AS
 
                         BEGIN
 
-                           GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt third failure ' ,p_topo || '_XX',
+                           GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt third failure ' ,p_topo || '_XX',
                                                                'FOURTH TRY: Adding node to edge ' || p_edge || ', coord idx is ' || new_coord_index ||
                                                                ',is new shape pt is FALSE',NULL,NULL,NULL,NULL,NULL,
                                                                SQLERRM,p_node );
@@ -5493,7 +6117,7 @@ AS
                               IF UPPER(SQLERRM) LIKE UPPER('%changed edge coordinate string has an intersection with another edge%')
                               THEN
 
-                                 GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt fourth failure ' ,p_topo || '_XX',
+                                 GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt fourth failure ' ,p_topo || '_XX',
                                                                'Error message suggests that ' || p_topo || '_edge$ edge ' || p_edge
                                                                || ' itself is overlapping a neighbor',NULL,NULL,NULL,
                                                                'SDO_TOPO_MAP.ADD_NODE(''' || p_topo || ''',''' || p_edge || ''','''
@@ -5505,7 +6129,7 @@ AS
 
                               ELSE
 
-                                 GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt fourth failure ' ,p_topo || '_XX',
+                                 GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt fourth failure ' ,p_topo || '_XX',
                                                                'Probably the wrong coord index adding to ' || p_topo || '_edge$ edge ' || p_edge
                                                                ,NULL,NULL,NULL,
                                                                'SDO_TOPO_MAP.ADD_NODE(''' || p_topo || ''',''' || p_edge || ''','''
@@ -5531,7 +6155,7 @@ AS
 
                              --BEGIN
 
-                                --GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt third failure ' ,p_topo || '_XX',
+                                --GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt third failure ' ,p_topo || '_XX',
                                                                     --'FIFTH TRY: Adding node to edge ' || p_edge || ', coord idx is ' || new_coord_index ||
                                                                    -- ',is new shape pt is FALSE',NULL,NULL,NULL,NULL,NULL,
                                                                    -- SQLERRM,p_node );
@@ -5567,7 +6191,7 @@ AS
                --using an explicit topomap seems to resolve it
                --maybe should be doing all of the node adding like this actually
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt 2 ' ,p_topo || '_XX',
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_NODES attempt 2 ' ,p_topo || '_XX',
                                             'Opening an explicit topomap and then adding node to edge ' || p_edge
                                             || ', coord idx is ' || p_coord_index ||
                                             ',is new shape pt is ' || p_is_new_shape_pt,
@@ -5580,7 +6204,7 @@ AS
                                                 p_topo,
                                                 p_edge);
 
-               create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(topomap,
+               create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(topomap,
                                                              p_topo,
                                                              2,
                                                              edge_mbr(1),
@@ -5594,7 +6218,7 @@ AS
                                                p_coord_index,
                                                p_is_new_shape_pt);
 
-               create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(topomap,
+               create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(topomap,
                                                              p_topo,
                                                              create_it);
 
@@ -5720,7 +6344,7 @@ AS
       EXCEPTION
       WHEN OTHERS THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_EXISTING_NODE' ,p_newtopo || '_NODE$',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GET_EXISTING_NODE' ,p_newtopo || '_NODE$',
                                              'Exception when we tried to back up ' || p_dangle_node ||
                                              ', we will just keep on going',NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -5983,7 +6607,7 @@ AS
       IF connect_edges_2.COUNT != 2
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, 'ADD_NEW_EDGES',p_topo || '_edge$','Extending ' || p_topo || '_EDGE$ edge ' || p_edge
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, 'ADD_NEW_EDGES',p_topo || '_edge$','Extending ' || p_topo || '_EDGE$ edge ' || p_edge
                                           || ' between old node ' || p_old_node_id || ' and new node ' || p_new_node_id
                                           || '. New node splits these edges: ' || connect_edges_2(1) || ' , ' || connect_edges_2(2) || '.'
                                           || ' Tip is ' || p_tip,NULL,NULL,NULL,NULL,NULL,NULL,
@@ -6030,7 +6654,7 @@ AS
       IF kount > allow_kount
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, 'ADD_NEW_EDGES',p_topo || '_edge$','Extending ' || p_topo || '_EDGE$ edge ' || p_edge
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, 'ADD_NEW_EDGES',p_topo || '_edge$','Extending ' || p_topo || '_EDGE$ edge ' || p_edge
                                       || ' between old node ' || p_old_node_id || ' and new node ' || p_new_node_id
                                       || '. New node splits these edges: ' || connect_edges_2(1) || ' , ' || connect_edges_2(2) || '.'
                                       || ' Tip is ' || p_tip);
@@ -6041,7 +6665,7 @@ AS
 
 
      --Lets write a book to the log before the inevitable errors
-     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, 'ADD_NEW_EDGES',p_topo || '_edge$','Extending ' || p_topo || '_EDGE$ edge ' || p_edge
+     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, 'ADD_NEW_EDGES',p_topo || '_edge$','Extending ' || p_topo || '_EDGE$ edge ' || p_edge
                                       || ' between old node ' || p_old_node_id || ' and new node ' || p_new_node_id
                                       || '. New node splits these edges: ' || connect_edges_2(1) || ' , ' || connect_edges_2(2) || '.'
                                       || ' Tip is ' || p_tip);
@@ -6066,7 +6690,7 @@ AS
                IF SQLCODE = -29532
                THEN
 
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_EDGES',p_topo || '_edge$','ERROR, check the call-->',NULL,NULL,NULL,
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_EDGES',p_topo || '_edge$','ERROR, check the call-->',NULL,NULL,NULL,
                                                       'SDO_TOPO_MAP.ADD_EDGE_ID('''||p_topo||''','||p_new_node_id||','||p_old_node_id||','||'<GEOM>)',
                                                       NULL,SQLERRM,new_edge_geom);
                   RAISE_APPLICATION_ERROR(-20001,'We know what this means: ' || SQLERRM);
@@ -6097,7 +6721,7 @@ AS
                  IF SQLCODE = -29532
                  THEN
 
-                    GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_EDGES',p_topo || '_edge$','ERROR, check the call-->',NULL,NULL,NULL,
+                    GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_NEW_EDGES',p_topo || '_edge$','ERROR, check the call-->',NULL,NULL,NULL,
                                                         'new_edge_id := SDO_TOPO_MAP.ADD_EDGE('||p_topo||','||p_old_node_id||','||p_new_node_id||','||'<GEOM>);',
                                                         NULL,SQLERRM,new_edge_geom);
                     RAISE_APPLICATION_ERROR(-20001,'We know what this means: ' || SQLERRM);
@@ -6196,7 +6820,7 @@ AS
    BEGIN
 
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_feature_table,
                                                   p_topo_col,
                                                   'LINE');
@@ -6283,7 +6907,7 @@ AS
 
       --create the topomap with window
 
-      create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
+      create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
                                                    p_topo,
                                                    2,
                                                    window_geom.sdo_ordinates(1),
@@ -6303,14 +6927,14 @@ AS
 
          --Expecting future errors here.  Consider changing topomap window, etc
 
-         create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
 
          RAISE_APPLICATION_ERROR(-20001,SQLERRM || Chr(10) || DBMS_UTILITY.format_error_backtrace);
 
       END;
 
       --commit and drop temp topomap
-      create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+      create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
 
    END ZAP_NODE;
 
@@ -6896,6 +7520,7 @@ END;
       --IN LRS +10 -10 section check if the psql anyinteract edge_ids are just the two expected 2/2/11
       --Allow the shifty_measure section to shifty more then +1 or -1 coord indexes away 9/12/12
       --More rigorous touchkount kounting to deal with geodetic vs cartesian diffs 9/28/12
+      --In desperate >20 code added check on number of intersections with the full target UF edge 8/26/13
 
       psql                 VARCHAR2(4000);
       psql2                VARCHAR2(4000);
@@ -6942,6 +7567,7 @@ END;
       the_segment_geom     SDO_GEOMETRY;
       getoutofjail         PLS_INTEGER := 0;
       intersekt            SDO_GEOMETRY;
+      target_full_geom     SDO_GEOMETRY;
       rejectededges        GZ_TYPES.stringarray;
       rejectededgesgeom    GZ_CLIP.geomarray;
       edgewalker           PLS_INTEGER := 0;
@@ -6959,7 +7585,6 @@ END;
 
    BEGIN
 
-
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       DBMS_APPLICATION_INFO.SET_ACTION('Step 10');
@@ -6971,7 +7596,7 @@ END;
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
       --set up basic names
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
 
       newtopo := p_topo_out;
@@ -7039,8 +7664,9 @@ END;
               || ') WHERE '
               || 'rownum = 1 ';
 
-          GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,'Get close edge for node id ' || p_node_id,
+          GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,'Get close edge for node id ' || p_node_id,
                                               NULL,NULL,NULL,psql);
+
 
          EXECUTE IMMEDIATE psql INTO connectedge,
                                      connectedgegeom,
@@ -7241,7 +7867,7 @@ END;
       IF p_debug = 1
       THEN
          dbms_output.put_line('test segment: ');
-         dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(test_segment)));
+         dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(test_segment)));
       END IF;
 
 
@@ -7332,8 +7958,6 @@ END;
 
       END IF;
 
-
-
       --Back to NULL srid
       test_segment.sdo_srid := NULL;
 
@@ -7346,18 +7970,41 @@ END;
 
       intersekt := SDO_GEOM.SDO_INTERSECTION(edge_geom, test_segment, p_tolerance);
 
---      psql := 'SELECT SDO_GEOM.SDO_INTERSECTION(e.geometry, :p1, :p2) '
---           || 'FROM '
---           || newtopo || '_edge$ e '
---           || 'WHERE '
---           || 'e.edge_id = :p2 ';
---
---      EXECUTE IMMEDIATE psql INTO intersekt USING test_segment,
---                                                  clip_parms.gen_clip_tolerance,
---                                                  p_edge_id;
+      IF p_debug = 1
+      THEN
+         dbms_output.put_line(chr(10) || ' intersection of test segment with edge to extend is ');
+         dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(intersekt)));
+      END IF;
+
+      IF touchtimes > 20
+      AND intersekt.sdo_gtype = 2001
+      THEN
+
+         --Very special TEST2A: When processing segment by segment (connectedgegeom is just 1 phony segment)
+         --in round 2 we aren't necessarily connecting to the closest point on the target edge
+         --which introduces the possibility of intersecting the target edge at a
+         --segment other than the one we are processing
+         target_full_geom := GZ_CLIP.GET_EDGE_GEOMETRY(p_topo_out,
+                                                       connectedge);
+
+         target_full_geom.sdo_srid := NULL;
+
+         --re-use intersekt.  Both must be good
+         intersekt := SDO_GEOM.SDO_INTERSECTION(target_full_geom,
+                                                test_segment,
+                                                p_tolerance);
+
+         IF p_debug = 1
+         THEN
+            dbms_output.put_line('Test 2A connect edge geom is ' || TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(target_full_geom)));
+            dbms_output.put_line(chr(10) || ' intersection of test segment with target full edge ' || connectedge || ' is ');
+            dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(intersekt)));
+         END IF;
+
+      END IF;
 
       IF touchkount > allowkount
-      OR intersekt.sdo_gtype != 2001
+      OR intersekt.sdo_gtype <> 2001
       OR too_long = 1
       THEN
 
@@ -7418,24 +8065,45 @@ END;
                --Back to real srid
                test_segment.sdo_srid := tucked_srid;
 
+               IF p_debug = 1
+               THEN
+                  dbms_output.put_line('test segment is ' || gz_geom_utils.dump_sdo(test_segment));
+               END IF;
+
                --psql saved from above
                EXECUTE IMMEDIATE psql2 BULK COLLECT INTO touch_edges USING test_segment,
                                                                            'mask=ANYINTERACT',
                                                                            'TRUE';
-               touchkount := touch_edges.COUNT;
-
+               --Back to NULL srid
                test_segment.sdo_srid := NULL;
+
+               --Must do extra careful touch kounting here too, since connected geodetic edge may not relate
+               touchkount := 0;
+
+               FOR jjj IN 1 .. touch_edges.COUNT
+               LOOP
+
+                  IF touch_edges(jjj) <> connectedge
+                  AND touch_edges(jjj) <> p_edge_id
+                  THEN
+
+                     touchkount := touchkount + 1;
+
+                  END IF;
+
+               END LOOP;
+
+               --Add the two that must touch
+               touchkount := touchkount + 2;
 
                IF touchkount <= allowkount
                THEN
 
-
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                       'Going with the midpoint of coord_index ' || coord_index,
                                                       NULL,NULL,NULL,NULL,NULL,NULL,test_segment);
                   --got lucky
                   getoutofjail := 1;
-
 
                END IF;
 
@@ -7464,7 +8132,7 @@ END;
             OR SDO_GEOM.RELATE(edgenodes(2),'mask=EQUAL',new_node_geom, p_tolerance) != 'FALSE'
             THEN
 
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                       'Think we are at the end or beginning of the edge ',
                                                       NULL,NULL,NULL,NULL,NULL,NULL,new_node_geom);
 
@@ -7503,7 +8171,7 @@ END;
                IF p_debug = 1
                THEN
                   dbms_output.put_line('test segment on shifty_measure +10: ');
-                  dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(test_segment)));
+                  dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(test_segment)));
                END IF;
 
                --psql saved from above
@@ -7528,7 +8196,7 @@ END;
                    )
                THEN
 
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                       'Going with +10 project point of coord_index ' || coord_index,
                                                       NULL,NULL,NULL,NULL,NULL,NULL,test_segment);
                   --got lucky
@@ -7564,7 +8232,7 @@ END;
                   IF p_debug = 1
                   THEN
                      dbms_output.put_line('test segment on shifty_measure -10: ');
-                     dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(test_segment)));
+                     dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(test_segment)));
                   END IF;
 
                   --psql saved from above
@@ -7589,7 +8257,7 @@ END;
                   THEN
 
 
-                     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+                     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                       'Going with -1 project point of coord_index ' || coord_index,
                                                       NULL,NULL,NULL,NULL,NULL,NULL,test_segment);
                      --got lucky
@@ -7715,7 +8383,7 @@ END;
 
                END IF;
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                 'We cross an existing edge using 20 edges. Try edge ' || connectedge || ' segment ' || currentindex,
                                                  NULL,NULL,NULL,NULL,NULL,NULL,connectedgegeom);
 
@@ -7723,7 +8391,7 @@ END;
             END IF;
 
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                 'We cross an existing edge using ' || connectedge || ', going back to try another one ',
                                                  NULL,NULL,NULL,psql,NULL,NULL,test_segment);
 
@@ -7778,8 +8446,8 @@ END;
       IF p_debug = 1
       THEN
          dbms_output.put_line('RELATE 1');
-         dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(new_node_geom)));
-         dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(test_node)));
+         dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(new_node_geom)));
+         dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(test_node)));
          dbms_output.put_line('coord index is ' || coord_index);
          dbms_output.put_line('relate is ' || SDO_GEOM.RELATE(new_node_geom,'mask=EQUAL',test_node, p_tolerance));
       END IF;
@@ -7799,7 +8467,7 @@ END;
             new_node_geom := test_node;
             is_new_shape_pt := 'FALSE';
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                 'Going with an existing shape point (beginning of segment) on ' || connectedge);
 
 
@@ -7818,7 +8486,7 @@ END;
                            'START') = 1
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                    'We are really close to beginning of segment on ' || connectedge
                                                    || ' but we cant connect to that node. Gonna risk it');
 
@@ -7832,7 +8500,7 @@ END;
                new_node_geom := test_node;
                is_new_shape_pt := 'FALSE';
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                 'Going with an existing shape point (node at beginning of segment) on ' || connectedge);
 
 
@@ -7857,8 +8525,8 @@ END;
       IF p_debug = 1
       THEN
          dbms_output.put_line('RELATE 2');
-         dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(new_node_geom)));
-         dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(test_node)));
+         dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(new_node_geom)));
+         dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(test_node)));
       END IF;
 
       --tolerance switched to degrees
@@ -7877,7 +8545,7 @@ END;
             new_node_geom := test_node;
             is_new_shape_pt := 'FALSE';
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                 'Going with an existing shape point, next coord index, on ' || connectedge);
 
 
@@ -7898,7 +8566,7 @@ END;
                            'END') = 1
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                    'We are really close to the end of of ' || connectedge
                                                    || ' but we cant connect to that node. Gonna risk it');
 
@@ -7912,7 +8580,7 @@ END;
                new_node_geom := test_node;
                is_new_shape_pt := 'FALSE';
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                    'Going with an existing shape point, NEXT EDGE AND NODE after ' || connectedge);
 
             END IF;
@@ -7949,8 +8617,8 @@ END;
          IF p_debug = 1
          THEN
             dbms_output.put_line('is new shape point coord index ' || coord_index);
-            dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(new_node_geom)));
-            dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(the_segment_geom)));
+            dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(new_node_geom)));
+            dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(the_segment_geom)));
          END IF;
 
          gz_measure := GZ_CLIP.GZ_FIND_MEASURE(new_node_geom,the_segment_geom);
@@ -8018,7 +8686,7 @@ END;
                      THEN
 
                         --whew
-                        GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+                        GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                           'Had to go far afield, but going with coord index ' || coord_index);
                         EXIT;
 
@@ -8029,7 +8697,7 @@ END;
 
                         --hosed
 
-                        GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+                        GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                            'Cant get a grasp on the coord index on edge ' || connectedge,
                                                            NULL,NULL,NULL,NULL,NULL,NULL,new_node_geom);
 
@@ -8067,7 +8735,7 @@ END;
             --Force this guy through
             --High degree of confidence that the point is fine, just need the index
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                 'Cant get a grasp on the coord index on edge ' || connectedge || '.'
                                              || ' We will loop through all the segments');
 
@@ -8090,7 +8758,7 @@ END;
 
                   coord_index := (i-1);
 
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newcliptable,
                                                     'For edge ' || connectedge || ' we used sdo_relate to chose coord index ' || coord_index);
 
                   EXIT;
@@ -8176,7 +8844,7 @@ END;
       OR (is_new_shape_pt = 'FALSE' AND existing_node_flag = 0)  --OR an existing vertex on an edge
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newtopo || '_XX',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newtopo || '_XX',
                                              'Adding a node to edge ' || connectedge);
 
          new_node_id := GZ_CLIP.ADD_NEW_NODES(p_project_id,
@@ -8197,7 +8865,7 @@ END;
 
          --We are connecting to either its start or end node
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newtopo || '_XX',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newtopo || '_XX',
                                              'Grabbing an existing node_id for edge ' || connectedge ||
                                              ' and backing up node ' || p_node_id);
 
@@ -8232,7 +8900,7 @@ END;
          IF shortykount != 0
          THEN
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newtopo || '_XX',
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_A_NODE ' || p_mask,newtopo || '_XX',
                                              'Our best connection location is just he opposite end of ' || p_edge_id ||
                                              ' returning a fake negative node ');
 
@@ -8422,7 +9090,7 @@ END;
          WHEN OTHERS
          THEN
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'RESHAPE_EDGE ' || p_mask,p_newtopo || '_edge$',
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'RESHAPE_EDGE ' || p_mask,p_newtopo || '_edge$',
                                                'Failed to move edge ' || p_edge || ' from old node ' || p_old_node || ' to '
                                                || 'new node ' || p_new_node );
 
@@ -8626,7 +9294,7 @@ END;
             --We have an angled V where the far side of the V cant get backed up and still go around the close side
             --The resulting shape will not be pretty, but it probably wasn't pretty to begin with, so :-P to it
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newtopo || '_edge$',
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newtopo || '_edge$',
                                                'Failed to change edge coords for edge ' || remaining_edge
                                                || ' but thats probably for the best ');
 
@@ -8834,9 +9502,9 @@ END;
          IF p_debug = 1
          THEN
              dbms_output.put_line('edge1 test:');
-             dbms_output.put_line(GZ_UTILITIES.DUMP_SDO(edge_1_test));
+             dbms_output.put_line(GZ_GEOM_UTILS.DUMP_SDO(edge_1_test));
              dbms_output.put_line('edge2 test:');
-             dbms_output.put_line(GZ_UTILITIES.DUMP_SDO(edge_2_test));
+             dbms_output.put_line(GZ_GEOM_UTILS.DUMP_SDO(edge_2_test));
          END IF;
 
          --This is working for 2 connects, keep it separate
@@ -9087,7 +9755,7 @@ END;
       THEN
 
          --This is allowable if dangles were totally exterior and got deleted
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                                'Decided that node ' || p_oldnode || ' is no longer in play as a dangling V',
                                                 NULL,NULL,NULL,psql);
 
@@ -9215,7 +9883,7 @@ END;
            || ') '
            || 'WHERE rownum = 1 ';
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                                'Find closest current node to old node: ' || p_oldnode ,
                                                 NULL,NULL,NULL,psql);
 
@@ -9232,7 +9900,7 @@ END;
          THEN
 
             --EXIT
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                                'Decided that node ' || p_oldnode || ' is no longer in play as a dangling V',
                                                 NULL,NULL,NULL,psql);
             RETURN '0';
@@ -9269,7 +9937,7 @@ END;
             THEN
 
                --EXIT
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                                 'Decided that node ' || p_oldnode || ' is still on the clip outline so is no longer in play as a dangling V',
                                                 NULL,NULL,NULL,psql);
                RETURN '0';
@@ -9279,7 +9947,7 @@ END;
                ------------------
                --CONTINUE
                ------------------
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                                   'Decided that node ' || dangling_node || ' is the current dangling V',
                                                    NULL,NULL,NULL,psql);
 
@@ -9293,7 +9961,7 @@ END;
 
             --totally clipped off
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                                'Decided that node ' || p_oldnode || ' is no longer in play as a dangling V',
                                                 NULL,NULL,NULL,psql);
             RETURN '0';
@@ -9508,7 +10176,7 @@ END;
       END IF;
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                           'Decided that edge ' || far_edge || ' on feature '
                                           || feature_edge_1 || ' should get processed first');
 
@@ -9562,7 +10230,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                           'Adding edge ' || new_edge_id || ' to ' || p_newedgetable);
 
 
@@ -9590,7 +10258,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                           'Reshaping edge ' || dangling_edge_2);
 
       ret_val := GZ_CLIP.RESHAPE_EDGE(p_schema,
@@ -9605,7 +10273,7 @@ END;
       IF dangling_edge_3 IS NOT NULL
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                              'Reshaping edge ' || dangling_edge_3);
 
          ret_val := GZ_CLIP.RESHAPE_EDGE(p_schema,
@@ -9628,7 +10296,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_DANGLING_V_NODES ' || p_mask,p_newedgetable,
                                           'Remove node ' || dangling_node || ' and reshape edge ' || dangling_edge_1
                                           ||' with edge ' || new_edge_id);
 
@@ -9717,7 +10385,7 @@ END;
 --                                   p_shorty_edge;
 
       --usually 1
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_featuretable,
                                                  'TOPOGEOM',
                                                  'LINE');
@@ -9777,7 +10445,7 @@ END;
       declare
       retval varchar2(4000);
       begin
-      retval := GZ_CLIP.EXTEND_INTERIOR_DANGLES('GZCPB1','Z9','47CL','47','Z947CL',1);
+      retval := GZ_CLIP.EXTEND_INTERIOR_DANGLES('GZCPB1','TST','Z9','47CL','47','Z947CL',1);
       end;
 
       */
@@ -9821,13 +10489,13 @@ END;
       ----------------------------------------------------------------------------------
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,NULL,'STARTING');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,NULL,'STARTING');
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
       --set up basic names
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
 
       newtopo := p_topo_out;
@@ -9840,41 +10508,6 @@ END;
       tolerance := GZ_CLIP.TOLERANCE_CONVERTER(clip_parms.gen_clip_tolerance,
                                                TO_CHAR(clip_parms.gen_clip_job_srid),
                                                'NULL');
-
-
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 20');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('EXTEND_INTERIOR_DANGLES: Validate topo ');
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
-
-      --Not sure if this is necessary.  Sreeni recommends it
-      --Kinda slow
-
-      --Nice work with the comments Matt!  Fixed that problem like a champ
-      --retval := SDO_TOPO_MAP.VALIDATE_TOPOLOGY(newtopo);
-      retval := 'TRUE';
-
-      IF retval != 'TRUE'
-      THEN
-         output := output || ' Topo ' || newtopo || ' validation returns: ' || retval || ' | ';
-         RETURN output;
-      END IF;
-
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 30');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('EXTEND_INTERIOR_DANGLES: Remove duplicate vertices ');
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
-
-      -- I dont think there are actually any dups at this point
-      -- But just in case.
-      --Will not touch edges with just 2 vertices
-      --Commented, left for reference or revisit
-      --GZ_CLIP.CLEAN_UP_GEOMETRIES(p_schema,newtopo || '_EDGE$',2002,'GEOMETRY');
-
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -9937,7 +10570,7 @@ END;
            || '   (e.end_node_id = ee.start_node_id or e.end_node_id = ee.end_node_id) '
            || ' ) ';
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,'Opening cursor' ,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,'Opening cursor' ,
                                            NULL,NULL,NULL,psql2);
 
       OPEN my_cursor FOR psql2;
@@ -9980,7 +10613,7 @@ END;
                --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
                ----------------------------------------------------------------------------------
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newtopo || '_EDGE$',
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newtopo || '_EDGE$',
                                                    'Extending ' || newtopo || '_EDGE$ edge ' || edges(i));
 
 
@@ -10005,7 +10638,7 @@ END;
                --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
                ----------------------------------------------------------------------------------
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,
                                                    'Adding edge ' || new_edge_id || ' to ' || newedgetable);
 
 
@@ -10042,7 +10675,7 @@ END;
 
                --Commented for now.  Living dangerously
 
-               --GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newtopo || '_edge$',
+               --GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newtopo || '_edge$',
                                                    --'Removing duplicate vertices');
 
                --GZ_CLIP.CLEAN_UP_GEOMETRIES(p_schema,newtopo || '_EDGE$',2002,'GEOMETRY');
@@ -10059,7 +10692,7 @@ END;
                      --     |
                --This dangle is bogus, lets remove it and continue
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,
                                                    'Removing edge ' || edges(i) || ' from ' || newtopo);
 
                GZ_CLIP.REMOVE_SHORTY_EDGE(p_schema,
@@ -10088,7 +10721,7 @@ END;
          --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
          ----------------------------------------------------------------------------------
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask, newtopo || '_NODE$',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask, newtopo || '_NODE$',
                                              'Removing a bunch of nodes');
 
          --Attempt to remove our added, now-extraneous nodes
@@ -10148,7 +10781,7 @@ END;
 
          --get distinct nodes from the list
          --some, rarely are comma delimited
-         temp_nodes := GZ_UTILITIES.split(dangling_nodes(i),',');
+         temp_nodes := GZ_BUSINESS_UTILS.SPLIT(dangling_nodes(i),',');
 
          FOR j IN 1 .. temp_nodes.COUNT
          LOOP
@@ -10171,7 +10804,7 @@ END;
 
          --Most of the time we do not enter this loop at all
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,
                                                 'Moving node ' || distinct_dangles(i) || ' (node id from '
                                                 || clip_parms.edge_input_table || ') to the new clip outline ');
 
@@ -10221,7 +10854,7 @@ END;
            || 'e.edge_id = r.topo_id AND '
            || 'e.left_face_id = e.right_face_id ';
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,'Check for no dangles in ' || newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,'Check for no dangles in ' || newedgetable,
                                            NULL,NULL,NULL,psql);
 
 
@@ -10233,7 +10866,7 @@ END;
       END IF;
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,'COMPLETED',start_time);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES ' || p_mask,newedgetable,'COMPLETED',start_time);
 
       --What other errors should we be trapping and returning...?
       --Maybe pop out the nodes from newedgetable and sdo_relate if any are outside of the clip mask?
@@ -10268,13 +10901,14 @@ END;
    AS
 
       --Matt! 5/cinco/10
-      --
+      --10/diecisiete/13 parameterized column lengths
 
      retval          VARCHAR2(4000) := '0';
      psql            VARCHAR2(4000);
      start_time      TIMESTAMP;
      facetable       VARCHAR2(32);
      geogs           GZ_TYPES.stringarray;
+     temp_length     GZ_TYPES.stringarray;
      measurements    GZ_TYPES.stringarray;
      clip_parms      GZ_TYPES.GEN_CLIP_JOBRUNS_REC;
      newtopo         VARCHAR2(32);
@@ -10285,7 +10919,7 @@ END;
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE',NULL,'STARTING ' || p_mask);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE',NULL,'STARTING ' || p_mask);
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
@@ -10303,15 +10937,16 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      geogs := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
-                                                      p_project_id,
-                                                      'ATTRIBUTE',
-                                                      clip_parms.left_right_attributes);
+      --includes GEOID
+      geogs := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                           p_project_id,
+                                                           'ATTRIBUTE',
+                                                           clip_parms.left_right_attributes);  --REFERENCE_FACE_FIELDS
 
-      measurements := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
-                                                             p_project_id,
-                                                             'MEASUREMENT',
-                                                             clip_parms.face_output_measurements);
+      measurements := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                                  p_project_id,
+                                                                  'MEASUREMENT',
+                                                                  clip_parms.face_output_measurements); --also REFERENCE_FACE_FIELDS
 
 
       --Build SQL string for face table
@@ -10321,8 +10956,25 @@ END;
 
       FOR i in 1 .. geogs.COUNT
       LOOP
+      
+         IF geogs(i) <> 'GEOID'
+         THEN
+         
+            --return a single length, as a character
+            temp_length := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                                       p_project_id,
+                                                                       'ATTRIBUTE',
+                                                                       clip_parms.left_right_attributes,
+                                                                       'FIELD_LENGTH',
+                                                                       geogs(i));
+                                                                      
+         ELSE
+         
+            temp_length(1) := '4000';
+         
+         END IF;
 
-         psql := psql || geogs(i) || ' VARCHAR2(4000), ';
+         psql := psql || geogs(i) || ' VARCHAR2(' || temp_length(1) || '), ';
 
       END LOOP;
 
@@ -10357,7 +11009,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE ' || p_mask,facetable,'Create ' || facetable || ' ' ,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE ' || p_mask,facetable,'Create ' || facetable || ' ' ,
                                           NULL,NULL,NULL,psql);
 
       CLIP_CREATE_TABLE(p_schema, p_jobid, facetable, psql, 'FACE_ID');
@@ -10376,7 +11028,7 @@ END;
 
       EXECUTE IMMEDIATE psql BULK COLLECT INTO face_ids USING -1;
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE ' || p_mask,facetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE ' || p_mask,facetable,
                                           'Inserting ' || face_ids.COUNT || ' face_ids into ' || facetable,
                                           NULL,NULL,NULL,psql);
 
@@ -10425,7 +11077,7 @@ END;
 
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE',facetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE',facetable,
                                           'COMPLETED ' || p_mask,start_time);
 
       ----------------------------------------------------------------------------------
@@ -10704,7 +11356,7 @@ END;
       --Done with checks
       --If we made it this far we will flip
 
-      geogs := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      geogs := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                       p_project_id,
                                                      'ATTRIBUTE',
                                                      left_right_atts);
@@ -10809,14 +11461,14 @@ END;
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',NULL,'STARTING ' || p_mask);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',NULL,'STARTING ' || p_mask);
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
-      --geogs := GZ_UTILITIES.split(clip_parms.left_right_attributes, '\|');
+      --geogs := GZ_BUSINESS_UTILS.SPLIT(clip_parms.left_right_attributes, '\|');
       --now this parm is a table name
-      geogs := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      geogs := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                       p_project_id,
                                                       'ATTRIBUTE',
                                                       clip_parms.left_right_attributes);
@@ -10824,7 +11476,7 @@ END;
 
       -- ie SDZ1AL
       newtopo := p_topo_out;
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
       -- ie SDZ1AL_GEN_ST_EDGES_HI
       newcliptable := p_project_id || p_jobid || '_' || clip_parms.gen_clip_table;
@@ -10840,7 +11492,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Register ' || facetable || ' with ' || newtopo);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Register ' || facetable || ' with ' || newtopo);
 
 
       --Register face feature table with topology
@@ -10856,17 +11508,17 @@ END;
          IF UPPER(SQLERRM) LIKE '%CANNOT ADD TOPO_GEOMETRY LAYER%'
          THEN
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',
                                                facetable,'Deregistering ' || facetable || ' from ' || newtopo || ' first ');
 
 
-            GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(p_schema,
+            GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(p_schema,
                                                    newtopo,
                                                    'N',
                                                    0,
                                                    facetable);
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Register ' || facetable || ' with ' || newtopo);
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Register ' || facetable || ' with ' || newtopo);
 
             SDO_TOPO.add_topo_geometry_layer(newtopo,facetable,'TOPOGEOM','POLYGON');
 
@@ -10885,10 +11537,10 @@ END;
       ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Populate ' || facetable || ' topogeom');
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Populate ' || facetable || ' topogeom');
       --Populate its topo with existing faces
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(newtopo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(newtopo,
                                                  facetable,
                                                  'TOPOGEOM',
                                                  'POLYGON');
@@ -10995,7 +11647,7 @@ END;
            || 'rights.geogs != lefts.geogs ';
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'POPULATE_FACE_TABLE: Check for matching L/R attributes',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'POPULATE_FACE_TABLE: Check for matching L/R attributes',
                                           NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql BULK COLLECT INTO badfaces,
@@ -11006,7 +11658,7 @@ END;
       IF badfaces.COUNT != 0
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                             'POPULATE_FACE_TABLE: We have ' || badfaces.COUNT || ' mismatched faces, see if they can be flipped',
                                             NULL,NULL,NULL,NULL);
 
@@ -11030,13 +11682,13 @@ END;
             THEN
 
                --Woot
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                   'POPULATE_FACE_TABLE: Supposedly fixed inverted face ' || fixedface,
                                                   NULL,NULL,NULL,NULL);
 
             ELSE
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                   'POPULATE_FACE_TABLE: Failed to fix because: ' || fixedface,
                                                   NULL,NULL,NULL,NULL);
 
@@ -11046,7 +11698,7 @@ END;
 
 
          --Rerun L/R Checker SQL no matter what the subroutine thinks it did
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'POPULATE_FACE_TABLE: AGAIN Check for matching L/R attributes',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'POPULATE_FACE_TABLE: AGAIN Check for matching L/R attributes',
                                             NULL,NULL,NULL,psql);
 
          EXECUTE IMMEDIATE psql BULK COLLECT INTO badfaces,
@@ -11252,7 +11904,7 @@ END;
 
       psql := psql || ' f.face_id)';
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Populate all the lefts',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Populate all the lefts',
                                           NULL,NULL,NULL,psql);
 
 
@@ -11488,7 +12140,7 @@ END;
 
 
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Populate the right for ' || geogs(i),
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Populate the right for ' || geogs(i),
                                              NULL,NULL,NULL,psql);
 
          EXECUTE IMMEDIATE psql;
@@ -11506,7 +12158,7 @@ END;
 
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                           'COMPLETED ' || p_mask,start_time);
 
       ----------------------------------------------------------------------------------
@@ -11533,8 +12185,10 @@ END;
       p_jobid          IN VARCHAR2,
       p_mask           IN VARCHAR2,
       p_topo_out       IN VARCHAR2,
-      p_topofix_qa     IN VARCHAR2,
-      p_fix_edge       IN VARCHAR2 DEFAULT NULL
+      p_validate_topo  IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge       IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge      IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa     IN VARCHAR2 DEFAULT 'N'
    ) RETURN VARCHAR2
    AS
 
@@ -11597,12 +12251,12 @@ END;
       ----------------------------------------------------------------------------------
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',NULL,'STARTING ' || p_mask);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',NULL,'STARTING ' || p_mask);
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
 
-      measurements := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      measurements := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                              p_project_id,
                                                              'MEASUREMENT',
                                                              clip_parms.face_output_measurements);
@@ -11614,13 +12268,13 @@ END;
       newtopo := p_topo_out;
       -- ie SDZ1AL_GEN_FACES
       facetable := clip_parms.face_output_table;
-      --ex Z601CL_Z699IN_EWRK 
+      --ex Z601CL_Z699IN_EWRK
       newedgetable := GZ_CLIP.GET_EDGE_TABLE(p_project_id,p_jobid,clip_parms.edge_input_table);
       newcliptable := p_project_id || p_jobid || '_' || clip_parms.gen_clip_table;
 
 
 
-      geogs := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      geogs := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                       p_project_id,
                                                       'ATTRIBUTE',
                                                       clip_parms.left_right_attributes);
@@ -11649,7 +12303,7 @@ END;
             --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
             ----------------------------------------------------------------------------------
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Call gz_fix_edge ',
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Call gz_fix_edge ',
                                                NULL, NULL, NULL, NULL);
 
 
@@ -11661,19 +12315,19 @@ END;
                                                   'Y', --hold univeral
                                                    clip_parms.gen_clip_tolerance,
                                                    NULL, --no insistence on loop counts. Continue as long as there is progress
-                                                   'Y'); --yes check close edge, even though its slow.  This is where we will see them
+                                                   p_fix_2edge); --check pairs of close edges.  Nooo. Very slow
 
             IF edgefix_val = '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'GZ_FIX_EDGE success ',
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'GZ_FIX_EDGE success ',
                                                   NULL, NULL, NULL, NULL);
 
             ELSIF edgefix_val = '1'
             AND p_topofix_qa = 'Y'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                   'GZ_FIX_EDGE not successful, we will fail the clip job to be safe ');
 
                retval := retval || '|Failed to fix all edges in gz_fix_edge';
@@ -11682,9 +12336,9 @@ END;
             AND p_topofix_qa = 'N'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                   'GZ_FIX_EDGE not successful, but we wont fail since topofix QA is N ');
-               
+
             ELSE
 
                 RAISE_APPLICATION_ERROR(-20001,'Unknown edgefix result');
@@ -11693,7 +12347,7 @@ END;
 
          ELSE
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                'Not Calling gz_fix_edge ',
                                                NULL, NULL, NULL, NULL);
 
@@ -11710,14 +12364,14 @@ END;
          --switch to use utility for all of these
          --makes logging harder unfortunately. Need to incorporate shared logger
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc geometry ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc geometry ',
                                              NULL, NULL, NULL, NULL);
 
 
          IF clip_parms.gen_clip_job_srid = clip_parms.gen_clip_output_srid
          THEN
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                   'FACE_ID',
                                                   'SDOGEOMETRY',
                                                   'ALL',
@@ -11726,7 +12380,7 @@ END;
 
          ELSE
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                   'FACE_ID',
                                                   'SDOGEOMETRY',
                                                   'ALL',
@@ -11765,7 +12419,7 @@ END;
             --bad gtype or NULL doesnt get into the fixing world below
             --it just handles sdo_geom.validate_Geometry_with_context results
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                               'Initial get_geometry(): We cant get a non-null or correct '
                                            || ' gtype for ' || badnulls.COUNT || ' of our faces ', NULL, NULL, NULL, nullgeompsql);
 
@@ -11779,11 +12433,11 @@ END;
                          || 'WHERE a.face_id IN (SELECT * FROM TABLE(:p2)) ';
 
             EXECUTE IMMEDIATE psql USING '2',
-                                          GZ_UTILITIES.stringarray_to_varray(badnulls);
+                                          GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(badnulls);
 
          ELSE
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                               'Good: We have non-null correct gtype geometries for all of our faces ',
                                                NULL, NULL, NULL, nullgeompsql);
 
@@ -11797,10 +12451,10 @@ END;
          --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
          ----------------------------------------------------------------------------------
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                              'Creating spatial index ',NULL, NULL, NULL);
 
-         GZ_UTILITIES.ADD_SPATIAL_INDEX(facetable,
+         GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(facetable,
                                         'SDOGEOMETRY',
                                         clip_parms.gen_clip_output_srid,
                                         clip_parms.gen_clip_tolerance);
@@ -11837,7 +12491,7 @@ END;
 
             --First crack, is it entirely contained within a face from the input topo
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                 'We have faces with no attributes, will try to fix ',
                                                 NULL,NULL, NULL,NULL,NULL,NULL);
 
@@ -11880,7 +12534,7 @@ END;
                  || 'AND a.face_id = f.face_id) '
                  || 'WHERE a.face_id IN (SELECT * FROM TABLE(:p4)) ';
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                 'Fix wholely surrounded island null face attributes with this sql',
                                                 NULL,NULL,NULL,psql);
 
@@ -11953,14 +12607,14 @@ END;
                  || 'AND a.face_id = f.face_id) '
                  || 'WHERE a.face_id = :p5 ';
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Fix null face attributes with another sql',
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,'Fix null face attributes with another sql',
                                                 NULL,NULL,NULL,psql);
 
 
             FOR i IN 1 .. missnulls.COUNT
             LOOP
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                   'Attempt to fix partially covered island at state edge null face_id '
                                                   || missnulls(i) || ' attributes with this sql',
                                                    NULL,NULL,NULL,psql);
@@ -11977,7 +12631,7 @@ END;
                EXCEPTION
                   WHEN OTHERS THEN
 
-                     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+                     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                   'FAILED to fix partially covered island at state edge null face_id '
                                                   || missnulls(i) || '. The touching edges have different geoids',
                                                    NULL,NULL,NULL,psql);
@@ -12205,7 +12859,7 @@ END;
 
 
 
-                           GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+                           GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                              'Fixing NULL attributed face id '
                                                              || missnulls(i) || ' with this query, using feature edge ' || sliver_ids(1),
                                                              NULL,NULL,NULL,psql);
@@ -12219,7 +12873,7 @@ END;
                         ELSE
 
                               --FAIL
-                              GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+                              GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                           'Cant fix NULL attributed face id '
                                                           || missnulls(i) || ' because its not bounded by 2 or more feature edges ',
                                                            NULL,NULL,NULL,psql);
@@ -12229,7 +12883,7 @@ END;
                      ELSE
 
                         --FAIL
-                        GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+                        GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                           'Cant fix NULL attributed face id '
                                                           || missnulls(i) || ' because its not bounded by 2 or more feature edges ',
                                                            NULL,NULL,NULL,psql);
@@ -12241,7 +12895,7 @@ END;
                   ELSE
 
                      --FAIL
-                     GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+                     GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                         'Cant fix NULL attributed face id '
                                                         || missnulls(i) || ' because its not bounded by 2 or more short edges ',
                                                         NULL,NULL,NULL,psql);
@@ -12252,7 +12906,7 @@ END;
                ELSE
 
                   --FAIL
-                  GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
+                  GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',facetable,
                                                      'Cant fix NULL attributed face id '
                                                      || missnulls(i) || ' because its not on the edge of the universe ',
                                                      NULL,NULL,NULL,psql);
@@ -12282,7 +12936,7 @@ END;
 
             retval := retval || ' | We have ' || missnulls.COUNT || ' faces with no attributes ';
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'INVESTIGATE expelled table ' || p_jobid , facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'INVESTIGATE expelled table ' || p_jobid , facetable,
                                                       'This SQL will show faces in ' || facetable || ' that have NULL geoids',
                                                       NULL,NULL,NULL,psql);
 
@@ -12321,7 +12975,7 @@ END;
 
          --Only thing that should be safe is precision, affects all equally
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                              'Rolling sdogeometry precision back to 8 digits ',
                                               NULL, NULL, NULL);
 
@@ -12346,24 +13000,24 @@ END;
          ----------------------------------------------------------------------------------
 
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                             'Deregistering ' || newedgetable || ' and ' || newcliptable,
                                             NULL, NULL, NULL);
 
-         GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(p_schema,
+         GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(p_schema,
                                                 p_topo_out,
                                                 'N',            --no drop in case we want to looksee
                                                 0,              --0 level
                                                 newedgetable);  --just this one table
 
-         GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(p_schema,
+         GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(p_schema,
                                                 p_topo_out,
                                                 'N',            --no drop
                                                 0,              --0 level
                                                 newcliptable);  --just this one table
 
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                             'Calling topofix for ' || p_topo_out,
                                             NULL, NULL, NULL);
 
@@ -12400,24 +13054,24 @@ END;
          AND p_topofix_qa = 'Y'
          THEN
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                'We cant get a valid geometry in ' || facetable || ' for some of our faces',
                                                 NULL, NULL, NULL, NULL);
 
             retval := retval || '| (Also) We cant get a valid geometry in ' || facetable || ' for some of our faces';
-            
+
          ELSIF topofix_val <> '0'
          AND p_topofix_qa = 'N'
          THEN
-         
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                'We cant get a valid geometry in ' || facetable || ' for some of our faces '
                                             || 'but wont fail since topofix QA is N',
                                                 NULL, NULL, NULL, NULL);
 
          ELSE
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                'Good: We have a valid geometry in ' || facetable || ' for all of our faces',
                                                NULL, NULL, NULL, badgeompsql);
 
@@ -12441,10 +13095,10 @@ END;
       AND measurehash.EXISTS('SDOGEOMETRY')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc MBR and and index it ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc MBR and and index it ',
                                             NULL, NULL, NULL, NULL);
 
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'MBR',
                                                'ALL',
@@ -12465,7 +13119,7 @@ END;
          IF badnulls.COUNT > 0
          THEN
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                'Warning: We cant get a valid geometry in ' || facetable || ' for ' || badnulls.COUNT || ' of our MBRs',
                                                NULL, NULL, NULL, badgeompsql);
 
@@ -12478,18 +13132,18 @@ END;
                          || 'a.qc IS NULL '; --dont want to overwrite something more important
 
             EXECUTE IMMEDIATE nullgeompsql USING '4',
-                                                 GZ_UTILITIES.stringarray_to_varray(badnulls);
+                                                 GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(badnulls);
             COMMIT;
 
          ELSE
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                                'Good: All MBRs in ' || facetable || ' are valid ',
                                                NULL, NULL, NULL, badgeompsql);
 
          END IF;
 
-         GZ_UTILITIES.ADD_SPATIAL_INDEX(facetable,
+         GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(facetable,
                                         'MBR',
                                         clip_parms.gen_clip_output_srid,
                                         clip_parms.gen_clip_tolerance,
@@ -12512,10 +13166,10 @@ END;
       AND measurehash.EXISTS('SDOGEOMETRY')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc areatotal ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc areatotal ',
                                             NULL, NULL, NULL, NULL);
 
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'AREATOTAL',
                                                'ALL',
@@ -12538,11 +13192,11 @@ END;
       AND measurehash.EXISTS('SDOGEOMETRY')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc perimeter ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc perimeter ',
                                              NULL, NULL, NULL, NULL);
 
          -- 'unit=meter' is hard coded into utility
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'PERIMETER',
                                                'ALL',
@@ -12562,11 +13216,11 @@ END;
       AND measurehash.EXISTS('SDOGEOMETRY')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc pa_ratio ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc pa_ratio ',
                                              NULL, NULL, NULL, NULL);
 
          --DECODEs when area is 0 to avoid divide by 0
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'PA_RATIO',
                                                'ALL',
@@ -12587,10 +13241,10 @@ END;
       AND measurehash.EXISTS('LLX')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc LLX ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc LLX ',
                                              NULL, NULL, NULL, NULL);
 
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'LLX',
                                                'ALL',
@@ -12612,10 +13266,10 @@ END;
       AND measurehash.EXISTS('LLY')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc LLY ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc LLY ',
                                              NULL, NULL, NULL, NULL);
 
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'LLY',
                                                'ALL',
@@ -12636,10 +13290,10 @@ END;
       AND measurehash.EXISTS('URX')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc URX ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc URX ',
                                              NULL, NULL, NULL, NULL);
 
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'URX',
                                                'ALL',
@@ -12660,10 +13314,10 @@ END;
       AND measurehash.EXISTS('URY')
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc URY ',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,'Calc URY ',
                                              NULL, NULL, NULL, NULL);
 
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(facetable,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(facetable,
                                                'FACE_ID',
                                                'URY',
                                                'ALL',
@@ -12727,7 +13381,7 @@ END;
               || 'SELECT DISTINCT ' || geogs(i) || ' FROM ' || facetable || ' '
               || ') ';
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                              'Check that all ' || geogs(i) || ' in ' || newedgetable || ' are also in ' || facetable,
                                              NULL,NULL,NULL,psql);
 
@@ -12755,7 +13409,7 @@ END;
             IF missgeogs.COUNT > 0
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, p_project_id || p_jobid || 'CLIP_EXPELLED ' , facetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid, p_project_id || p_jobid || 'CLIP_EXPELLED ' , facetable,
                                                    'This SQL will show ' || geogs(i) || ' in ' || facetable || ' that arent in ' || newedgetable,
                                                    NULL,NULL,NULL,psql);
 
@@ -12799,7 +13453,7 @@ END;
             IF missgeogs.COUNT > 0
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'INVESTIGATE ' || p_project_id || p_jobid || '_CLIP_EXPELLED', facetable,
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'INVESTIGATE ' || p_project_id || p_jobid || '_CLIP_EXPELLED', facetable,
                                                    'This SQL will show ' || geogs(i) || ' in ' || newedgetable || ' that arent in ' || facetable,
                                                    NULL,NULL,NULL,psql);
 
@@ -12840,68 +13494,78 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
                                          'Remove isolated nodes');
 
-      GZ_UTILITIES.REMOVE_ISOLATED_NODES(newtopo);
+      GZ_TOPO_UTIL.REMOVE_ISOLATED_NODES_CACHE(newtopo);
 
       IF GZ_BUILD_SOURCE.ISOLATED_NODES_EXIST(newtopo)
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
                                             'Uh oh, isolated nodes remain. Im not gonna fail the job (topo validation might), '
                                          || 'but maybe take a peek');
 
       ELSE
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
                                             'There are 0 isolated nodes.');
 
 
       END IF;
 
+      IF p_validate_topo = 'Y'
+      THEN
 
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 120');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('POPULATE_MEASUREMENTS: Validate topology' );
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
+         ----------------------------------------------------------------------------------
+         --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+         DBMS_APPLICATION_INFO.SET_ACTION('Step 120');
+         DBMS_APPLICATION_INFO.SET_CLIENT_INFO('POPULATE_MEASUREMENTS: Validate topology' );
+         --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+         ----------------------------------------------------------------------------------
 
-      BEGIN
+         BEGIN
 
-          GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
-                                             'Check if topo is still valid');
+             GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
+                                                'Check if topo is still valid');
 
-         --return TRUE or raises and error
-         --our version handles out of memory errors
-         --topotest := GZ_UTILITIES.VALIDATE_TOPOLOGY(newtopo);  --memory management is not too good, all one tile
+            --return TRUE or raises and error
+            --our version handles out of memory errors
+            --topotest := GZ_UTILITIES.VALIDATE_TOPOLOGY(newtopo);  --memory management is not too good, all one tile
 
-         --Clip is pre tile kounts, so this is a little funky
-         --The state outline table provides a good count for tiles, ~5 for small states, ... ~20 or so for bigger ones
-         --But it doesn't work for the tile table itself, since its "hollow" and interior tiles may be dropped
-         --Must use the face table, which adds a little processing time
+            --Clip is pre tile kounts, so this is a little funky
+            --The state outline table provides a good count for tiles, ~5 for small states, ... ~20 or so for bigger ones
+            --But it doesn't work for the tile table itself, since its "hollow" and interior tiles may be dropped
+            --Must use the face table, which adds a little processing time
 
-         psql := 'SELECT count(*) FROM ' || newcliptable;
-         EXECUTE IMMEDIATE psql INTO kount;
+            psql := 'SELECT count(*) FROM ' || newcliptable;
+            EXECUTE IMMEDIATE psql INTO kount;
 
-         topotest := GZ_UTILITIES.GZ_VALIDATE_TOPOLOGY(newtopo,
-                                                       facetable,          --extent
-                                                       'SDOGEOMETRY',
-                                                       p_log_type => 'CLIP',
-                                                       p_tile_target => kount);
+            topotest := GZ_TOPO_UTIL.GZ_VALIDATE_TOPOLOGY(newtopo,
+                                                          facetable,          --extent
+                                                          'SDOGEOMETRY',
+                                                          p_log_type => 'CLIP',
+                                                          p_tile_target => kount);
 
-      EXCEPTION
-         WHEN OTHERS
-         THEN
+         EXCEPTION
+            WHEN OTHERS
+            THEN
 
-            --This means we fail the module, but go ahead and create all measurements anyway
-            retval := retval || ' | SDO_TOPO_MAP.VALIDATE_TOPOLOGY(''' || newtopo || ''') returns ' || SQLERRM || ' ';
+               --This means we fail the module, but go ahead and create all measurements anyway
+               retval := retval || ' | SDO_TOPO_MAP.VALIDATE_TOPOLOGY(''' || newtopo || ''') returns ' || SQLERRM || ' ';
 
-      END;
+         END;
+         
+      ELSE
+      
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',newtopo || '_XXX$',
+                                                 'Skipping topo validation since validate_topo is ' || p_validate_topo);
+
+      
+      END IF;
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',facetable,
                                           'COMPLETED ' || p_mask, start_time);
 
       ----------------------------------------------------------------------------------
@@ -12953,7 +13617,7 @@ END;
       ----------------------------------------------------------------------------------
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TIDY EXIT',NULL,'STARTING ' || p_mask);
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TIDY EXIT',NULL,'STARTING ' || p_mask);
 
       --get input parms
       clip_parms := GZ_CLIP.GET_CLIP_PARAMETERS(p_release, p_project_id, p_jobid);
@@ -12967,7 +13631,7 @@ END;
 
          newedgetable := p_project_id || p_jobid || '_' || clip_parms.edge_input_table;
 
-         GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(p_schema,
+         GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(p_schema,
                                                 p_topo_out,
                                                 p_drop_tabs,    --usually no drop
                                                 0,              --0 level
@@ -12977,10 +13641,10 @@ END;
       */
 
       --topo tune
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(p_topo_out);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(p_topo_out);
 
 
-      GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TIDY EXIT',newedgetable,
+      GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TIDY EXIT',newedgetable,
                                          'COMPLETED ' || p_mask, start_time);
 
       ----------------------------------------------------------------------------------
@@ -13016,8 +13680,10 @@ END;
       p_transfer_atts      IN VARCHAR2 DEFAULT 'Y',
       p_validate_input     IN VARCHAR2 DEFAULT 'Y',
       p_modules            IN VARCHAR2 DEFAULT NULL,
-      p_topofix_qa         IN VARCHAR2 DEFAULT NULL,
-      p_fix_edge           IN VARCHAR2 DEFAULT 'Y'
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'N'    
    ) RETURN NUMBER
    AS
 
@@ -13038,6 +13704,7 @@ END;
       --p_transfer_atts   ->Legal values - Y(es), N(o), and (O)nly. Only means only transfer attributes and then stop.
       --p_topofix_qa      ->(Y): Fail if topofix fails. (N): Continue regardless of topofix.  Default behavior is N for clip
       --p_fix_edge        ->Run fix_edge in addition to fix_face.  Not parameterized from the workflow, default behavior is a go
+      --p_close_edge      ->In fix edge run, also check for close edges.  This is very slow, so best to not do it in clip with detailed coords
 
       --Returns
       -- 1: Failure
@@ -13103,24 +13770,24 @@ END;
          p_jobid := UPPER(p_jobid_in);
 
       END IF;
-      
+
       IF p_topofix_qa IS NULL
       OR p_topofix_qa = 'N'
       THEN
-      
+
          topofix_qa := 'N';
-         
-      ELSIF topofix_qa = 'Y'
+
+      ELSIF p_topofix_qa = 'Y'
       THEN
-      
+
          topofix_qa := 'Y';
-         
+
       ELSE
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Unknown topofix_qa value of ' || p_topofix_qa);
-      
+
       END IF;
-      
+
 
       ---------------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
@@ -13134,7 +13801,7 @@ END;
 
          --We are starting from the beginning for this job
          --special exception handling since we rely on the log for, uh, logging
- 
+
          BEGIN
 
             retval := GZ_CLIP.START_CLIP_LOGGING(v_schema, p_project_id, p_jobid);
@@ -13155,20 +13822,14 @@ END;
 
       END IF;
 
-      dbms_output.put_line('Inputs are (' || p_schema || ',' || p_release || ','
-                                             || p_project_id_in || ',' || p_jobid_in || ',' || p_clip_edge_tab || ','
-                                             || p_gen_clip_mask || ',' || p_topo_out || ',' || p_topo_in || ','
-                                             || p_drop_module_tab || ',' || p_transfer_atts || ','
-                                             || p_validate_input || ',' || p_modules || ',' || p_topofix_qa || ','
-                                             || p_fix_edge || ')');
-
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_topo_out,'GENERALIZATION_CLIP',NULL,
-                                             'Inputs are (' || p_schema || ',' || p_release || ','
-                                             || p_project_id_in || ',' || p_jobid_in || ',' || p_clip_edge_tab || ','
-                                             || p_gen_clip_mask || ',' || p_topo_out || ',' || p_topo_in || ','
-                                             || p_drop_module_tab || ',' || p_transfer_atts || ','
-                                             || p_validate_input || ',' || p_modules || ',' || p_topofix_qa || ','
-                                             || p_fix_edge || ')');
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_topo_out,'GENERALIZATION_CLIP',NULL,
+                                                   'Inputs are (' || p_schema || ',' || p_release || ','
+                                                   || p_project_id_in || ',' || p_jobid_in || ',' || p_clip_edge_tab || ','
+                                                   || p_gen_clip_mask || ',' || p_topo_out || ',' || p_topo_in || ','
+                                                   || p_drop_module_tab || ',' || p_transfer_atts || ','
+                                                   || p_validate_input || ',' || p_modules || ',' 
+                                                   || p_validate_topo || ',' || p_fix_edge || ','
+                                                   || p_fix_2edge || ',' || p_topofix_qa || ')');
 
 
 
@@ -13190,7 +13851,7 @@ END;
       THEN
 
          --we have a log
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'SET_UP_JOBRUN',NULL,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'SET_UP_JOBRUN',NULL,
                                             'UNRECOVERABLE ERROR: Problem with SET_UP_JOBRUN: ' || retval,
                                             NULL,NULL,NULL,NULL,NULL,substr(retval, 1, 4000) );
 
@@ -13224,7 +13885,7 @@ END;
       IF retval != '0'
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY CLIP INPUTS',NULL,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY CLIP INPUTS',NULL,
                                             'UNRECOVERABLE ERROR: Problem with verify clip inputs: ' || retval,
                                             NULL,NULL,NULL,NULL,NULL,substr(retval, 1, 4000) );
 
@@ -13257,7 +13918,7 @@ END;
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER ATTRIBUTES',NULL,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER ATTRIBUTES',NULL,
                                                'UNRECOVERABLE ERROR: Problem with transfer attributes: ' || retval,
                                                NULL,NULL,NULL,NULL,NULL,substr(retval, 1, 4000) );
 
@@ -13275,7 +13936,7 @@ END;
       THEN
 
          --only transfer attributes and get out
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER ATTRIBUTES',NULL,'Exiting generalization_clip after attribute transfer ' ,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'TRANSFER ATTRIBUTES',NULL,'Exiting generalization_clip after attribute transfer ' ,
                                             NULL,NULL,NULL,NULL,NULL,NULL );
          --this is cheating. LAME!
          GOTO the_end;
@@ -13299,7 +13960,7 @@ END;
       IF retval != '0'
       THEN
 
-         GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY CLIP INPUTS',NULL,
+         GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'VERIFY CLIP INPUTS',NULL,
                                             'UNRECOVERABLE ERROR: Problem with verify clip inputs: ' || retval,
                                             NULL,NULL,NULL,NULL,NULL,substr(retval, 1, 4000) );
 
@@ -13349,7 +14010,7 @@ END;
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'START_CLIP_MODULE_LOGGING',NULL,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'START_CLIP_MODULE_LOGGING',NULL,
                                                'UNRECOVERABLE ERROR: Problem with clip module logging: ' || retval,
                                                 NULL,NULL,NULL,NULL,NULL,substr(retval, 1, 4000) );
 
@@ -13446,7 +14107,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_EMPTY_TOPOLOGY',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13502,7 +14163,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_CLIP_MASK',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13556,7 +14217,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ADD_INTERIOR_LINES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13612,7 +14273,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'ID_DANGLES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13664,7 +14325,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_EXTERIOR_DANGLES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13716,7 +14377,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'DELETE_DANGLING_FACES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13768,7 +14429,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'EXTEND_INTERIOR_DANGLES',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13820,7 +14481,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'CREATE_NEW_FACE_TABLE',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13872,7 +14533,7 @@ END;
             IF retval != '0'
             THEN
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_FACE_TABLE',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13906,8 +14567,10 @@ END;
                                                        p_jobid,
                                                        clipmasks(i),
                                                        p_topo_out,
-                                                       topofix_qa,
-                                                       p_fix_edge);
+                                                       p_validate_topo,
+                                                       p_fix_edge,
+                                                       p_fix_2edge,
+                                                       topofix_qa);
 
             EXCEPTION
                WHEN OTHERS
@@ -13927,7 +14590,7 @@ END;
             THEN
 
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                currentmodules := GZ_CLIP.ZAP_MODULES(currentmodules);
@@ -13986,7 +14649,7 @@ END;
             THEN
 
 
-               GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
+               GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'POPULATE_MEASUREMENTS',NULL,'UNRECOVERABLE ERROR: Ending processing for ' || clipmasks(i),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
                retcode := 1;
@@ -14038,7 +14701,7 @@ END;
             -- Word up to "good practice"
 
             errm := SQLERRM || DBMS_UTILITY.format_error_backtrace;
-            GZ_UTILITIES.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GENERALIZATION_CLIP',NULL,
+            GZ_BUSINESS_UTILS.GEN_CLIP_TRACKING_LOG(p_project_id || p_jobid,'GENERALIZATION_CLIP',NULL,
                                                'UNRECOVERABLE ERROR: GENERALIZATION_CLIP caught this exception and has no clue ',
                                                NULL,NULL,NULL,NULL,NULL,substr(errm || ' ' || retval , 1, 4000) );
 
@@ -14226,7 +14889,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -14314,7 +14977,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -14397,7 +15060,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
    END CREATE_GEN_CLIP_MODULE_LOG;
@@ -14510,7 +15173,7 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -14594,13 +15257,13 @@ END;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
    END CREATE_GEN_CLIP_EXPELLED;
 
-   
+
    ------------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------------
@@ -14614,7 +15277,7 @@ END;
 
       --Matt! 11/04/10
       --2/13/13 moved from utilities to clip since it was never shared.  Makes logging easier
-      
+
       --Creates edge attribute table stub with no values
 
       --SAMPLE
@@ -14639,12 +15302,12 @@ END;
       OR p_type IS NULL
       THEN
 
-         GZ_UTILITIES.CREATE_TABLE('EDGE_ATTRIBUTE',p_tab_name);
+         GZ_BUSINESS_UTILS.CREATE_TABLE('EDGE_ATTRIBUTE',p_tab_name);
 
       ELSE
 
          --simplify version has fixed type, but more cols
-         GZ_UTILITIES.CREATE_TABLE('EDGE_ATTRIBUTE_' || p_type, p_tab_name);
+         GZ_BUSINESS_UTILS.CREATE_TABLE('EDGE_ATTRIBUTE_' || p_type, p_tab_name);
 
       END IF;
 
@@ -14658,7 +15321,7 @@ END;
 
       --This grant business could maybe go in CREATE_TABLE
 
-      legal_users := GZ_UTILITIES.GET_REF_SCHEMAS(p_schema);
+      legal_users := GZ_BUSINESS_UTILS.GET_REF_SCHEMAS(p_schema);
 
       --legal_users looks like
       --(GZDEC10ST99) SELECT
@@ -14710,7 +15373,8 @@ END;
       --Matt!  11/04/10
       --! 10/03/11 added p_project_id for new reference_face_fields structure
       --2/13/13 moved from utilities to clip since it was never shared.  Makes logging easier
-      
+      --10/17/13 added column length parameterization
+
       --This takes the pre-created basic edge attribute table and adds
       --   clip specific (no one else needs these I dont think) left and right geog fields
       --   Then populates them
@@ -14718,6 +15382,8 @@ END;
       psql                 VARCHAR2(4000);
       fields               GZ_TYPES.stringarray;
       leftyrighty          GZ_TYPES.stringarray;
+      leftyrighty_lengths  GZ_TYPES.stringarray;
+      temp_length          GZ_TYPES.stringarray;
       kount                PLS_INTEGER := 0;
       kount2               PLS_INTEGER;
       face_input_table     VARCHAR2(4000);
@@ -14744,22 +15410,10 @@ END;
 
 
       --return includes geoid
-      fields := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
-                                                       p_project_id,
-                                                       'ATTRIBUTE',
-                                                       p_zref_table);
-      /*
-      psql := 'SELECT a.field '
-           || 'FROM ' || p_zref_table || ' a '
-           || 'WHERE '
-           || 'UPPER(a.field_use) = :p1 '
-           || 'order by a.field ';
-
-      EXECUTE IMMEDIATE psql BULK COLLECT INTO fields USING 'ATTRIBUTE';
-
-      --Add geoid, at least for now. Not in reference table
-      fields(fields.COUNT + 1) := 'GEOID';
-      */
+      fields := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                            p_project_id,
+                                                            'ATTRIBUTE',
+                                                            p_zref_table);
 
       --we will use variable "fields" when referring to DML
       --we will use variable "leftyrighty" when referring to DDL. It contains the additional clip col
@@ -14768,19 +15422,48 @@ END;
       --simplify by adding the Ls and Rs up front
       FOR i in 1 .. fields.COUNT
       LOOP
+      
+         IF fields(i) <> 'GEOID'
+         THEN
+         
+            --get the desired column length, just returns 1 element
+            temp_length := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                                       p_project_id,
+                                                                       'ATTRIBUTE',
+                                                                       p_zref_table,
+                                                                       'FIELD_LENGTH',
+                                                                       fields(i));
+          
+         ELSE
+         
+            --geoid
+            temp_length(1) := '4000';                             
+                                                      
+         END IF;
 
          kount := kount + 1;
          leftyrighty(kount) := 'L_' || fields(i);
+         leftyrighty_lengths(kount) := temp_length(1);
 
          kount := kount + 1;
          leftyrighty(kount) := 'R_' || fields(i);
+         leftyrighty_lengths(kount) := temp_length(1);
 
          --Add the special mask column too
          IF i = fields.COUNT
          THEN
 
+            --get the desired column length, just returns 1 element
+            temp_length := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                                       p_project_id,
+                                                                       'ATTRIBUTE',
+                                                                       p_zref_table,
+                                                                       'FIELD_LENGTH',
+                                                                       p_clip_mask);  --STATE usually
+                                                                   
             kount := kount + 1;
             leftyrighty(kount) := p_clip_mask;
+            leftyrighty_lengths(kount) := temp_length(1);
 
          END IF;
 
@@ -14800,17 +15483,17 @@ END;
          IF i != leftyrighty.COUNT
          THEN
 
-            psql := psql || leftyrighty(i) || ' VARCHAR2(4000), ';
+            psql := psql || leftyrighty(i) || ' VARCHAR2(' || leftyrighty_lengths(i) || '), ';
 
          ELSE
 
-            psql := psql || leftyrighty(i) || ' VARCHAR2(4000) )';
+            psql := psql || leftyrighty(i) || ' VARCHAR2(' || leftyrighty_lengths(i) || ') )';
 
          END IF;
 
       END LOOP;
-      
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
                                              'Adding l/r columns to ' || p_tab_name,NULL,NULL,NULL,psql);
 
       --error handling?
@@ -14922,8 +15605,8 @@ END;
 
       --dbms_output.put_line(psql);
 
-      
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
                                              'Populating l/r columns on ' || p_tab_name,NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql;
@@ -14951,8 +15634,8 @@ END;
            || 'WHEN e.l_' || p_clip_mask || ' != e.r_' || p_clip_mask || ' '
            || 'THEN :p1 '
            || 'END ';
-           
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
                                              'Setting clip mask flag on ' || p_tab_name,NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql USING '00';
@@ -14985,8 +15668,8 @@ END;
       EXECUTE IMMEDIATE psql INTO kount2;
 
       IF kount2 != 0 THEN
-      
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'CLIP_EDGE_ATTRIBUTE_TABLE',NULL,
                                                 'Oops, ' || p_tab_name || ' has records with no left or right ' || p_clip_mask,
                                                 NULL,NULL,NULL,psql);
 
@@ -15028,8 +15711,8 @@ END;
       --Matt! 11/4/10
       --! 10/03/11 Added p_project_id input for new reference_face_fields structure
       --2/13/13 moved from utilities to clip since it was never shared.  Makes logging easier too
-      
-      
+
+
       --Wrapper for create_edge_attribute
       --CREATE sets up empty table shell based on short type
       --BUILD here populates it
@@ -15057,8 +15740,8 @@ END;
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('BUILD_EDGE_ATTRIBUTE_TABLE: ' || p_tab_name);
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
-      
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'BUILD_EDGE_ATTRIBUTE_TABLE',NULL,
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'BUILD_EDGE_ATTRIBUTE_TABLE',NULL,
                                              'Calling create_edge_attribute',NULL,NULL,NULL,NULL);
 
       --Make it
@@ -15071,7 +15754,7 @@ END;
          --not too dynamic, will need to update when type changes. Boo
          --standard stub edge attribute table.
          --Or clip version temporarily slumming as stub
-         
+
          --I dont use this any more, length is fairly costly and unused
 
          psql := 'INSERT /*+ APPEND */ INTO '
@@ -15083,8 +15766,8 @@ END;
              || 'e.left_face_id, '
              || 'e.right_face_id '
              || 'FROM ' || p_topo || '_edge$ e ';
-             
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'BUILD_EDGE_ATTRIBUTE_TABLE',NULL,
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'BUILD_EDGE_ATTRIBUTE_TABLE',NULL,
                                                 'Inserting edges and l/r faces',NULL,NULL,NULL,psql);
 
          EXECUTE IMMEDIATE psql USING p_tolerance;
@@ -15109,8 +15792,8 @@ END;
              || 'e.left_face_id, '
              || 'e.right_face_id '
              || 'FROM ' || p_topo || '_edge$ e ';
-             
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'BUILD_EDGE_ATTRIBUTE_TABLE',NULL,
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('CLIP',p_log_tag,'BUILD_EDGE_ATTRIBUTE_TABLE',NULL,
                                                 'Inserting edges and l/r faces',NULL,NULL,NULL,psql);
 
          EXECUTE IMMEDIATE psql;
@@ -15142,9 +15825,9 @@ END;
          --Sidey type is based on an expanded fixed type. Created empty above
          --but we've got a bunch more cols to calculate
          --Sidey never actually used this
-         
+
          RAISE_APPLICATION_ERROR(-20001, 'Yo, 2010 wants its code back');
-         
+
       ELSIF p_type IS NOT NULL
       THEN
 
@@ -17221,7 +17904,7 @@ END Get_Xys;
          THEN
 
             EXECUTE IMMEDIATE psql USING p_tolerance,
-                                         GZ_UTILITIES.STRINGARRAY_TO_VARRAY(dup_ids),
+                                         GZ_BUSINESS_UTILS.stringarray_to_varray(dup_ids),
                                          8;
 
             COMMIT;
@@ -17230,7 +17913,7 @@ END Get_Xys;
          THEN
 
             EXECUTE IMMEDIATE psql USING p_tolerance,
-                                         GZ_UTILITIES.STRINGARRAY_TO_VARRAY(dup_ids),
+                                         GZ_BUSINESS_UTILS.stringarray_to_varray(dup_ids),
                                          6;
 
             COMMIT;
@@ -17245,7 +17928,7 @@ END Get_Xys;
 
          EXECUTE IMMEDIATE duppsql BULK COLLECT INTO post_dups USING p_tolerance,
                                                                      '13356%',
-                                                                     GZ_UTILITIES.STRINGARRAY_TO_VARRAY(dup_ids);
+                                                                     GZ_BUSINESS_UTILS.stringarray_to_varray(dup_ids);
 
          --post_dups are unfixable as far as we are concerned
          --Update them to 1
@@ -17311,7 +17994,7 @@ END Get_Xys;
 
          EXECUTE IMMEDIATE intpsql BULK COLLECT INTO int_ids2 USING p_tolerance,
                                                                     '13349%',
-                                                                    GZ_UTILITIES.STRINGARRAY_TO_VARRAY(int_ids);
+                                                                    GZ_BUSINESS_UTILS.stringarray_to_varray(int_ids);
 
       END IF;  --we have some intersecting
 
@@ -17336,7 +18019,7 @@ END Get_Xys;
 
          EXECUTE IMMEDIATE intpsql BULK COLLECT INTO int_ids3 USING p_tolerance,
                                                                     '13349%',
-                                                                    GZ_UTILITIES.STRINGARRAY_TO_VARRAY(int_ids2);
+                                                                    GZ_BUSINESS_UTILS.stringarray_to_varray(int_ids2);
 
       END IF; --we still have some intersecting
 
@@ -17387,8 +18070,8 @@ END Get_Xys;
               || 'MINUS '
               || 'SELECT * FROM TABLE(:p2) ';
 
-         EXECUTE IMMEDIATE psql bulk collect into int_fixed USING GZ_UTILITIES.STRINGARRAY_TO_VARRAY(int_ids),  --initial self intersects
-                                                                  GZ_UTILITIES.STRINGARRAY_TO_VARRAY(int_ids3); --never fixed intersects
+         EXECUTE IMMEDIATE psql bulk collect into int_fixed USING GZ_BUSINESS_UTILS.stringarray_to_varray(int_ids),  --initial self intersects
+                                                                  GZ_BUSINESS_UTILS.stringarray_to_varray(int_ids3); --never fixed intersects
 
       END IF;
 
@@ -17401,7 +18084,7 @@ END Get_Xys;
               || 'WHERE a.' || p_pkccol || ' IN (SELECT * FROM TABLE(:p1)) '
               || 'AND SDO_GEOM.SDO_AREA(a.' || p_column_name || ', :p2) < :p3 ';
 
-         EXECUTE IMMEDIATE psql BULK COLLECT INTO small_fixed USING GZ_UTILITIES.STRINGARRAY_TO_VARRAY(int_fixed),
+         EXECUTE IMMEDIATE psql BULK COLLECT INTO small_fixed USING GZ_BUSINESS_UTILS.stringarray_to_varray(int_fixed),
                                                                     p_tolerance,
                                                                     p_intersect_size;
 
@@ -17439,7 +18122,7 @@ END Get_Xys;
               --|| 'SQRT(SDO_GEOM.SDO_AREA(a.' || p_column_name || ', :p4))/SDO_GEOM.SDO_LENGTH(a.' || p_column_name || ', :p5 ) < :p6 ';
 
 
-         EXECUTE IMMEDIATE psql BULK COLLECT INTO ratio_fixed USING GZ_UTILITIES.STRINGARRAY_TO_VARRAY(int_fixed),
+         EXECUTE IMMEDIATE psql BULK COLLECT INTO ratio_fixed USING GZ_BUSINESS_UTILS.stringarray_to_varray(int_fixed),
                                                                     -1,
                                                                     -1,
                                                                     p_tolerance,

@@ -105,6 +105,23 @@ AS
       p_subset_val         IN VARCHAR2 DEFAULT NULL,
       p_topomap_mbr        IN SDO_GEOMETRY DEFAULT NULL
    );
+   
+   PROCEDURE CONNECT_DANGLE_TO_NN_NODE (
+      p_topo               IN VARCHAR2,
+      p_source_table       IN VARCHAR2,
+      p_source_pkc         IN VARCHAR2,
+      p_source_value       IN NUMBER,
+      p_tolerance          IN NUMBER,
+      p_how_desperate      IN NUMBER DEFAULT 10
+   );
+   
+    PROCEDURE ADD_NODES_AROUND_DANGLE(
+      p_topo               IN VARCHAR2,
+      p_source_table       IN VARCHAR2,
+      p_source_pkc         IN VARCHAR2,
+      p_source_value       IN NUMBER,
+      p_tolerance          IN NUMBER
+   );
 
    FUNCTION FLIP_INVERTED_FACE (
       p_release         IN VARCHAR2,
@@ -308,8 +325,10 @@ AS
       p_jobid          IN VARCHAR2,
       p_mask           IN VARCHAR2,
       p_topo_out       IN VARCHAR2,
-      p_topofix_qa     IN VARCHAR2,
-      p_fix_edge       IN VARCHAR2 DEFAULT NULL
+      p_validate_topo  IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge       IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge      IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa     IN VARCHAR2 DEFAULT 'N'
    ) RETURN VARCHAR2;
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -366,8 +385,10 @@ AS
       p_transfer_atts      IN VARCHAR2 DEFAULT 'Y',
       p_validate_input     IN VARCHAR2 DEFAULT 'Y',
       p_modules            IN VARCHAR2 DEFAULT NULL,
-      p_topofix_qa         IN VARCHAR2 DEFAULT NULL,
-      p_fix_edge           IN VARCHAR2 DEFAULT 'Y'
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'N'    
    ) RETURN NUMBER;
    ---------------------------------------------
    ---   --

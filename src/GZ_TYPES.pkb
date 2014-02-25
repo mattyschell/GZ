@@ -14,8 +14,8 @@ CREATE OR REPLACE PACKAGE BODY GZ_TYPES AS
    BEGIN
       NULL;
    END NEW_EDGE_ATTRIBUTE_SIMPLIFY;
-   
-   
+
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
@@ -36,9 +36,9 @@ CREATE OR REPLACE PACKAGE BODY GZ_TYPES AS
    RETURN GZ_TYPES.stringarray DETERMINISTIC
    AS
 
-      --7/13/12 I dont think this is used anymore 
+      --7/13/12 I dont think this is used anymore
       --Just leaving it in to be safe
-      
+
       --Matt! 8/3/11
       --I dont know nuthin about the reference tables
       --Except that I need REFERENCE_SCHEMAS at the moment
@@ -66,14 +66,14 @@ CREATE OR REPLACE PACKAGE BODY GZ_TYPES AS
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
-   
+
    FUNCTION LEGAL_GZ_TABLES
    RETURN GZ_TYPES.stringarray DETERMINISTIC
    AS
 
-      --7/13/12 I dont think this is used anymore 
+      --7/13/12 I dont think this is used anymore
       --Just leaving it in to be safe
-      
+
       --Matt! 10/24/11
       --WIP. All tables in required to run GZ
       --used in the build script
@@ -108,12 +108,12 @@ CREATE OR REPLACE PACKAGE BODY GZ_TYPES AS
       output(23) := 'QA_PARAMETERS';
       output(24) := 'GZ_SHP_METADATA';
       output(25) := 'GZ_OUTPUT_SETUP';
-     
+
       --add reference tables
-      output := GZ_UTILITIES.STRINGARRAY_ADD(output, 
+      output := GZ_BUSINESS_UTILS.STRINGARRAY_ADD(output,
                                              GZ_TYPES.LEGAL_REFERENCE_TABLES());
-                                             
-      
+
+
 
 
 
@@ -133,7 +133,7 @@ CREATE OR REPLACE PACKAGE BODY GZ_TYPES AS
       --Matt! 4/24/12
       --WIP
       --All tables with a "release" in them, meaning they can be used in a project copier
-      
+
       --should stringarray_add these to legal_gz_tables I guess, if it doesnt break anything
 
 
@@ -165,58 +165,82 @@ CREATE OR REPLACE PACKAGE BODY GZ_TYPES AS
       output(21) := 'REFERENCE_FACE_FIELDS';
 
       RETURN output;
-            
+
    END LEGAL_GZ_RELEASE_TABLES;
-   
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   -----------------------------------------------------------------------------------------
-   
-   FUNCTION LEGAL_GZ_OTHER_TABLES
-   RETURN GZ_TYPES.stringarray DETERMINISTIC
-   AS
-   
-      --Matt! 7/13/12
-      --Accompanies LEGAL_GZ_RELEASE_TABLES
-      --These are the weirdos without a release column
-      
-      output      GZ_TYPES.stringarray;
-      
-   BEGIN
-   
-      output(1) := 'REFERENCE_SCHEMAS';
-      output(2) := 'LUT_LSAD';  --not sure of the future of this one
-   
-   
-      RETURN output;
-      
-   END LEGAL_GZ_OTHER_TABLES;
-   
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   -----------------------------------------------------------------------------------------
-   
-   FUNCTION LEGAL_GZ_ALL_TABLES
-   RETURN GZ_TYPES.stringarray DETERMINISTIC
-   AS
-   
-      --Matt! 7/13/12
-      
-      output      GZ_TYPES.stringarray;
-      
-   BEGIN
-   
-      output := GZ_UTILITIES.STRINGARRAY_ADD(GZ_TYPES.LEGAL_GZ_RELEASE_TABLES(),
-                                             GZ_TYPES.LEGAL_GZ_OTHER_TABLES());
-   
-   
-      RETURN output;
-      
-   END LEGAL_GZ_ALL_TABLES;
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
 
+   FUNCTION LEGAL_GZ_OTHER_TABLES
+   RETURN GZ_TYPES.stringarray DETERMINISTIC
+   AS
+
+      --Matt! 7/13/12
+      --Accompanies LEGAL_GZ_RELEASE_TABLES
+      --These are the weirdos without a release column
+
+      output      GZ_TYPES.stringarray;
+
+   BEGIN
+
+      output(1) := 'REFERENCE_SCHEMAS';
+      output(2) := 'LUT_LSAD';  --not sure of the future of this one
+
+
+      RETURN output;
+
+   END LEGAL_GZ_OTHER_TABLES;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   -----------------------------------------------------------------------------------------
+
+   FUNCTION LEGAL_GZ_ALL_TABLES
+   RETURN GZ_TYPES.stringarray DETERMINISTIC
+   AS
+
+      --Matt! 7/13/12
+
+      output      GZ_TYPES.stringarray;
+
+   BEGIN
+
+      output := GZ_BUSINESS_UTILS.STRINGARRAY_ADD(GZ_TYPES.LEGAL_GZ_RELEASE_TABLES(),
+                                             GZ_TYPES.LEGAL_GZ_OTHER_TABLES());
+
+
+      RETURN output;
+
+   END LEGAL_GZ_ALL_TABLES;
+   
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   -----------------------------------------------------------------------------------------
+
+   FUNCTION LEGAL_GZ_XTENDED_KEYS
+   RETURN GZ_TYPES.stringhash DETERMINISTIC
+   AS
+
+      --Matt! 6/27/13
+      --These are semi-hard coded columns that are needed for parameter table primary keys
+      --Always release, gen_project_id, + this, if anything
+
+      output      GZ_TYPES.stringhash;
+
+   BEGIN
+
+      output('GZ_ENTITY_TABLE') := 'ENTITY_CODE';
+      output('GZ_SHAPEFILE_PARAMETERS') := 'SUM_LEV';
+
+
+      RETURN output;
+
+   END LEGAL_GZ_XTENDED_KEYS;
+   
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   -----------------------------------------------------------------------------------------
 
 END GZ_TYPES;
 /

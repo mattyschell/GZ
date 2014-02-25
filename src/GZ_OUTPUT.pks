@@ -168,7 +168,7 @@ AS
       p_tile_kount               IN NUMBER,
       p_face_table               IN VARCHAR2
    ) RETURN GZ_TYPES.geomarray;
-   
+
    FUNCTION GET_LAYER_SOURCES (
       p_topology                 IN VARCHAR2,
       p_layer                    IN VARCHAR2,
@@ -322,7 +322,7 @@ AS
       p_layer_type         IN VARCHAR2,
       p_face_table         IN VARCHAR2
    );
-   
+
    FUNCTION REPLACE_A_ALIAS (
       p_string                IN VARCHAR2,
       p_replace               IN VARCHAR2 DEFAULT 'b'
@@ -405,12 +405,17 @@ AS
       p_add_when_source    IN VARCHAR2 DEFAULT 'S',
       p_source_pkc         IN VARCHAR2 DEFAULT 'oid'
    ) RETURN VARCHAR2;
+   
+   FUNCTION GET_CDB_LSAD_ABB (
+      p_lsad               IN VARCHAR2,
+      p_cdb_lsad_table     IN VARCHAR2   --ex acs13cdb.lut_lsad
+   ) RETURN VARCHAR2 DETERMINISTIC;
 
    FUNCTION GET_STANDARD_LSAD_ABB (
       p_lsad               IN VARCHAR2,
       p_release            IN VARCHAR2 DEFAULT NULL,
       p_release_col        IN VARCHAR2 DEFAULT 'RELEASE'
-   ) RETURN VARCHAR2;
+   ) RETURN VARCHAR2 DETERMINISTIC;
 
    FUNCTION GET_RELATED_VALUE_FROM_LUT (
       p_value              IN VARCHAR2,
@@ -420,6 +425,19 @@ AS
       p_allow_null         IN VARCHAR2 DEFAULT 'N',
       p_value2             IN VARCHAR2 DEFAULT NULL,
       p_lut_col_we_match2  IN VARCHAR2 DEFAULT NULL
+   ) RETURN VARCHAR2;
+
+   FUNCTION REPLACE_APOSTROPHES (
+      p_string VARCHAR2
+   ) RETURN VARCHAR2;
+   
+   FUNCTION GET_PUBL_NAME (
+     pLsad       IN VARCHAR2,
+     pBaseName   IN VARCHAR2,
+     pLUT_LSAD   IN VARCHAR2 DEFAULT 'LUT_LSAD',
+     pType       IN VARCHAR2 DEFAULT 'publ',
+     p_release   IN VARCHAR2 DEFAULT NULL,
+     p_release_col IN VARCHAR2 DEFAULT 'RELEASE'
    ) RETURN VARCHAR2;
 
    FUNCTION DROP_POSTAL_ABB (
@@ -458,6 +476,7 @@ AS
 
    PROCEDURE ADD_LAYER_TO_FACE (
       p_release            IN VARCHAR2,
+      p_gen_project_id     IN VARCHAR2,
       p_output_topology    IN VARCHAR2,
       p_layer              IN VARCHAR2,
       p_add_to_face        IN VARCHAR2,
@@ -487,14 +506,23 @@ AS
    ) RETURN VARCHAR2;
 
    FUNCTION POPULATE_MEASUREMENTS (
-      p_release            IN VARCHAR2,
-      p_gen_project_id     IN VARCHAR2,
-      p_output_topology    IN VARCHAR2,
-      p_single_layer       IN VARCHAR2,
-      p_face_table         IN VARCHAR2,
-      p_tolerance          IN NUMBER DEFAULT .05,
-      p_srid               IN NUMBER DEFAULT 8265,
-      p_restart_flag       IN VARCHAR2 DEFAULT 'N'
+      p_release               IN VARCHAR2,
+      p_gen_project_id        IN VARCHAR2,
+      p_output_topology       IN VARCHAR2,
+      p_single_layer          IN VARCHAR2,
+      p_face_table            IN VARCHAR2,
+      p_prcs_slivers          IN VARCHAR2 DEFAULT 'N',
+      p_sliver_restart_flag   IN VARCHAR2 DEFAULT 'N',
+      p_sliver_width          IN NUMBER DEFAULT NULL,
+      p_segment_length        IN NUMBER DEFAULT NULL,
+      p_expendable_review     IN VARCHAR2 DEFAULT 'N',
+      p_reshape_review        IN VARCHAR2 DEFAULT 'Y',
+      p_tolerance             IN NUMBER DEFAULT .05,
+      p_srid                  IN NUMBER DEFAULT 8265,
+      p_restart_flag          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_edge          IN VARCHAR2 DEFAULT 'Y',
+      p_topofix_2edge         IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa            IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2;
 
    PROCEDURE DROP_WORK_COLUMNS (
@@ -517,7 +545,8 @@ AS
       p_single_layer       IN VARCHAR2,
       p_face_table         IN VARCHAR2,
       p_tile_kount         IN NUMBER DEFAULT 10,
-      p_tolerance          IN NUMBER DEFAULT .05
+      p_tolerance          IN NUMBER DEFAULT .05,
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2;
 
    FUNCTION TIDY_EXIT (
@@ -526,25 +555,34 @@ AS
       p_output_topology    IN VARCHAR2,
       p_drop_work_tables   IN VARCHAR2,
       p_single_layer       IN VARCHAR2,
-      p_face_table         IN VARCHAR2
+      p_face_table         IN VARCHAR2,
+      p_fixes_retval       IN VARCHAR2
    ) RETURN VARCHAR2;
 
    FUNCTION GENERALIZATION_OUTPUT (
-      p_release            IN VARCHAR2,
-      p_gen_project_id     IN VARCHAR2,
-      p_source_schema      IN VARCHAR2,
-      p_source_topology    IN VARCHAR2,
-      p_output_topology    IN VARCHAR2,
-      p_modules            IN VARCHAR2 DEFAULT 'YYYYYYYYYY',
-      p_restart_flag       IN VARCHAR2 DEFAULT 'N',
-      p_single_layer       IN VARCHAR2 DEFAULT NULL,
-      p_tile_kount         IN NUMBER DEFAULT 10,
-      p_srid               IN NUMBER DEFAULT 8265,
-      p_tolerance          IN NUMBER DEFAULT .05,
-      p_drop_work_tables   IN VARCHAR2 DEFAULT 'Y'
+      p_release               IN VARCHAR2,
+      p_gen_project_id        IN VARCHAR2,
+      p_source_schema         IN VARCHAR2,
+      p_source_topology       IN VARCHAR2,
+      p_output_topology       IN VARCHAR2,
+      p_modules               IN VARCHAR2 DEFAULT 'YYYYYYYYYY',
+      p_restart_flag          IN VARCHAR2 DEFAULT 'N',
+      p_single_layer          IN VARCHAR2 DEFAULT NULL,
+      p_tile_kount            IN NUMBER DEFAULT 10,
+      p_prcs_slivers          IN VARCHAR2 DEFAULT 'N',
+      p_sliver_restart_flag   IN VARCHAR2 DEFAULT 'N',
+      p_sliver_width          IN NUMBER DEFAULT NULL,
+      p_segment_length        IN NUMBER DEFAULT NULL,
+      p_expendable_review     IN VARCHAR2 DEFAULT 'N',
+      p_reshape_review        IN VARCHAR2 DEFAULT 'Y',
+      p_srid                  IN NUMBER DEFAULT 8265,
+      p_tolerance             IN NUMBER DEFAULT .05,
+      p_drop_work_tables      IN VARCHAR2 DEFAULT 'Y',
+      p_validate_topo         IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge              IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge             IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa            IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2;
-
-
 
 
 END GZ_OUTPUT;

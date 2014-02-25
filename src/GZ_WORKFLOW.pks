@@ -22,7 +22,17 @@ AS
 
   PROCEDURE Create_Table(pSchemaName VARCHAR2, pTableName VARCHAR2, pGzType VARCHAR2, pDropFlag VARCHAR2 DEFAULT 'N');
 
-  PROCEDURE Insert_New_jobs(pRel IN VARCHAR2, pPrj IN VARCHAR2, pSchema IN VARCHAR2 default USER, ptopobuildtype IN VARCHAR2 default 'A');
+  PROCEDURE Insert_New_jobs(
+     pRel               IN VARCHAR2,
+     pPrj               IN VARCHAR2,
+     pSchema            IN VARCHAR2 default USER,
+     ptopobuildtype     IN VARCHAR2 default 'A'
+  );
+
+   PROCEDURE DELETE_NEW_JOBS (
+      p_release          IN VARCHAR2,
+      p_gen_project_id   IN VARCHAR2
+   );
 
   PROCEDURE Validate_Job(pJobID IN VARCHAR2);
 
@@ -37,9 +47,13 @@ AS
   PROCEDURE Copy_Job_Prm(pSrc_Rel IN VARCHAR2, pSrc_Prj IN VARCHAR2, pTgt_Rel IN VARCHAR2, pTgt_Prj IN VARCHAR2);
 
   PROCEDURE Create_Empty_Prm_Tbls;
-  
+
   PROCEDURE CREATE_SETUP_TABLE_SUPPORT (
       setup_tbl            IN VARCHAR2
+   );
+   
+   PROCEDURE CREATE_PRM_TABLE_SUPPORT (
+      prm_tbl              IN VARCHAR2
    );
 
   PROCEDURE Create_Empty_Setup_Tbls;

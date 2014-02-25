@@ -1,5 +1,4 @@
-create or replace
-PACKAGE BODY GZ_QA AS
+CREATE OR REPLACE PACKAGE BODY GZ_QA AS
 
 --==============================================================================
 -- A package to compute quality assurance values for comparable polygon entities in
@@ -6805,7 +6804,7 @@ end;
 BEGIN
 
 -- First check Angles
-  Angles := Get_Angles(Geom,'NO');
+  Angles := Get_Angles(Geom,1000.);
 --  dbms_output.put_line('ANGLE ' || angles(1));
 --    dbms_output.put_line('new program');
 
@@ -8349,7 +8348,8 @@ FUNCTION GET_XYS(
 --Program Name: GetXys
 --Author: Sidey + Matt!
 --Creation Date:  June? 2009
---Updated:      4/1/20111 To allow absolute segments when ring is zero
+--Updated:      09/11/2013 To handle a range going around the end/start of ring
+--              4/1/20111 To allow absolute segments when ring is zero
 --              Feb 5/2010 to return a range of segments and preserve SRID: Sidey
 --
 --Usage:
@@ -8357,8 +8357,10 @@ FUNCTION GET_XYS(
 -- select MATTOOL.get_xys(a.sdogeometry,1,20028,NULL,20040) from
 -- j12802711008001_srcwrk a where a.oid = 4453141
 --
---Purpose: Return a segment, 2 segments or a range of segments from a geometry
---
+--Purpose: 1) Return a segment, 2 segments or a range of segments from a geometry
+--   2) Prints all digits when convert = 'PRINT' or
+--   3) sets SRID to NULL when convert <> '8265' and <> 'PRINT'
+
 --Method: Makes a new geometry
 --Dependencies: None
 --
@@ -8366,6 +8368,7 @@ FUNCTION GET_XYS(
 */
 
     XYOrd             MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+    New_XYs           MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
     Info              MDSYS.SDO_ELEM_INFO_ARRAY;
     geometry          MDSYS.SDO_GEOMETRY;
 
@@ -8373,10 +8376,7 @@ FUNCTION GET_XYS(
     ylast     NUMBER;
     xnew      NUMBER;
     ynew      NUMBER;
-    x2last    NUMBER;
-    y2last    NUMBER;
-    x2new     NUMBER;
-    y2new     NUMBER;
+
     k         PLS_INTEGER := -1;
     ring1     PLS_INTEGER := pring1;
     seg1_to_find   PLS_INTEGER := pseg1_to_find;
@@ -8386,14 +8386,30 @@ FUNCTION GET_XYS(
     LB        PLS_INTEGER;
     UB        PLS_INTEGER;
     j         PLS_INTEGER;
-    kount     PLS_INTEGER;
+    pos       PLS_INTEGER;
+    kount     PLS_INTEGER :=0;
     next      PLS_INTEGER;
+    n         PLS_INTEGER;
 
     GTYPE     NUMBER:= geom.SDO_GTYPE;
     SRID      NUMBER:= geom.SDO_SRID;
 
     retval   SDO_GEOMETRY;
 
+    procedure print_all_digits as
+    
+    ij      pls_integer;
+    begin
+         -- See full precision of coordinates in all their detail
+
+     if UPPER(convert) = 'PRINT' then
+        for ii in TRUNC((LB-1)/2)..TRUNC((LB+kount-2)/2) loop
+           ij := MOD(ii*2,XYOrd.count) +1;
+           dbms_output.put_line(XYOrd(ij)||','||XYOrd(ij+1)||',');
+        end loop;
+     end if;
+    
+    end;
 
 BEGIN
 
@@ -8402,19 +8418,21 @@ BEGIN
        RETURN NULL;
      End If;
 
-     If convert <> '8265' then
+     If convert <> '8265' and UPPER(convert) <> 'PRINT' then
         SRID :=NULL;
      end if;
 
      Info := geom.SDO_ELEM_INFO;
      XYORD := geom.SDo_Ordinates;
      rings := TRUNC(Info.count/3);
-     if ring1 = 0 then
+     
        next := 1;
        While next+3 < Info.count and 2*Abs(seg1_to_find) > Info(next+3) loop
           next := next +3;
        End loop;
-       ring1 := TRUNC(next/3) +1;
+
+     if ring1 = 0 then
+       ring1 := TRUNC(next/3) +1;    
        seg1_to_find := seg1_to_find - TRUNC(Info(next)/2);
      end if;
      if ring2 = 0 then
@@ -8428,48 +8446,90 @@ BEGIN
      j := (ring1-1) *3 + 1;
      LB := Info(j) + (abs(seg1_to_find) -1) *2;    --  ( I presume he gives the relative segment number)
 --     dbms_output.put_line('ring ' || ring1 || ' CN ' || LB);
+
+     if LB +3 > XYOrd.count then LB := XYOrd.count -3; end if;
+      if LB < 1 or LB +3 > XYOrd.count then
+        RETURN NULL;
+     end if;
      xlast := XYOrd(LB);
      ylast := XYOrd(LB+1);
      xnew := XYOrd(LB+2);
      ynew := XYOrd(LB+3);
-
+     kount :=4;
+     
      IF ring2 IS NOT NULL
      THEN
         j := (ring2-1) *3 + 1;
      END IF;
 
-     if seg2_to_find is NULL then
+     if seg2_to_find is NULL or ( seg1_to_find = seg2_to_find and ring1=ring2) then
        retval := sdo_geometry (2002, SRID, null,
                               sdo_elem_info_array (1,2,1),
                               sdo_ordinate_array (xlast,ylast, xnew,ynew));
--- Return a range:
+                              
+-- Return a range: the range maygo around the end of a polygon like this:
+-- select gz_qa2.get_xys(sdogeometry,1,-408,1,4) from z640sp_clip_face where face_id=56
+
      elsif (seg1_to_find < 0 or seg2_to_find < 0) and ring1 = ring2 then
 
+        if abs(seg2_to_find) < abs(seg1_to_find) then
+           n := XyOrd.count;
+           if next <> 1 then
+              n := Info(next)-1;
+           end if;
+           
+           kount := abs(seg2_to_find)*2;
+           if kount > XyOrd.count then
+              kount := XyOrd.count;
+           end if;
+           kount := n-LB+1 +kount;
+           New_Xys.extend(kount);
+           For ii in LB..n Loop
+             New_Xys(ii-LB+1) := XYOrd(ii); 
+           End Loop;
+-- Skip 1st coordinate           
+           kount := abs(seg2_to_find)*2+2;
+           For ii in 3..kount Loop            
+             New_Xys(ii+n-LB-1) := XYOrd(ii);
+           End Loop;
+           
+           LB := 1;
+           XYOrd := New_Xys;
+           
+        else
         kount := ((abs(seg2_to_find) - abs(seg1_to_find)) +2) *2;
-        if kount > XyOrd.count then
-          kount := XyOrd.count;
+        if LB+kount-1 > XyOrd.count then
+          kount := XyOrd.count-LB+1;
         end if;
+        
         For ii in 1..kount Loop
-           XYOrd(ii) := XYOrd(LB);
-           LB := LB + 1;
+           XYOrd(ii) := XYOrd(LB+ii-1);
         End Loop;
 
+        LB :=1;
         XYOrd.trim(XYOrd.count-kount);
+        end if;
+        kount := XYOrd.count;
+        
+        if xyord(1) = xyord(Xyord.count-1) and xyord(2) = xyord(xyord.count) then
+          retval := sdo_geometry (2003, SRID, null,
+                              sdo_elem_info_array (1,1003,1), XYOrd);
+        else
         retval := sdo_geometry (2002, SRID, null,
-                              sdo_elem_info_array (1,2,1),
-                              XYOrd);
+                              sdo_elem_info_array (1,2,1), XYOrd);
+        end if;
      else
-        LB := Info(j) + (seg2_to_find -1) *2;    --  ( I presume he gives the relative segment number)
 
-         x2last := XYOrd(LB);
-         y2last := XYOrd(LB+1);
-         x2new  := XYOrd(LB+2);
-         y2new  := XYOrd(LB+3);
-         retval := sdo_geometry (2006, SRID, null,
+        LB := Info(j) + (seg2_to_find -1) *2;    --  ( I presume he gives the relative segment number)
+        kount := 4;
+        retval := sdo_geometry (2006, SRID, null,
                               sdo_elem_info_array (1,2,1, 5,2,1),
                               sdo_ordinate_array (xlast,ylast, xnew,ynew,
-                                                  x2last,y2last, x2new,y2new));
+                              XYOrd(LB),XYOrd(LB+1),XYOrd(LB+2),XYOrd(LB+3)));
+                  
      end if;
+     
+     print_all_digits;
 
      RETURN retval;
 
@@ -13388,7 +13448,7 @@ BEGIN
    END IF;
 
    --now check to see if output table already exists in schema...
-   IF GZ_UTILITIES.gz_table_exists(vOutputTable) THEN
+   IF GZ_BUSINESS_UTILS.gz_table_exists(vOutputTable) THEN
     psql := 'truncate table ' || vOutputTable || '';
     EXECUTE IMMEDIATE psql;
    ELSE
@@ -14554,3 +14614,4 @@ BEGIN
   RETURN geom;
 END;
 END GZ_QA;
+/

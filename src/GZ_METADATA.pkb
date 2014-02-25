@@ -21,14 +21,14 @@ AS
       ----------------------------------------------------------------------------------
       
       --Create gz_shp_metadata if it does not exist or recreate it if it does not have any records yet.
-      IF GZ_UTILITIES.GZ_TABLE_EXISTS('GZ_SHP_METADATA')
+      IF GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS('GZ_SHP_METADATA')
        THEN
 
             dbms_output.put_line('GZ_METADATA.run_shapefiles_and_metadata: GZ_SHP_METADATA exists and contains data!  Leave it be.');
          
       END IF;
   
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS('GZ_SHP_METADATA')
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS('GZ_SHP_METADATA')
        THEN
 
             dbms_output.put_line('GZ_METADATA.run_shapefiles_and_metadata: GZ_SHP_METADATA does not exist or does not have records populated yet.  Why not just remake that guy.');
@@ -51,7 +51,7 @@ AS
   )
   AS 
   
-       p_table_name	   VARCHAR2(4000) := 'GZ_SHP_METADATA';
+       p_table_name      VARCHAR2(4000) := 'GZ_SHP_METADATA';
        v_object_root   VARCHAR2(4000) := p_table_name;  --??
   
   BEGIN
@@ -63,7 +63,7 @@ AS
      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
      ----------------------------------------------------------------------------------
   
-  	 GZ_WORKFLOW.CREATE_TABLE(USER, p_table_name, 'GZ_TYPES.GZ_SHP_METADATA' , 'N');
+      GZ_WORKFLOW.CREATE_TABLE(USER, p_table_name, 'GZ_TYPES.GZ_SHP_METADATA' , 'N');
           
        
      ----------------------------------------------------------------------------------
@@ -103,7 +103,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
       
       END;
       

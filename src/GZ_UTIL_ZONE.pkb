@@ -535,7 +535,7 @@ BEGIN
                            Gtype, SRID,Xes,Yes,Keep_it);
                            
  -- Check Validity of edges with Matthews function
-          geom_is_valid := GZ_Utilities.VALIDATE_LINES_WITH_CONTEXT(Gen_geometry,tolerance);
+          geom_is_valid := GZ_geom_utils.VALIDATE_LINES_WITH_CONTEXT(Gen_geometry,tolerance);
  
 --  dbms_output.put_line(' Geom is Valid ' || geom_is_valid ||' gen count ' || Gen_geometry.sdo_ordinates.count);
           If Gen_Geometry is NOT NULL THEN
@@ -1169,7 +1169,7 @@ dbms_output.put_line('After bends : ' || next);
 --       end if;
   
 -- Check Validity of edges with Matthews function
-          geom_is_valid := GZ_Utilities.VALIDATE_LINES_WITH_CONTEXT(Gen_geometry,tolerance);
+          geom_is_valid := GZ_geom_utils.VALIDATE_LINES_WITH_CONTEXT(Gen_geometry,tolerance);
 --if geom_is_valid <> 'TRUE' then
 --dbms_output.put_line('For id ' || id || ' Geom is Valid ' || geom_is_valid || ' pos ' || pos || ' gen ' || genxyarray.count);
 --end if;
@@ -4325,6 +4325,7 @@ FUNCTION TRIANGLE_Area(x0 IN OUT NOCOPY NUMBER,y0 IN OUT NOCOPY NUMBER,
 */
 
   area        NUMBER;
+  are         NUMBER;
 --  pi        CONSTANT NUMBER := 3.1415926535897932384626433832795028842;
   s           NUMBER;
   a           NUMBER;
@@ -4334,6 +4335,8 @@ FUNCTION TRIANGLE_Area(x0 IN OUT NOCOPY NUMBER,y0 IN OUT NOCOPY NUMBER,
   az1         NUMBER;
   az2         NUMBER;
   m12         NUMBER;
+  m21                   number;
+  mm12                  number;
   factor   CONSTANT   NUMBER := .000000156785594288739197829882343743975478;
   oarea       NUMBER;
   check_it    NUMBER;
@@ -4359,9 +4362,9 @@ BEGIN
   
     if (s-a) < 0.0 or (s-b) < 0.0 or (s-c) < 0.0 then
 --    dbms_output.put_line('calling geodesic');
-       sig := gz_geodesic.inverse(y0,x0,y1,x1,a,az1,az2,m12);
-       sig := gz_geodesic.inverse(y2,x2,y1,x1,b,az1,az2,m12);
-       sig := gz_geodesic.inverse(y2,x2,y0,x0,c,az2,az1,m12);
+       sig := gz_GEODESIC.inverse(y0,x0,y1,x1,a,az1,az2,mm12,m12,m21,are);
+       sig := gz_GEODESIC.inverse(y2,x2,y1,x1,b,az1,az2,mm12,m12,m21,are);
+       sig := gz_GEODESIC.inverse(y2,x2,y0,x0,c,az2,az1,mm12,m12,m21,are);
 --       dbms_output.put_line('AA ' || a || ' B ' || b || ' C ' || c); 
     end if;
   
@@ -11709,12 +11712,15 @@ procedure test_accurate_length as
    y2  number;
 --   geometry    mdsys.sdo_geometry;
 
+   area  number;
    d     number;
    d_K   number;
    s     number;
    az1   number;
    az2   number;
    m12   number;
+   m21                   number;
+   mm12                  number;
    rms   number :=0.0;
    maxim number :=0.0;
    where_maxim VARCHAR2(20);
@@ -11739,7 +11745,7 @@ begin
     d := accurate_gcd(x1,y1,x2,y2);
 --    d := gz_qa.distance_fcn(x1,y1,x2,y2);
     
-    s := GZ_geodesic.inverse(y1,x1,y2,x2,d_K,az1,az2,m12);
+    s := GZ_GEODESIC.inverse(y1,x1,y2,x2,d_K,az1,az2,mm12,m12,m21,area);
  
 --    dbms_output.put_line('LAT ' || jj || ' AZ ' || II ||' Karney ' || ROUND(d_K,8) || ' d ' || round(d,8) || ' Diff ' || round(d_K-d,7));
     loops := loops + 1;
@@ -11763,6 +11769,7 @@ procedure test_triangle_area as
    y2  number := 40.001;
    geometry    mdsys.sdo_geometry;
    area number;
+   are   number;
    oarea number;
    a     number;
    b     number;
@@ -11773,6 +11780,8 @@ procedure test_triangle_area as
    az1   number;
    az2   number;
    m12   number;
+   m21                   number;
+   mm12                  number;
 begin
   x0 := -117.271112000000002240085450466722249985;
   y0 := 34.02076300000000230738805839791893959045;
@@ -11803,9 +11812,9 @@ begin
   b := accurate_gcd(x2,y2,x1,y1);
   c := accurate_gcd(x0,y0,x2,y2);
    dbms_output.put_line('SIDEY  a ' || ROUND(a,10) || ' b ' || round(b,10) || 'c ' || round(c,10));
-  s := GZ_geodesic.inverse(y0,x0,y1,x1,a,az1,az2,m12);
-  s := GZ_geodesic.inverse(y2,x2,y1,x1,b,az1,az2,m12);
-  s := GZ_geodesic.inverse(y2,x2,y0,x0,c,az2,az1,m12);
+  s := GZ_GEODESIC.inverse(y0,x0,y1,x1,a,az1,az2,mm12,m12,m21,are);
+  s := GZ_GEODESIC.inverse(y2,x2,y1,x1,b,az1,az2,mm12,m12,m21,are);
+  s := GZ_GEODESIC.inverse(y2,x2,y0,x0,c,az2,az1,mm12,m12,m21,are);
   dbms_output.put_line('KARNEY a ' || round(a,10) || ' b ' || round(b,10) || 'c ' || round(c,10));
 
   area := triangle_area(x0,y0,x1,y1,x2,y2);
@@ -11833,8 +11842,11 @@ Rot_xys      mdsys.sdo_ordinate_array;
    dy number;
    b1 number;
    b2 number;
+   are                   number;
    s                     number;
    m12                   number;
+   m21                   number;
+   mm12                  number;
    az1                   number;
    az2                   number;
    az3                   number;
@@ -11873,8 +11885,8 @@ begin
     included_angle := angle(x1,y1,x2,y2,x3,y3,b1,b2);
     dbms_output.put_line('b1 ' || round(b1,5) || ' b2 '|| round(b2,5));
 
-        s := GZ_geodesic.inverse(y2,x2,y1,x1,gcd_K,az1,az2,m12);
-        s := GZ_geodesic.inverse(y2,x2,y3,x3,gcd_K,az2,az4,m12);
+        s := GZ_GEODESIC.inverse(y2,x2,y1,x1,gcd_K,az1,az2,mm12,m12,m21,are);
+        s := GZ_GEODESIC.inverse(y2,x2,y3,x3,gcd_K,az2,az4,mm12,m12,m21,are);
  
         if az1 < 0.0 then
           az1 := -az1+90.;

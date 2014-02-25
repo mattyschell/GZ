@@ -99,11 +99,11 @@ AS
       p_tolerance          IN NUMBER DEFAULT .05,
       p_snapping_digits    IN NUMBER DEFAULT 16
    ) RETURN VARCHAR2;
-   
+
    FUNCTION REMOVE_BADDY_EDGE (
       p_output_topology    IN VARCHAR2,
       p_errm               IN VARCHAR2
-   ) RETURN NUMBER;      
+   ) RETURN NUMBER;
 
    PROCEDURE LOAD_TOPO_TILE (
       p_input_schema       IN VARCHAR2,
@@ -118,6 +118,24 @@ AS
       p_delta              IN NUMBER DEFAULT .05,
       p_mask_override      IN VARCHAR2 DEFAULT NULL
    );
+
+   FUNCTION GET_GENESIS_EDGE_ID (
+      p_topology           IN VARCHAR2,
+      p_current_edge_geom  IN SDO_GEOMETRY,
+      p_dbug               IN NUMBER DEFAULT 0
+   ) RETURN NUMBER;
+
+   FUNCTION FIX_MYSTERY_FACE (
+      p_topology           IN VARCHAR2,
+      p_mystery_face       IN NUMBER,
+      p_tolerance          IN NUMBER DEFAULT .05
+   ) RETURN NUMBER;
+
+   FUNCTION FACE_HAS_KNOWN_EDGES (
+      p_topology           IN VARCHAR2,
+      p_mystery_face       IN NUMBER,
+      p_mystery_edges      IN GZ_TYPES.numberarray
+   ) RETURN VARCHAR2;
 
    FUNCTION LOAD_OUTPUT_TOPOLOGY (
       p_schema             IN VARCHAR2,
@@ -167,7 +185,7 @@ AS
       p_project_id         IN VARCHAR2,
       p_output_topology    IN VARCHAR2
    ) RETURN VARCHAR2;
-   
+
    PROCEDURE POPULATE_BUILD_GEOID (
       p_output_topology    IN VARCHAR2,
       p_column_name        IN VARCHAR2 DEFAULT 'GEOID',
@@ -189,7 +207,9 @@ AS
       p_output_topology    IN VARCHAR2,
       p_tolerance          IN NUMBER,
       p_srid               IN NUMBER,
-      p_fix_edge           IN VARCHAR2 DEFAULT NULL
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N'
    ) RETURN VARCHAR2;
 
    FUNCTION FINALIZE_AND_VALIDATE (
@@ -197,7 +217,8 @@ AS
       p_project_id         IN VARCHAR2,
       p_output_topology    IN VARCHAR2,
       p_tile_kount         IN NUMBER,
-      p_drop_tables        IN VARCHAR2 DEFAULT 'Y'
+      p_drop_tables        IN VARCHAR2 DEFAULT 'Y',
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2;
 
    FUNCTION GENERALIZATION_TOPO_BUILD (
@@ -215,7 +236,10 @@ AS
       p_tolerance          IN NUMBER DEFAULT .05,
       p_snapping_digits    IN NUMBER DEFAULT 16,
       p_drop_tables        IN VARCHAR2 DEFAULT 'Y',
-      p_fix_edge           IN VARCHAR2 DEFAULT 'Y'
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'Y'      
    ) RETURN VARCHAR2;
 
    FUNCTION GZ_GET_FACES (
@@ -272,7 +296,7 @@ AS
       p_whereclause        IN VARCHAR2,
       p_oid_col            IN VARCHAR2 DEFAULT 'OID'
    ) RETURN VARCHAR2;
-   
+
    FUNCTION SDO_GET_OID_FROM_FACE (
       p_owner              IN VARCHAR2,
       p_topology           IN VARCHAR2,
@@ -287,7 +311,7 @@ AS
    FUNCTION TIDY_TILES (
       p_tiles                IN GZ_TYPES.geomarray
    ) RETURN GZ_TYPES.geomarray;
-   
+
    FUNCTION GET_GEODETIC_MBR_WIDTH (
      p_mbr              IN SDO_GEOMETRY,
      p_tolerance        IN NUMBER DEFAULT .05
@@ -324,7 +348,7 @@ AS
    FUNCTION GEODETIC_MBR_CONSIDERATIONS (
       p_tile                IN SDO_GEOMETRY
    ) RETURN SDO_GEOMETRY;
-   
+
    FUNCTION AGGR_MBR_NEAR_DATELINE (
       p_tab                IN VARCHAR2,
       p_pkc_col            IN VARCHAR2,

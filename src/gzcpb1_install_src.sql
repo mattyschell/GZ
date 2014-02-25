@@ -5,7 +5,7 @@ set pagesize 0;
 set define off;
 set scan off;
 timing start;
-spool "/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/schel010_install_log.txt";
+spool "/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/gzcpb1_install_log.txt";
 begin 
   DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_FEATURE_FACE.tps...');
 end;
@@ -18,28 +18,6 @@ GRANT EXECUTE ON GZ_FEATURE_FACE TO "PUBLIC";
 timing show;
 
 begin 
-  DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_TOPO_EDGE.tps...');
-end;
-/
-@"/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_TOPO_EDGE.tps";
-/
-show errors;
-GRANT EXECUTE ON GZ_TOPO_EDGE TO "PUBLIC";
-
-timing show;
-
-begin 
-  DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/gz_topo_edge_list.tps...');
-end;
-/
-@"/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/gz_topo_edge_list.tps";
-/
-show errors;
-GRANT EXECUTE ON gz_topo_edge_list TO "PUBLIC";
-
-timing show;
-
-begin 
   DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_FEATURE_FACE.tpb...');
 end;
 /
@@ -47,17 +25,6 @@ end;
 /
 show errors;
 GRANT EXECUTE ON GZ_FEATURE_FACE TO "PUBLIC";
-
-timing show;
-
-begin 
-  DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_TOPO_EDGE.tpb...');
-end;
-/
-@"/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_TOPO_EDGE.tpb";
-/
-show errors;
-GRANT EXECUTE ON GZ_TOPO_EDGE TO "PUBLIC";
 
 timing show;
 
@@ -91,17 +58,6 @@ end;
 /
 show errors;
 GRANT EXECUTE ON GZ_CLIP TO "PUBLIC";
-
-timing show;
-
-begin 
-  DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_DADSGEN.pks...');
-end;
-/
-@"/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_DADSGEN.pks";
-/
-show errors;
-GRANT EXECUTE ON GZ_DADSGEN TO "PUBLIC";
 
 timing show;
 
@@ -201,17 +157,6 @@ end;
 /
 show errors;
 GRANT EXECUTE ON GZ_OUTPUT TO "PUBLIC";
-
-timing show;
-
-begin 
-  DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_PIPES.pks...');
-end;
-/
-@"/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_PIPES.pks";
-/
-show errors;
-GRANT EXECUTE ON GZ_PIPES TO "PUBLIC";
 
 timing show;
 
@@ -403,17 +348,6 @@ GRANT EXECUTE ON GZ_CLIP TO "PUBLIC";
 timing show;
 
 begin 
-  DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_DADSGEN.pkb...');
-end;
-/
-@"/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_DADSGEN.pkb";
-/
-show errors;
-GRANT EXECUTE ON GZ_DADSGEN TO "PUBLIC";
-
-timing show;
-
-begin 
   DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_FSL.pkb...');
 end;
 /
@@ -509,17 +443,6 @@ end;
 /
 show errors;
 GRANT EXECUTE ON GZ_OUTPUT TO "PUBLIC";
-
-timing show;
-
-begin 
-  DBMS_OUTPUT.PUT_LINE('Installing /mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_PIPES.pkb...');
-end;
-/
-@"/mtdata004/mapping/gz/dev/devbnch/schel010/generalization/src/GZ_PIPES.pkb";
-/
-show errors;
-GRANT EXECUTE ON GZ_PIPES TO "PUBLIC";
 
 timing show;
 

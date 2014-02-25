@@ -40,6 +40,10 @@ AS
 
  TYPE doublenumarray IS TABLE OF doublenum
  INDEX BY PLS_INTEGER;
+
+ TYPE nestedhash IS TABLE OF GZ_TYPES.numberhash
+ INDEX BY VARCHAR2(4000);
+
  --
  --
  --Used in eliminate small polygons
@@ -205,19 +209,21 @@ AS
  --
 TYPE SHAPEFILE_PARAMETERS_REC IS RECORD(
  RELEASE             VARCHAR2(10),
- GEN_PROJECT_ID VARCHAR2(4),
- QA_STRING        VARCHAR2(10),
- FSL_STRING       VARCHAR2(10),
- YEAR             VARCHAR2(20),
- GEN_LEVEL        VARCHAR2(4),
- GENCODE          VARCHAR2(1),
- PROJECTION       VARCHAR2(50),
- QA_UNGEN_OUT_DIR VARCHAR2(200),
- QA_OUT_DIR       VARCHAR2(200),
- PRD_OUT_DIR      VARCHAR2(200),
- STATE_TOPO_FLAG  VARCHAR2(1),
- DEL_CPG_FLAG     VARCHAR2(3),
- MAPPING_FILE_DIR VARCHAR2(200)
+ GEN_PROJECT_ID      VARCHAR2(4),
+ QA_STRING           VARCHAR2(10),
+ FSL_STRING          VARCHAR2(10),
+ YEAR                VARCHAR2(20),
+ GEN_LEVEL           VARCHAR2(4),
+ GENCODE             VARCHAR2(1),
+ PROJECTION          VARCHAR2(50),
+ QA_UNGEN_OUT_DIR    VARCHAR2(200),
+ QA_OUT_DIR          VARCHAR2(200),
+ PRD_OUT_DIR         VARCHAR2(200),
+ STATE_TOPO_FLAG     VARCHAR2(1),
+ DEL_CPG_FLAG        VARCHAR2(3),
+ MAPPING_FILE_DIR    VARCHAR2(200),
+ USER_LAST_MODIFIED  VARCHAR2(32),
+ DATE_LAST_MODIFIED  DATE
 );
  TYPE SHAPEFILE_PARAMETERS IS TABLE OF SHAPEFILE_PARAMETERS_REC;
  --
@@ -439,7 +445,8 @@ TYPE SHAPEFILE_PARAMETERS_REC IS RECORD(
 
     TYPE GZ_BUILD_GEOM_REC IS RECORD (
       edge_id                 NUMBER,
-      geometry                SDO_GEOMETRY
+      geometry                SDO_GEOMETRY,
+      processed               NUMBER
     );
     TYPE GZ_BUILD_GEOM IS TABLE OF GZ_BUILD_GEOM_REC;
 
@@ -541,6 +548,9 @@ TYPE SHAPEFILE_PARAMETERS_REC IS RECORD(
      SINGLE_LAYER          VARCHAR2(1),
      TILE_COUNT_STATE      NUMBER,
      TILE_COUNT_NATION     NUMBER,
+     SLIVER_PRCS_UNIT      VARCHAR2(1),
+     SLIVER_WIDTH          NUMBER,
+     SEGMENT_LENGTH        NUMBER,
      SRID                  NUMBER,
      TOLERANCE             NUMBER,
      DROP_TABLES           VARCHAR2(1),
@@ -672,11 +682,13 @@ TYPE SHAPEFILE_PARAMETERS_REC IS RECORD(
 
    TYPE GZ_ENTITY_TABLE_REC IS RECORD(
       RELEASE                                            VARCHAR2(10),
-      GEN_PROJECT_ID                                         VARCHAR2(4),
+      GEN_PROJECT_ID                                     VARCHAR2(4),
       ENTITY_CODE                                        VARCHAR2(4),
       ENTITY                                             VARCHAR2(10),
       ENTITY_TYPE                                        VARCHAR2(10),
-      DESCRIPTION                                        VARCHAR2(100)
+      DESCRIPTION                                        VARCHAR2(100),
+      USER_LAST_MODIFIED                                 VARCHAR2(32),
+      DATE_LAST_MODIFIED                                 DATE
    );
    TYPE GZ_ENTITY_TABLE IS TABLE OF GZ_ENTITY_TABLE_REC;
 
@@ -720,7 +732,9 @@ TYPE SHAPEFILE_PARAMETERS_REC IS RECORD(
       RUN_STATUS       VARCHAR2(1),
       START_TIME       DATE,
       END_TIME         DATE,
-      COMMENTS         VARCHAR2(400)
+      COMMENTS         VARCHAR2(4000),
+      USER_LAST_MODIFIED    VARCHAR2(32),
+      DATE_LAST_MODIFIED    DATE
    );
    TYPE GZ_JOB_SETUP IS TABLE OF GZ_JOB_SETUP_REC;
 
@@ -731,7 +745,7 @@ TYPE SHAPEFILE_PARAMETERS_REC IS RECORD(
       STATUS            VARCHAR2(32),
       START_TIME        DATE,
       END_TIME          DATE,
-      COMMENTS          VARCHAR2(400),
+      COMMENTS          VARCHAR2(4000),
       USER_LAST_MODIFIED     VARCHAR2(20),
       DATE_LAST_MODIFIED     DATE
    );
@@ -750,7 +764,9 @@ TYPE SHAPEFILE_PARAMETERS_REC IS RECORD(
      STATUS            VARCHAR2(32),
      START_TIME       DATE,
      END_TIME         DATE,
-     COMMENTS          VARCHAR2(400)
+     COMMENTS          VARCHAR2(4000),
+     USER_LAST_MODIFIED    VARCHAR2(32),
+     DATE_LAST_MODIFIED    DATE
    );
    TYPE GZ_TOPOBUILD_SETUP IS TABLE OF GZ_TOPOBUILD_SETUP_REC;
 
@@ -767,49 +783,71 @@ TYPE GZ_BUILD_SOURCE_SETUP_REC IS RECORD(
      SRID               NUMBER,
      TOLERANCE          NUMBER,
      SNAPPING_DIGITS    NUMBER,
-     DROP_TABLES        VARCHAR2(1),
+     VALIDATE_TOPO      VARCHAR2(1),
+     TOPOFIX_EDGE       VARCHAR2(1),
+     TOPOFIX_2EDGE      VARCHAR2(1),
      TOPOFIX_QA         VARCHAR2(1),
+     DROP_TABLES        VARCHAR2(1),
      STATUS             VARCHAR2(32),
      START_TIME         DATE,
      END_TIME           DATE,
-     COMMENTS           VARCHAR2(400)
+     COMMENTS           VARCHAR2(4000),
+     USER_LAST_MODIFIED    VARCHAR2(32),
+     DATE_LAST_MODIFIED    DATE
    );
 
 TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
 
    TYPE GZ_OUTPUT_SETUP_REC IS RECORD(
-     JOBID             VARCHAR2(20),
-     SOURCE_SCHEMA    VARCHAR2(30),
-     SOURCE_TOPOLOGY  VARCHAR2(32),
-     OUTPUT_TOPOLOGY   VARCHAR2(32),
-     MODULES                   VARCHAR(20),
-     RESTART_FLAG         VARCHAR2(1),
-     SINGLE_LAYER           VARCHAR2(10),
-     TILE_COUNT              NUMBER,
-     SRID                        NUMBER,
+     JOBID                 VARCHAR2(20),
+     SOURCE_SCHEMA         VARCHAR2(30),
+     SOURCE_TOPOLOGY       VARCHAR2(32),
+     OUTPUT_TOPOLOGY       VARCHAR2(32),
+     MODULES               VARCHAR(20),
+     RESTART_FLAG          VARCHAR2(1),
+     SINGLE_LAYER          VARCHAR2(10),
+     TILE_COUNT            NUMBER,
+     PRCS_SLIVERS          VARCHAR2(1),
+     SLIVER_RESTART_FLAG   VARCHAR2(1),
+     SLIVER_WIDTH          NUMBER,
+     SEGMENT_LENGTH        NUMBER,
+     EXPENDABLE_REVIEW     VARCHAR2(4),
+     RESHAPE_REVIEW        VARCHAR2(4),
+     SRID                  NUMBER,
      TOLERANCE             NUMBER,
-     DROP_TABLES         VARCHAR2(1),
-     STATUS            VARCHAR2(32),
-     START_TIME       DATE,
-     END_TIME         DATE,
-     COMMENTS          VARCHAR2(400)
+     VALIDATE_TOPO         VARCHAR2(1),
+     TOPOFIX_EDGE          VARCHAR2(1),
+     TOPOFIX_2EDGE         VARCHAR2(1),
+     TOPOFIX_QA            VARCHAR2(1),
+     DROP_TABLES           VARCHAR2(1),
+     STATUS                VARCHAR2(32),
+     START_TIME            DATE,
+     END_TIME              DATE,
+     COMMENTS              VARCHAR2(4000),
+     USER_LAST_MODIFIED    VARCHAR2(32),
+     DATE_LAST_MODIFIED    DATE
    );
    TYPE  GZ_OUTPUT_SETUP IS TABLE OF  GZ_OUTPUT_SETUP_REC;
 
    TYPE GZ_CLIP_SETUP_REC IS RECORD(
-      JOBID            VARCHAR2(20),
-      GEN_CLIP_MASK    VARCHAR2(32),
-      CL_JOBID         VARCHAR2(10),
-      TOPO_IN          VARCHAR2(20),
-      TOPO_OUT         VARCHAR2(20),
-      GEN_CLIP_MODULES VARCHAR2(20),
-      DROP_TABLES      VARCHAR2(1),
-      TRANSFER_ATTS    VARCHAR2(1),
-      TOPOFIX_QA       VARCHAR2(1),
-      STATUS           VARCHAR2(32),
-      START_TIME       DATE,
-      END_TIME         DATE,
-      COMMENTS         VARCHAR2(400)
+      JOBID                VARCHAR2(20),
+      GEN_CLIP_MASK        VARCHAR2(32),
+      CL_JOBID             VARCHAR2(10),
+      TOPO_IN              VARCHAR2(20),
+      TOPO_OUT             VARCHAR2(20),
+      GEN_CLIP_MODULES     VARCHAR2(20),
+      DROP_TABLES          VARCHAR2(1),
+      TRANSFER_ATTS        VARCHAR2(1),
+      VALIDATE_TOPO        VARCHAR2(1),
+      TOPOFIX_EDGE         VARCHAR2(1),
+      TOPOFIX_2EDGE        VARCHAR2(1),
+      TOPOFIX_QA           VARCHAR2(1),
+      STATUS               VARCHAR2(32),
+      START_TIME           DATE,
+      END_TIME             DATE,
+      COMMENTS             VARCHAR2(4000),
+      USER_LAST_MODIFIED   VARCHAR2(32),
+      DATE_LAST_MODIFIED   DATE
    );
    TYPE GZ_CLIP_SETUP IS TABLE OF GZ_CLIP_SETUP_REC;
 
@@ -822,26 +860,36 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
       GEOID_COL         VARCHAR2(30),
       RUNID             VARCHAR2(5),
       CLEANUP           VARCHAR2(1),
+      VALIDATE_TOPO     VARCHAR2(1),
+      TOPOFIX_EDGE      VARCHAR2(1),
+      TOPOFIX_2EDGE     VARCHAR2(1),
       TOPOFIX_QA        VARCHAR2(1),
       STATUS            VARCHAR2(32),
       START_TIME        DATE,
       END_TIME          DATE,
-      COMMENTS          VARCHAR2(400)
+      COMMENTS          VARCHAR2(4000),
+      USER_LAST_MODIFIED    VARCHAR2(32),
+      DATE_LAST_MODIFIED    DATE
    );
    TYPE GZ_SMPOLY_SETUP IS TABLE OF GZ_SMPOLY_SETUP_REC;
 
    TYPE GZ_LINESIM_SETUP_REC IS RECORD(
-      JOBID             VARCHAR2(32),
-      LS_MODULES        VARCHAR2(32),
-      TOPO_IN           VARCHAR2(20),
-      TOPO_OUT          VARCHAR2(20),
-      STATEFP           VARCHAR2(2),
-      SKIP_EDGES_TABLE  VARCHAR2(4000),
-      TOPOFIX_QA        VARCHAR2(1),
-      STATUS            VARCHAR2(32),
-      START_TIME        DATE,
-      END_TIME          DATE,
-      COMMENTS          VARCHAR2(400)
+      JOBID                VARCHAR2(32),
+      LS_MODULES           VARCHAR2(32),
+      TOPO_IN              VARCHAR2(20),
+      TOPO_OUT             VARCHAR2(20),
+      STATEFP              VARCHAR2(2),
+      SKIP_EDGES_TABLE     VARCHAR2(4000),
+      VALIDATE_TOPO        VARCHAR2(1),
+      TOPOFIX_EDGE         VARCHAR2(1),
+      TOPOFIX_2EDGE        VARCHAR2(1),
+      TOPOFIX_QA           VARCHAR2(1),
+      STATUS               VARCHAR2(32),
+      START_TIME           DATE,
+      END_TIME             DATE,
+      COMMENTS             VARCHAR2(4000),
+      USER_LAST_MODIFIED   VARCHAR2(32),
+      DATE_LAST_MODIFIED   DATE
    );
    TYPE GZ_LINESIM_SETUP IS TABLE OF GZ_LINESIM_SETUP_REC;
 
@@ -853,11 +901,16 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
       FACE_OUT_TBL_EXT  VARCHAR2(20),
       MRG_MODULES       VARCHAR2(10),
       RESTART           VARCHAR2(1),
+      VALIDATE_TOPO     VARCHAR2(1),
+      TOPOFIX_EDGE      VARCHAR2(1),
+      TOPOFIX_2EDGE     VARCHAR2(1),
       TOPOFIX_QA        VARCHAR2(1),
       STATUS            VARCHAR2(32),
       START_TIME        DATE,
       END_TIME          DATE,
-      COMMENTS          VARCHAR2(400)
+      COMMENTS          VARCHAR2(4000),
+      USER_LAST_MODIFIED    VARCHAR2(32),
+      DATE_LAST_MODIFIED    DATE
    );
    TYPE GZ_MERGE_SETUP IS TABLE OF GZ_MERGE_SETUP_REC;
 
@@ -875,7 +928,9 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
       STATUS            VARCHAR2(32),
       START_TIME       DATE,
       END_TIME         DATE,
-      COMMENTS          VARCHAR2(400)
+      COMMENTS          VARCHAR2(4000),
+      USER_LAST_MODIFIED    VARCHAR2(32),
+      DATE_LAST_MODIFIED    DATE
    );
    TYPE GZ_FSLBUILD_SETUP IS TABLE OF GZ_FSLBUILD_SETUP_REC;
 
@@ -900,7 +955,9 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
       STATUS            VARCHAR2(32),
       START_TIME       DATE,
       END_TIME         DATE,
-      COMMENTS          VARCHAR2(400)
+      COMMENTS          VARCHAR2(4000),
+      USER_LAST_MODIFIED    VARCHAR2(32),
+      DATE_LAST_MODIFIED    DATE
    );
    TYPE GZ_QA_SETUP IS TABLE OF GZ_QA_SETUP_REC;
 
@@ -922,7 +979,9 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
       STATUS           VARCHAR2(32),
       START_TIME       DATE,
       END_TIME         DATE,
-      COMMENTS         VARCHAR2(400)
+      COMMENTS         VARCHAR2(4000),
+      USER_LAST_MODIFIED    VARCHAR2(32),
+      DATE_LAST_MODIFIED    DATE
    );
    TYPE GZ_SHAPEFILE_SETUP IS TABLE OF GZ_SHAPEFILE_SETUP_REC;
 
@@ -946,6 +1005,7 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
       SHP_CREATION_DATE        DATE,
       MISSING_GEOID_LIST    VARCHAR2(4000),
       FME_RESULT            VARCHAR2(1000),
+      FEATURE_COUNT         NUMBER,
       FME_VERSION           VARCHAR2(100),
       QA_STATUS                VARCHAR2(14),
       QA_DATE                DATE,
@@ -1031,15 +1091,17 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
    --OUTPUT module types
 
    TYPE GZ_LAYERS_OUT_REC IS RECORD (
-      release                 VARCHAR2(64),
-      gen_project_id          VARCHAR2(4),
-      layer                   VARCHAR2(30),
-      description             VARCHAR2(4000),
-      layer_type              VARCHAR2(64),
-      add_to_face             VARCHAR2(30), --fill in layer value?
-      notes                   VARCHAR2(4000),
-      user_last_modified      VARCHAR2(32),
-      date_last_modified      DATE
+      release                    VARCHAR2(64),
+      gen_project_id             VARCHAR2(4),
+      layer                      VARCHAR2(30),
+      description                VARCHAR2(4000),
+      layer_type                 VARCHAR2(64),
+      add_to_face                VARCHAR2(30), --fill in layer value?
+      sliver_extinct_clause      VARCHAR2(4000),
+      sliver_exempt              VARCHAR2(1),
+      notes                      VARCHAR2(4000),
+      user_last_modified         VARCHAR2(32),
+      date_last_modified         DATE
    );
    TYPE GZ_LAYERS_OUT IS TABLE OF GZ_LAYERS_OUT_REC;
 
@@ -1092,7 +1154,7 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
       layer                   VARCHAR2(30),
       source                  VARCHAR2(30),
       where_clause            VARCHAR2(4000),
-      oid_clob                CLOB,           
+      oid_clob                CLOB,
       notes                   VARCHAR2(4000),
       user_last_modified      VARCHAR2(32),
       date_last_modified      DATE
@@ -1192,12 +1254,25 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
    );
    TYPE GZ_PROJECTION_OUTPUT IS TABLE OF GZ_PROJECTION_OUTPUT_REC;
 
+   TYPE GZ_FACE_SLIVERS_REC IS RECORD (
+      sliver_id               NUMBER,
+      sliver_type             VARCHAR2(32),
+      face_id                 NUMBER,
+      status                  VARCHAR2(32),
+      review_adjudication     VARCHAR2(1),
+      fsl_geoids              VARCHAR2(4000),
+      geoid_extinction        VARCHAR2(4000),
+      sdogeometry             SDO_GEOMETRY,
+      partial_sdogeometry     SDO_GEOMETRY
+   );
+   TYPE GZ_FACE_SLIVERS IS TABLE OF GZ_FACE_SLIVERS_REC;
+
    TYPE GZ_FACE_MERGE_REC IS RECORD (
       release                 VARCHAR2(64),
       gen_project_id          VARCHAR2(4),
       layer                   VARCHAR2(30),
-      dont_check              VARCHAR2(1),
-      where_clause            VARCHAR2(4000)
+      sliver_exempt           VARCHAR2(1),
+      sliver_extinct_clause   VARCHAR2(4000)
    );
    TYPE GZ_FACE_MERGE IS TABLE OF GZ_FACE_MERGE_REC;
 
@@ -1247,6 +1322,9 @@ TYPE GZ_BUILD_SOURCE_SETUP IS TABLE OF GZ_BUILD_SOURCE_SETUP_REC;
 
    FUNCTION LEGAL_GZ_ALL_TABLES
    RETURN GZ_TYPES.stringarray DETERMINISTIC;
+
+   FUNCTION LEGAL_GZ_XTENDED_KEYS
+   RETURN GZ_TYPES.stringhash DETERMINISTIC;
 
 END GZ_TYPES;
 /

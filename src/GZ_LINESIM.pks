@@ -47,8 +47,10 @@ PROCEDURE LINE_SIM (
       pStateOutlineTable   IN VARCHAR2,
       pStateFP             IN VARCHAR2,
       pSkipEdgesTable      IN VARCHAR2,
-      ptopofix_qa          IN VARCHAR2
-      --,pReRun varchar2 DEFAULT 'N'
+      p_validate_topo     IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge          IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge         IN VARCHAR2 DEFAULT 'Y',
+      p_topofix_qa        IN VARCHAR2 DEFAULT 'Y'    
    );
 
    FUNCTION GET_LINESIM_PROJECT_PARAMETERS (

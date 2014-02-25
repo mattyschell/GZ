@@ -27,10 +27,10 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.CREATE_GEN_XTEND_TRACKING_LOG(p_schema,
+      GZ_BUSINESS_UTILS.CREATE_GEN_XTEND_TRACKING_LOG(p_schema,
                                                  p_topo_out || '_MERGE_TRACKING');
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',
                                              p_topo_out,
                                              'START_MERGE_LOGGING',
                                              'STARTING JOB: ' || p_gz_jobid);
@@ -337,15 +337,15 @@ AS
 
          IF p_resurrect_flag IS NULL
          THEN
-         
+
             EXECUTE IMMEDIATE psql USING 'Y',
                                           UPPER(p_topo_name);
-                                          
+
          ELSE
-         
+
             EXECUTE IMMEDIATE psql USING 'N',
                                           UPPER(p_topo_name);
-         
+
          END IF;
 
       EXCEPTION
@@ -393,7 +393,7 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'VERIFY_MERGE_INPUTS',NULL,'STARTING ' || p_gz_jobid);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'VERIFY_MERGE_INPUTS',NULL,'STARTING ' || p_gz_jobid);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
@@ -406,7 +406,7 @@ AS
       ----------------------------------------------------------------------------------
 
       --reference face fields
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(merge_parms.gen_merge_face_fields)
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(merge_parms.gen_merge_face_fields)
       THEN
 
          output := output || 'Dude, ' || merge_parms.gen_merge_face_fields || ' doesnt exist. Check gen_merge_parameters.gen_merge_face_fields | ';
@@ -419,7 +419,7 @@ AS
       FOR i IN 1 .. ref_tables.COUNT
       LOOP
 
-         IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(ref_tables(i))
+         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(ref_tables(i))
          THEN
 
             output := output || 'Dude, reference table ' || ref_tables(i) || ' doesnt exist | ';
@@ -429,7 +429,7 @@ AS
       END LOOP;
 
       --topo in table
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_topo_in_table)
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_topo_in_table)
       THEN
 
          output := output || 'Dude, ' || p_topo_in_table || ' doesnt exist. Check input p_topo_in_table | ';
@@ -460,7 +460,7 @@ AS
 
          END IF;
 
-         IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(galactic_faces(i))
+         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(galactic_faces(i))
          THEN
 
             output := output || 'Dude, table ' || galactic_faces(i) || ' doesnt exist. Check ' || p_topo_in_table|| ' | ';
@@ -473,7 +473,7 @@ AS
             --top layer (state) may not exist if no FSLs have been built
             --we will build it on the fly in a hot minute
 
-            IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(galactic_topos(i) || '_' || p_top_layer_tab)
+            IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(galactic_topos(i) || '_' || p_top_layer_tab)
             THEN
 
                output := output || 'Dude, table ' || galactic_topos(i) || '_' ||  p_top_layer_tab || ' doesnt exist. Check ' || p_topo_in_table|| ' | ';
@@ -525,7 +525,7 @@ AS
 
             --taking matters into my own hands here
 
-            GZ_UTILITIES.ADD_INDEX(galactic_faces(i),
+            GZ_BUSINESS_UTILS.ADD_INDEX(galactic_faces(i),
                                    galactic_faces(i) || '_FA',
                                    'FACE_ID',
                                    'UNIQUE');
@@ -561,7 +561,7 @@ AS
       --correspond to columns in the input face tables
 
       --return includes geoid
-      face_fields := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      face_fields := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                             p_project_id_in,
                                                             'ATTRIBUTE',
                                                             merge_parms.gen_merge_face_fields);
@@ -646,7 +646,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'VERIFY_MERGE_INPUTS',NULL,'FINISHED ' || p_gz_jobid);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'VERIFY_MERGE_INPUTS',NULL,'FINISHED ' || p_gz_jobid);
 
       IF output IS NULL
       THEN
@@ -693,11 +693,11 @@ AS
       ----------------------------------------------------------------------------------
 
       --tune the topo no matter what
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                               'Calling topo tune up ',
                                               NULL,NULL,NULL,NULL,NULL,NULL );
 
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(p_topo_out);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(p_topo_out);
 
       dead_topos := GZ_TOPO_MERGE.GET_GALACTIC_TOPOS(p_topo_out,
                                                      'TOPO_NAME',
@@ -707,34 +707,34 @@ AS
       THEN
 
          --this is a success. A+
-         
+
          --included in here is totally successful restarts
 
          --drop work tables
          --might we want to keep them for investigating max gaps or overlaps in inputs?
          --eh, not on a success, I guess
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                 'Dropping AGGR, CUTTER, ALFACE work tables ',
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
 
          BEGIN
 
-            GZ_UTILITIES.GZ_DROP_TABLE(p_topo_out || '_AGGR');
-            GZ_UTILITIES.GZ_DROP_TABLE(p_topo_out || '_CUTTER');
-            GZ_UTILITIES.GZ_DROP_TABLE(p_topo_out || '_ALFACE');
-            
+            GZ_BUSINESS_UTILS.GZ_DROP_TABLE(p_topo_out || '_AGGR');
+            GZ_BUSINESS_UTILS.GZ_DROP_TABLE(p_topo_out || '_CUTTER');
+            GZ_BUSINESS_UTILS.GZ_DROP_TABLE(p_topo_out || '_ALFACE');
+
 
          EXCEPTION
          WHEN OTHERS
          THEN
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                 'Error dropping work tables: ' || SQLERRM,
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
          END;
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                 'WOOT: Successful completion for ' || p_gz_jobid || '. Return code 0 ',
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -746,19 +746,19 @@ AS
 
          --This is very unlikely these days, since I now try to kill the job after the module that fails
          --instead of attempting to bull in a tea shop ahead to completion
-         
+
          --this is an I for incomplete.  Started at the beginning and left some topos behind
 
          FOR i IN 1 .. dead_topos.COUNT
          LOOP
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                    'Input topology ' || dead_topos(i) || ' croaked along the way. Check the log ',
                                                     NULL,NULL,NULL,NULL,NULL,NULL );
 
          END LOOP;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                 'Semi-Woot: Complete, but not a total success for ' || p_gz_jobid || '. Return code 1 ',
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -777,17 +777,17 @@ AS
 
          FOR i IN 1 .. live_topos.COUNT
          LOOP
-         
+
             --this made more sense when the user was resetting lots of topos to N on restarts
             --and the code only processed the one or two live topos
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                    'Input topology ' || live_topos(i) || ' is now complete ',
                                                     NULL,NULL,NULL,NULL,NULL,NULL );
 
          END LOOP;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                 'Questionable WOOT: Restart yielded successful completion for ' || live_topos.COUNT || ' source topos. Return code 1 to request eyeballs ',
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -860,7 +860,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_EMPTY_TOPOLOGY',NULL,'STARTING ' || p_jobid);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_EMPTY_TOPOLOGY',NULL,'STARTING ' || p_jobid);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id);
@@ -927,7 +927,7 @@ AS
                                    sdo_list_type(),
                                    sdo_list_type();
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',newtopo,'CREATE_EMPTY_TOPOLOGY',newtopo,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',newtopo,'CREATE_EMPTY_TOPOLOGY',newtopo,
                                              'COMPLETED ',start_time);
 
 
@@ -940,11 +940,11 @@ AS
 
       --relation$ doesnt exist at this point
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_EDGE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_EDGE$');
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_FACE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_FACE$');
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_NODE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',newtopo || '_NODE$');
 
 
       ----------------------------------------------------------------------------------
@@ -990,7 +990,7 @@ AS
 
       --deregister in case of rerun
       BEGIN
-         GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(p_schema,
+         GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(p_schema,
                                                 p_topo,
                                                 'Y',                            --Yes drop the table
                                                 1,                              --tg_layer_level 1
@@ -1006,7 +1006,7 @@ AS
       GZ_TOPO_MERGE.CREATE_GEN_MERGE_PHONY_FSL(p_schema, p_topo || '_' || p_table_ext);
 
       --add to topo
-      GZ_UTILITIES.GZ_ADD_TOPO_GEOMETRY_LAYER(p_topo,
+      GZ_TOPO_UTIL.GZ_ADD_TOPO_GEOMETRY_LAYER(p_topo,
                                               p_topo || '_' || p_table_ext,
                                               'TOPOGEOM',
                                               'POLYGON',
@@ -1086,7 +1086,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,'STARTING ' || p_jobid_in);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
@@ -1113,7 +1113,7 @@ AS
          --no fsls have been built for these topologies
          --build a top layer equivalent on the fly
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                                 'Making ' || galactic_topos.COUNT || ' phony FSLs on the fly');
 
          top_layer_ext := 'PHONY';
@@ -1145,7 +1145,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                              'Looping ' || galactic_topos.COUNT || ' inserts into ' || cutter_tab || ' based on ' || p_topo_in_table);
 
 
@@ -1165,7 +1165,7 @@ AS
          THEN
 
              --LOG
-             GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                                     'Error: Record count of  ' || kount || ' in ' || galactic_topos(i) || '_' ||  top_layer_ext,
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -1239,7 +1239,7 @@ AS
       THEN
 
          --LOG
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                                 'Error: ' || kount || ' invalid geometries  in ' || cutter_tab,
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1269,7 +1269,7 @@ AS
          FOR i IN 1 .. galactic_topos.COUNT
          LOOP
 
-            GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(p_schema,
+            GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(p_schema,
                                                    galactic_topos(i),
                                                    'Y',                                  --Yes drop the table
                                                    1,                                    --tg_layer_level 1 and up
@@ -1287,7 +1287,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                              'Gap evaluation on ' || cutter_tab);
 
 
@@ -1296,17 +1296,18 @@ AS
                                                     cutter_tab || '_GAP_EVALUATION',
                                                     aggr_tab,
                                                     'UNALIGNED_SDO', --unaligned_sdo col is equivalent at the moment actually
-                                                    merge_parms.gen_merge_null_tolerance);
+                                                    merge_parms.gen_merge_null_tolerance,
+                                                    p_gz_union =>'N');  --override to use backup gz_union if sdo_union buggy
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                              'Finished gap evaluation on ' || cutter_tab || ' Max gap = ' || max_gap);
 
       IF max_gap > merge_parms.gen_merge_error_chasm
       THEN
 
           --LOG
-          GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                                  'ERROR: Max gap in unaligned input is ' || max_gap,
                                                   NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -1330,16 +1331,17 @@ AS
                                                           cutter_tab || '_GAP_EVALUATION',
                                                           aggr_tab,
                                                           'UNALIGNED_SDO', --unaligned_sdo col is equivalent now, no diff
-                                                          merge_parms.gen_merge_null_tolerance);
+                                                          merge_parms.gen_merge_null_tolerance,
+                                                          p_gz_intersect=>'N');  --possible bug workaround
 
-       GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+       GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                              'Finished overlap evaluation on ' || cutter_tab || ' Max overlap = ' || max_overlap);
 
       IF max_overlap > merge_parms.gen_merge_error_chasm
       THEN
 
           --LOG
-          GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                                  'ERROR: Max overlap in unaligned input is ' || max_overlap,
                                                   NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -1392,7 +1394,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,'STARTING ' || p_jobid_in);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
@@ -1407,33 +1409,34 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
                                              'Aligning ' || cutter_tab);
 
 
       --This will align almost all true gaps and overlaps, which are usually no more than
       --coordinate rounding differences
 
-      GZ_TOPO_MERGE.GZ_ALIGN_EDGES(cutter_tab,
+      GZ_GEOM_UTILS.GZ_ALIGN_EDGES(cutter_tab,
                                    'SDOGEOMETRY',
                                    cutter_tab || '_AL',
                                    merge_parms.gen_merge_null_tolerance,
-                                   'Y');
+                                   'Y',
+                                   'N'); --switch if sdo_difference is f'd
 
       --occasionally still leaves a sliver or overlap or 2
       --easiest just to take a second crack at it
 
       --why not 3?  Dont ask
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
                                              'Aligning: Pass two ' || cutter_tab);
 
-      GZ_TOPO_MERGE.GZ_ALIGN_EDGES(cutter_tab,
+      GZ_GEOM_UTILS.GZ_ALIGN_EDGES(cutter_tab,
                                    'SDOGEOMETRY',
                                    cutter_tab || '_AL',
                                    merge_parms.gen_merge_null_tolerance,
-                                   'Y');
-
+                                   'Y',
+                                   'N'); --switch if sdo_difference is f'd
 
 
 
@@ -1448,7 +1451,7 @@ AS
       THEN
 
          --cant build a polygon topology from garbage gtypes
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
                                                  'ERROR: Aligned ' || cutter_tab || ' has ' || kount || ' non-polygon geometries',
                                                   NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1502,7 +1505,7 @@ AS
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,'STARTING ' || p_jobid_in);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
@@ -1517,7 +1520,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
                                              'Build topo for ' ||  cutter_tab);
 
       --UPDATE sdo back to real SRID dummy!
@@ -1547,7 +1550,7 @@ AS
       THEN
 
          --too risky
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
                                                  'ERROR: Aligned ' || cutter_tab || ' has ' || kount || ' invalid (non dupe) geometries',
                                                   NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1559,12 +1562,12 @@ AS
 
 
 
-      GZ_UTILITIES.JAVA_MEMORY_MANAGER(cutter_tab,
+      GZ_BUSINESS_UTILS.JAVA_MEMORY_MANAGER(cutter_tab,
                                        'SDOGEOMETRY');
 
       --generic add_polygon_geometry + constructors call
 
-      GZ_UTILITIES.ADD_TOPO_FROM_SPATIAL(p_topo_out,
+      GZ_TOPO_UTIL.ADD_TOPO_FROM_SPATIAL(p_topo_out,
                                          cutter_tab,
                                          'CUTTER_ID',
                                          'POLYGON',
@@ -1577,7 +1580,7 @@ AS
 
       --have a relation$ now
       --but we will drop and recreate the topology in a few steps
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS', p_topo_out || '_RELATION$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS', p_topo_out || '_RELATION$');
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -1620,7 +1623,7 @@ AS
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,'STARTING ' || p_jobid_in);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
@@ -1648,7 +1651,7 @@ AS
            || 'a.topogeom.tg_layer_id = r.tg_layer_id AND '
            || 'r.topo_id = f.face_id ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                              'Check topo in ' ||  cutter_tab || ' for overlaps ',
                                              NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1657,7 +1660,7 @@ AS
       IF kount != 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                                 'ERROR: Aligned ' || cutter_tab || ' topogeom has ' || kount || ' overlapping faces ',
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1667,7 +1670,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                                 'No overlaps in ' || cutter_tab || ' topogeom ',
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -1691,7 +1694,7 @@ AS
            || 'r.topo_id = f.face_id '
            || ') ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                              'Check topo in ' ||  cutter_tab || ' for gaps  ',
                                              NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1701,7 +1704,7 @@ AS
       IF kount != 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                                 'ERROR: Aligned ' || cutter_tab || ' topogeom has ' || kount || ' gap faces ',
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1711,7 +1714,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                                 'No gaps in ' || cutter_tab || ' topogeom ',
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -1796,7 +1799,7 @@ AS
                                     'MASK=TOUCH',
                                     'TRUE';
 
-     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'PIPE_UNALIGNED_RECS',NULL,
+     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'PIPE_UNALIGNED_RECS',NULL,
                                             'Getting neighbor topos ',
                                             NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1928,7 +1931,7 @@ AS
               ||   ') '
               || ') ';
 
-          GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'PIPE_UNALIGNED_RECS',NULL,
+          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'PIPE_UNALIGNED_RECS',NULL,
                                                   'Getting faces on ' || p_topo || ' outline ',
                                                   NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -1951,7 +1954,7 @@ AS
               || 'WHERE a.face_id IN (SELECT * FROM TABLE(:p1)) ';
 
 
-         OPEN my_cursor FOR psql USING GZ_UTILITIES.stringarray_to_varray(face_ids);
+         OPEN my_cursor FOR psql USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(face_ids);
 
          LOOP
 
@@ -2041,7 +2044,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,'STARTING ' || p_jobid_in);
 
 
       ----------------------------------------------------------------------------------
@@ -2063,7 +2066,7 @@ AS
 
       --create index on aligned cutter sdogeom field
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(cutter_tab,
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(cutter_tab,
                                      'SDOGEOMETRY',
                                      merge_parms.gen_merge_srid,
                                      merge_parms.gen_merge_tolerance);
@@ -2117,7 +2120,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                    'Skipping alignment for island topo ' || galactic_topos(i) );
 
          END IF;
@@ -2146,33 +2149,35 @@ AS
       IF alignkount != 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                 'Aligning all faces in ' || face_altab || ' ' ||
                                                 'with tolerance ' || merge_parms.gen_merge_null_tolerance );
 
          --This will align almost all true gaps and overlaps, which are usually no more than
          --coordinate rounding differences
 
-         GZ_TOPO_MERGE.GZ_ALIGN_EDGES(face_altab,
+         GZ_GEOM_UTILS.GZ_ALIGN_EDGES(face_altab,
                                       'SDOGEOMETRY',
                                       face_altab || '_AL',
                                       merge_parms.gen_merge_null_tolerance,
-                                      'Y');
+                                      'Y',
+                                      'N'); --switch if sdo_difference is f'd
 
          --occasionally still leaves a sliver or overlap or 2
          --easiest just to take a second crack at it
          --why not 3?  Dont ask
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                 'Pass two: Aligning all faces in ' || face_altab || ' ' ||
                                                'with tolerance ' || merge_parms.gen_merge_null_tolerance );
 
-         GZ_TOPO_MERGE.GZ_ALIGN_EDGES(face_altab,
+         GZ_GEOM_UTILS.GZ_ALIGN_EDGES(face_altab,
                                       'SDOGEOMETRY',
                                       face_altab || '_AL',
                                       merge_parms.gen_merge_null_tolerance,
-                                      'Y');
+                                      'Y',
+                                      'N'); --switch if sdo_difference is f'd
 
 
          psql := 'SELECT count(*) FROM '
@@ -2187,7 +2192,7 @@ AS
          THEN
 
             --cant build a polygon topology from garbage gtypes
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                    'ERROR: Aligned ' || face_altab || ' has ' || kount || ' non-polygon or NULL geometries',
                                                    NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -2214,7 +2219,7 @@ AS
               || '   SELECT b.face_id, b.source_topo, b.sdogeometry '
               || '   FROM ' ||  face_altab || ' b ';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                 'Insert aligned faces into ' || merge_face_tab,
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -2226,7 +2231,7 @@ AS
       ELSE  --end skip over islands
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                 'No neighbors to align ');
 
 
@@ -2270,7 +2275,7 @@ AS
                                       galactic_topos(i);
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                 'Insert ' || galactic_topos(i) || ' interior faces into ' || merge_face_tab,
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -2291,7 +2296,7 @@ AS
            || 'a.sdogeometry.sdo_srid = :p1 ';
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                              'Update SRID and meaningless ID in ' || merge_face_tab,
                                              NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -2390,7 +2395,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_table,
                                                   p_topo_col,
                                                   tg_layer_type);
@@ -2449,7 +2454,6 @@ AS
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Private--------------------------------------------------------------------------------
 
-
    FUNCTION BUILD_FACE_TOPO (
       p_schema             IN VARCHAR2,
       p_release            IN VARCHAR2,
@@ -2467,11 +2471,13 @@ AS
       --Matt! 7/08/11
       --This is the long running module that adds each galactic topo face to the merged topo
       --Using add_polygon_geometry then constructors on merged face feature table
-      
+
       --12/14/12 Change to return a failed output for the module when a topo fails
       --         Also modified to automatically process all is_dead topos on restarts
       --         And change them to not is dead on successful restarts
       --         Added handler for not found in cache bug. Tested in phony test only
+
+      --6/17/13 Minor improved logging and handling of "Attempted to add linear geometry outside the update window"
 
 
       psql              VARCHAR2(4000);
@@ -2486,6 +2492,7 @@ AS
       errm              VARCHAR2(8000);
       retval            VARCHAR2(4000);
       topo_mbr          SDO_GEOMETRY;
+      stowed_mbr        SDO_GEOMETRY;
       invalid_topos     GZ_TYPES.stringarray;
       raise_the_roof    NUMBER := 2147483648;  --silly java
 
@@ -2493,7 +2500,7 @@ AS
    BEGIN
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,'STARTING ' || p_jobid_in);
 
 
       --get input parms
@@ -2504,18 +2511,18 @@ AS
 
       IF p_restart_flag = 'N'
       THEN
-      
+
          --SOP
          galactic_topos := GZ_TOPO_MERGE.GET_GALACTIC_TOPOS(p_topo_out, 'TOPO_NAME');
-         
+
       ELSE
-      
+
          --Restart. Get the is_dead topos only
          --We will use this same logic below as well
-         --however, if any topos die during a restart this wont work since we are always getting the dead topos, 
+         --however, if any topos die during a restart this wont work since we are always getting the dead topos,
          --restarts will have to simply die on the spot
          galactic_topos := GZ_TOPO_MERGE.GET_GALACTIC_TOPOS(p_topo_out, 'TOPO_NAME', 'Y');
-      
+
       END IF;
 
 
@@ -2526,7 +2533,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                              'Assess inputs (validate geometry check) for ' ||  merge_face_tab );
 
 
@@ -2543,7 +2550,7 @@ AS
                                                                    'TRUE',
                                                                    merge_parms.gen_merge_tolerance,
                                                                    '13356%',
-                                                                   GZ_UTILITIES.stringarray_to_varray(galactic_topos);
+                                                                   GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(galactic_topos);
 
       --!!!!!!!!!!!!!!!!!!!
       --!!!!!!!!!!!!!!!!!!!
@@ -2557,33 +2564,33 @@ AS
       THEN
 
          --too risky
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
                                                  'ERROR: Aligned ' || merge_face_tab || ' has invalid (non dupe) geometries but we will continue',
                                                   NULL,NULL,NULL,psql,NULL,NULL,NULL);
-                                                  
+
             FOR i IN 1 .. invalid_topos.COUNT
             LOOP
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                       'Killing source topo ' || invalid_topos(i),
                                                       NULL,NULL,NULL,NULL,NULL,NULL );
 
                --this topo is dead until we can investigate, but our goal is to carry on without it
                GZ_TOPO_MERGE.DEADEN_GALACTIC_TOPO(p_topo_out,
                                                   invalid_topos(i));
-                                                  
+
                --but only carry on through the end of this module, its too messy otherwise
                output := output || 'BUILD_FACE_TOPO failure: ' || invalid_topos(i) || ' ';
-               
+
                IF p_restart_flag = 'Y'
                THEN
-               
+
                   --restarts die on any error
-                  RETURN output;               
-               
+                  RETURN output;
+
                END IF;
 
-            END LOOP;         
+            END LOOP;
 
       END IF;
 
@@ -2598,7 +2605,7 @@ AS
       IF p_restart_flag = 'N'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                 'Purge and recreate topo ' ||  p_topo_out );
 
          --this is called the first time straight from generalization_topo_merge
@@ -2613,7 +2620,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                    'Failed to purge and recreate topo ' ||  p_topo_out );
 
             output := output || 'Error creating topology ' || retval;
@@ -2623,7 +2630,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                    'Finished purge and recreate topo ' ||  p_topo_out );
 
          END IF;
@@ -2640,33 +2647,33 @@ AS
 
       IF p_restart_flag = 'N'
       THEN
-      
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                 'Add spatial index to ' || merge_face_tab );
 
          --this is only necessary for the java memory manager, really
-         GZ_UTILITIES.ADD_SPATIAL_INDEX(merge_face_tab,
+         GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(merge_face_tab,
                                         'SDOGEOMETRY',
                                         merge_parms.gen_merge_srid,
                                         merge_parms.gen_merge_tolerance);
-                                        
+
       END IF;
 
 
       --get a new set of topos in case we killed a few above
-      
+
       IF p_restart_flag = 'N'
       THEN
-      
+
          --SOP
          galactic_topos := GZ_TOPO_MERGE.GET_GALACTIC_TOPOS(p_topo_out, 'TOPO_NAME');
-         
+
       ELSE
-      
+
          --Restart. This isnt necessary since restarts die on any error
          NULL;  --claritee
          --galactic_topos := GZ_TOPO_MERGE.GET_GALACTIC_TOPOS(p_topo_out, 'TOPO_NAME', 'Y');
-      
+
       END IF;
 
       FOR i IN 1 .. galactic_topos.COUNT
@@ -2685,7 +2692,7 @@ AS
 
             --never use this method, saved for posteriority and reference
             --just in case some mess in my caller accidentally passes it
-            
+
             RAISE_APPLICATION_ERROR(-20001,'One way street here, BUILD_TOPO_FROM_SPATIAL method not supported');
 
 
@@ -2700,9 +2707,9 @@ AS
             --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
             ----------------------------------------------------------------------------------
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                    'Add poly for ' ||  merge_face_tab ||
-                                                   ' source topo ' || galactic_topos(i) || '  Zzzz....' );
+                                                   ' source topo ' || galactic_topos(i));
 
             IF i = 1
             AND p_restart_flag = 'N'
@@ -2722,12 +2729,12 @@ AS
             EXECUTE IMMEDIATE psql INTO topo_mbr USING galactic_topos(i);
 
             <<logoturtle>>
-            
+
             --call the java memory manager
             --should call set_max_memory_size for the biggies
             --remember, we have a big table with all states in it
             --calling add polys state by state on the same table
-            GZ_UTILITIES.JAVA_MEMORY_MANAGER(merge_face_tab,
+            GZ_BUSINESS_UTILS.JAVA_MEMORY_MANAGER(merge_face_tab,
                                              'SDOGEOMETRY',
                                              NULL,
                                              topo_mbr);
@@ -2743,7 +2750,7 @@ AS
                                                     merge_face_tab,
                                                     'MEANINGLESS_ID',
                                                     'FACE_ID',  --update with face id here
-                                                    'NO', --cant validate, we have duplicate vertices from align_edges and we know this
+                                                    'NO',       --cant validate, we have duplicate vertices from align_edges and we know this
                                                     merge_parms.gen_merge_tolerance,  --real tolerance, we're back in real SRID now
                                                     'SDOGEOMETRY',
                                                     'SOURCE_TOPO',       --on this loop just do where source_topo
@@ -2752,29 +2759,60 @@ AS
             EXCEPTION
             WHEN OTHERS
             THEN
-            
+
                IF UPPER(SQLERRM) LIKE '%NOT FOUND IN CACHE%'
+               OR UPPER(SQLERRM) LIKE '%OUTSIDE THE UPDATE WINDOW%'
                THEN
-               
+
                   --attempt to handle. This is an oracle bug, may be patched some day
                   --usually fudging with the topomap size will fix it
                   --since its an oracle error I reserve the right to act like a petulant child
-                  topo_mbr := GZ_UTILITIES.EXPAND_MBR_PERCENT(topo_mbr, 2);
-                  GOTO logoturtle;
-                  
+
+                  IF stowed_mbr IS NULL
+                  THEN
+
+                     --store for re-re-try (havent needed to program this yet)
+                     stowed_mbr := topo_mbr;
+
+                     topo_mbr := GZ_GEOM_UTILS.EXPAND_MBR_PERCENT(topo_mbr, 2);
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+                                                            'Retry with new window (see dump->). ' || SQLERRM || ' on Add poly for ' ||  merge_face_tab ||
+                                                            ' source topo ' || galactic_topos(i), p_sdo_dump=>topo_mbr);
+
+
+                     GOTO logoturtle;
+
+                  ELSE
+
+                     --Could try other stuff here
+
+                     output := output || 'BUILD_FACE_TOPO failure: ' || galactic_topos(i) || ' ';
+
+                     errm := SQLERRM;
+                     stack := DBMS_UTILITY.format_error_backtrace;
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+                                                            'FAIL AGAIN in build topo for ' ||  merge_face_tab || ' source topo ' || galactic_topos(i),
+                                                            NULL,NULL,NULL,NULL,NULL,substr(errm || ' | ' || stack , 1, 4000) );
+
+                     RETURN output;
+
+                  END IF;
+
                END IF;
 
                --unhandled errors
 
                --most importantly, continue through the topos but do not continue after this module in the caller
                output := output || 'BUILD_FACE_TOPO failure: ' || galactic_topos(i) || ' ';
-               
+
                errm := SQLERRM;
                stack := DBMS_UTILITY.format_error_backtrace;
 
                --what should we catch here?  Lets at least log and continue
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                       'FAIL in build topo for ' ||  merge_face_tab || ' source topo ' || galactic_topos(i),
                                                        NULL,NULL,NULL,NULL,NULL,substr(errm || ' | ' || stack , 1, 4000) );
 
@@ -2797,15 +2835,15 @@ AS
                                                      galactic_topos(i));
 
                END IF;
-                  
+
                IF p_restart_flag = 'Y'
                THEN
-                  
+
                   --restarts die immediately on errors
                   RETURN output;
-                
+
                END IF;
-                  
+
 
             END;
 
@@ -2828,20 +2866,20 @@ AS
          --call the constructor, have to do it state by state for error handling
 
          --get a new set of galactics, we may have killed a few above
-         
-         IF p_restart_flag = 'N'  --though only on first time through kill topos and continue 
+
+         IF p_restart_flag = 'N'  --though only on first time through kill topos and continue
          THEN
-         
+
             galactic_topos := GZ_TOPO_MERGE.GET_GALACTIC_TOPOS(p_topo_out, 'TOPO_NAME');
-            
+
             --cant do this in build_topo_from_topo since we are calling it over and over
             SDO_TOPO.add_topo_geometry_layer(p_topo_out,
                                              merge_face_tab,
                                              'TOPOGEOM',
                                              'POLYGON');
 
-            GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_topo_out || '_RELATION$');
-            
+            GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_topo_out || '_RELATION$');
+
          END IF;
 
 
@@ -2849,7 +2887,7 @@ AS
          FOR i IN 1 .. galactic_topos.COUNT
          LOOP
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                    'Calling build_topo_from_topo for ' ||  galactic_topos(i));
 
             retval := GZ_TOPO_MERGE.BUILD_TOPO_FROM_TOPO(p_schema,
@@ -2867,20 +2905,20 @@ AS
             THEN
 
                --some sort of failure
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                       'FAIL in build topo from topo on ' ||  merge_face_tab || ' source topo ' || galactic_topos(i),
                                                           NULL,NULL,NULL,NULL,NULL,substr(retval , 1, 4000) );
 
                GZ_TOPO_MERGE.DEADEN_GALACTIC_TOPO(p_topo_out,
                                                   galactic_topos(i));
-                                                  
+
                output := output || 'BUILD_FACE_TOPO BUILD_TOPO_FROM_TOPO failure on : ' || galactic_topos(i) || ' ';
-               
+
                IF p_restart_flag = 'Y'
                THEN
-               
+
                   RETURN output;
-               
+
                END IF;
 
             END IF;
@@ -2899,10 +2937,10 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                              'Calling topo tune up for stats and index tidying ');
 
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(p_topo_out);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(p_topo_out);
 
       --All below managed in topo_tune_up
       --first fix any missing or broken relation$ indexes
@@ -2917,21 +2955,21 @@ AS
       IF p_restart_flag = 'Y'
       AND output = '0'
       THEN
-      
-         --if restarting and all galactic topos run now were a success 
+
+         --if restarting and all galactic topos run now were a success
          --update all galactic topos in the cutter table to active again
          FOR i IN 1 .. galactic_topos.COUNT
          LOOP
-         
+
             GZ_TOPO_MERGE.DEADEN_GALACTIC_TOPO(p_topo_out,
                                                galactic_topos(i),
                                                'Y');  --resurrect flag
-         
-         END LOOP;      
-      
+
+         END LOOP;
+
       END IF;
 
-      
+
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3404,7 +3442,7 @@ AS
       EXECUTE IMMEDIATE psql BULK COLLECT INTO primitive_faces USING 1;
 
       --get this just one time
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_feature_face_tab,
                                                   'TOPOGEOM',
                                                   'POLYGON');
@@ -3438,7 +3476,7 @@ AS
                ||    'f.face_id = :p1 '
                || ') ';
 
-           GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo,'OVERLAP_MANAGER',NULL,
+           GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo,'OVERLAP_MANAGER',NULL,
                                                   'Figuring out what to do with overlap face ' || primitive_faces(i),
                                                   NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -3447,9 +3485,9 @@ AS
 
            psql := 'SELECT COUNT(DISTINCT column_value) from TABLE(:p1)';
 
-           EXECUTE IMMEDIATE psql INTO dist_source USING GZ_UTILITIES.stringarray_to_varray(source_faces);
+           EXECUTE IMMEDIATE psql INTO dist_source USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(source_faces);
 
-           EXECUTE IMMEDIATE psql INTO dist_face USING GZ_UTILITIES.stringarray_to_varray(prim_faces);
+           EXECUTE IMMEDIATE psql INTO dist_face USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(prim_faces);
 
            IF source_faces.COUNT = 3
            AND prim_faces.COUNT = 3
@@ -3465,7 +3503,7 @@ AS
                    || 'GROUP BY column_value '
                    || 'HAVING COUNT(column_value) = :p2 ';
 
-              EXECUTE IMMEDIATE psql INTO dup_src_face USING GZ_UTILITIES.stringarray_to_varray(source_faces),
+              EXECUTE IMMEDIATE psql INTO dup_src_face USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(source_faces),
                                                              2;
 
               GZ_TOPO_MERGE.DELETE_A_FACE(p_topo,
@@ -3530,7 +3568,7 @@ AS
 
    BEGIN
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_feature_face_tab,
                                                   p_topo_col,
                                                   'POLYGON');
@@ -3635,7 +3673,7 @@ AS
          IF p_log_type IS NOT NULL
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
                                                    'Figuring out what to do with overlap face ' || gap_faces(i),
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3647,7 +3685,7 @@ AS
 
          gap_geom.sdo_srid := NULL;
 
-         gap_width := GZ_TOPO_MERGE.MEASURE_SLIVER_WIDTH(gap_geom,
+         gap_width := GZ_GEOM_UTILS.MEASURE_SLIVER_WIDTH(gap_geom,
                                                          100,  --sample kount
                                                          p_null_tolerance * p_null_tolerance);  --hopped up tolerance since likely to be bad
 
@@ -3659,7 +3697,7 @@ AS
             IF p_log_type IS NOT NULL
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
                                                       'Bailing on face ' || gap_faces(i) || ', face width is ' || gap_width,
                                                        NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3670,7 +3708,7 @@ AS
             IF p_log_type IS NOT NULL
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
                                                       'Ok to manage face ' || gap_faces(i) || ', face width is ' || gap_width,
                                                        NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3720,7 +3758,7 @@ AS
               IF p_log_type IS NOT NULL
               THEN
 
-                 GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
+                 GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
                                                         'Adding primitive face ' || gap_faces(i) || ' to '
                                                         || 'feature face ' || merge_face,
                                                         NULL,NULL,NULL,NULL,NULL,NULL,NULL);
@@ -3738,7 +3776,7 @@ AS
             IF p_log_type IS NOT NULL
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
                                                       'Nukeing (sp?) edge ' || nuke_edge || ' between gap face and feature face ',
                                                       NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3772,7 +3810,7 @@ AS
                IF p_log_type IS NOT NULL
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
                                                          'Gap appears to be gone, face ' || remaining_face(1) || ' remains ',
                                                           NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -3799,7 +3837,7 @@ AS
                IF p_log_type IS NOT NULL
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topo,'GAP_MANAGER',NULL,
                                                          'Gap appears to be gone, updated ' || p_feature_face_tab
                                                          || ' face_id ' || merge_face || ' to ' || ' ' || remaining_face(1),
                                                          NULL,NULL,NULL,psql,NULL,NULL,NULL);
@@ -3871,7 +3909,7 @@ AS
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,'STARTING ' || p_jobid_in);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
@@ -3892,7 +3930,7 @@ AS
       overlapkount := GZ_TOPO_MERGE.COUNT_TOPO_OVERLAPS(p_topo_out,
                                                         merge_face_tab);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                              overlapkount || ' overlaps in ' ||  merge_face_tab || ' ',
                                              NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3900,7 +3938,7 @@ AS
       THEN
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                 'Calling overlap manager ',
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3912,7 +3950,7 @@ AS
          IF overlapkount != 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                    'ERROR: Aligned ' || merge_face_tab || ' topogeom has ' || kount || ' overlapping faces ',
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3922,7 +3960,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                    'Snuffed overlaps in ' || merge_face_tab || ' topogeom ',
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3931,7 +3969,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                 'Continuing, no overlaps in ' || merge_face_tab || ' topogeom ',
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3950,7 +3988,7 @@ AS
                                                 merge_face_tab);
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                              gapkount || ' gaps in ' ||  merge_face_tab || ' ',
                                              NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3958,7 +3996,7 @@ AS
       THEN
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                 'Calling gap manager ',
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3973,7 +4011,7 @@ AS
          IF gapkount != 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                    'ERROR: Aligned ' || merge_face_tab || ' topogeom has ' || gapkount || ' gap faces ',
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3983,7 +4021,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                    'Snuffed gaps in ' || merge_face_tab || ' topogeom ',
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -3992,7 +4030,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                 'Continuing, no gaps in ' || merge_face_tab || ' topogeom ',
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -4028,7 +4066,7 @@ AS
               || 'WHERE '
               || 'a.source_topo IN (SELECT * FROM TABLE(:p1)) ';
 
-         EXECUTE IMMEDIATE psql USING GZ_UTILITIES.STRINGARRAY_TO_VARRAY(galactic_topos);
+         EXECUTE IMMEDIATE psql USING GZ_BUSINESS_UTILS.STRINGARRAY_TO_VARRAY(galactic_topos);
 
       END IF;
 
@@ -4081,7 +4119,7 @@ AS
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,'STARTING ' || p_jobid_in);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
@@ -4131,7 +4169,7 @@ AS
            || 'f.face_id = r.topo_id AND '
            || 'a.meaningless_id = aa.meaningless_id) ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
                                              'Populating ' || merge_face_tab || ' feature face_ids ',
                                              NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -4150,12 +4188,12 @@ AS
            || 'a.face_id IS NULL AND '
            || 'a.source_topo IN (SELECT * FROM TABLE(:p1))';
 
-      EXECUTE IMMEDIATE psql INTO kount USING GZ_UTILITIES.stringarray_to_varray(galactic_topos);
+      EXECUTE IMMEDIATE psql INTO kount USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(galactic_topos);
 
       IF kount != 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
                                                 'We have ' || kount || ' NULL face_ids in ' || merge_face_tab,
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -4172,7 +4210,7 @@ AS
 
       --Roll through each source topo and call the update
 
-      geogs := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      geogs := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                       p_project_id_in,
                                                       'ATTRIBUTE',
                                                       merge_parms.gen_merge_face_fields);
@@ -4242,7 +4280,7 @@ AS
                 || ') '
                 || 'WHERE a.source_topo = :p1 ';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
                                                 'Transfer attributes from ' || galactic_faces(i) || ' to ' || merge_face_tab,
                                                 NULL,NULL,NULL,psql_2,NULL,NULL,NULL);
 
@@ -4263,12 +4301,12 @@ AS
            || 'a.geoid is NULL AND '
            || 'a.source_topo IN (SELECT * FROM TABLE(:p1))';
 
-      EXECUTE IMMEDIATE psql INTO kount USING GZ_UTILITIES.stringarray_to_varray(galactic_topos);
+      EXECUTE IMMEDIATE psql INTO kount USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(galactic_topos);
 
       IF kount != 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
                                                 'We have ' || kount || ' NULL geoids in ' || merge_face_tab || ' |',
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -4300,7 +4338,10 @@ AS
       p_top_layer_tab      IN VARCHAR2,
       p_topo_out           IN VARCHAR2,
       p_face_out           IN VARCHAR2,
-      p_fix_edge           IN VARCHAR2 DEFAULT 'Y'
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'Y'    
    ) RETURN VARCHAR2
    AS
 
@@ -4335,14 +4376,14 @@ AS
 
 
       start_time := systimestamp;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,'STARTING ' || p_jobid_in);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,'STARTING ' || p_jobid_in);
 
       --get input parms
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id_in);
 
       merge_face_tab := p_topo_out || '_' || p_face_out;
 
-      measurements := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      measurements := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                              p_project_id_in,
                                                             'MEASUREMENT',
                                                             merge_parms.gen_merge_face_fields);
@@ -4353,36 +4394,47 @@ AS
       --just successful
       galactic_topos := GZ_TOPO_MERGE.GET_GALACTIC_TOPOS(p_topo_out, 'TOPO_NAME');
 
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 10');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('POPULATE_MEASUREMENTS_ETC: Validate topology');
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
-
-      BEGIN
-
-         validstr := GZ_UTILITIES.GZ_VALIDATE_TOPOLOGY(p_topo => p_topo_out, 
-                                                       p_outline_table => p_topo_out || '_CUTTER',
-                                                       p_column => 'SDOGEOMETRY',
-                                                       p_log_type => 'MERGE');
-
-      EXCEPTION
-      WHEN OTHERS
+      IF p_validate_topo = 'Y'
       THEN
+      
+         ----------------------------------------------------------------------------------
+         --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+         DBMS_APPLICATION_INFO.SET_ACTION('Step 10');
+         DBMS_APPLICATION_INFO.SET_CLIENT_INFO('POPULATE_MEASUREMENTS_ETC: Validate topology');
+         --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+         ----------------------------------------------------------------------------------
 
-         --this is a FAIL but we'll continue
-         output := output || ' GZ_VALIDATE_TOPOLOGY threw ' || SQLERRM || ' |';
+         BEGIN
 
-      END;
+            validstr := GZ_TOPO_UTIL.GZ_VALIDATE_TOPOLOGY(p_topo => p_topo_out,
+                                                          p_outline_table => p_topo_out || '_CUTTER',
+                                                          p_column => 'SDOGEOMETRY',
+                                                          p_log_type => 'MERGE');
 
-      IF validstr = 'TRUE'
-      THEN
+         EXCEPTION
+         WHEN OTHERS
+         THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
-                                                'Sweet: ' || p_topo_out || ' is valid ',
-                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+            --this is a FAIL but we'll continue
+            output := output || ' GZ_VALIDATE_TOPOLOGY threw ' || SQLERRM || ' |';
 
+         END;
+
+         IF validstr = 'TRUE'
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+                                                   'Sweet: ' || p_topo_out || ' is valid ',
+                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+
+         END IF;
+         
+      ELSE
+      
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+                                                      'Skipping topo validation since validate_topology is ' || p_validate_topo,
+                                                       NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                                                    
       END IF;
 
 
@@ -4390,7 +4442,7 @@ AS
       --lets do this too, mimic the copier validation
 
       --usually 2
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo_out,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo_out,
                                                   merge_face_tab,
                                                   'TOPOGEOM',
                                                   'POLYGON');
@@ -4407,12 +4459,12 @@ AS
            || p_topo_out || '_relation$ '
            || 'WHERE tg_layer_id = :p2 ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                              'Check if face tg_ids match',
                                              NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
       EXECUTE IMMEDIATE psql BULK COLLECT INTO tg_ids,
-                                               tg_layer_ids USING GZ_UTILITIES.stringarray_to_varray(galactic_topos),
+                                               tg_layer_ids USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(galactic_topos),
                                                                   tg_layer_id;
 
       IF tg_ids.COUNT > 0
@@ -4430,6 +4482,7 @@ AS
 
          IF p_fix_edge = 'Y'
          THEN
+         
             ----------------------------------------------------------------------------------
             --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
             DBMS_APPLICATION_INFO.SET_ACTION('Step 19');
@@ -4437,7 +4490,7 @@ AS
             --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
             ----------------------------------------------------------------------------------
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calling gz_fix_edge on all of ' || p_topo_out,
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -4446,22 +4499,34 @@ AS
                                                   'MERGE', --log type
                                                   'N', --hold univeral who cares now. Prob no diff in the underlying code
                                                    merge_parms.gen_merge_tolerance,
-                                                   NULL); --loop as long as progress is being made
+                                                   NULL, --loop as long as progress is being made
+                                                   p_fix_2edge); --expensive check and fix on edge pairs.  Should be N here
 
             IF edgefix_val = '0'
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                       'GZ_FIX_EDGE success');
 
             ELSIF edgefix_val = '1'
+            AND p_topofix_qa = 'Y'
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+               --SOP when we have a failure in merge.  Want to fail and investigate
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                       'GZ_FIX_EDGE not successful, we will fail the merge job to be safe');
 
 
                output := output || '|Failed to fix all edges using gz_topofix.gz_fix_edge';
+
+            ELSIF edgefix_val = '1'
+            AND p_topofix_qa = 'N'
+            THEN
+
+               --Overriding the failure based on gz_merge_setup.topofix_qa
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+                                                      'GZ_FIX_EDGE not successful, but we we wont fail the merge job ' ||
+                                                      'because topofix_qa is N');
 
             ELSE
 
@@ -4472,7 +4537,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Not calling gz_fix_edge on all of ' || p_topo_out,
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -4494,11 +4559,11 @@ AS
          FOR i IN 1 .. galactic_topos.COUNT
          LOOP
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc geometry ' || galactic_topos(i),
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'SDOGEOMETRY',
                                                   'ALL',  --we did NULL our successes but this isnt our game
@@ -4532,7 +4597,7 @@ AS
             IF badfaces.COUNT > 0
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                       'Got ' || badfaces.COUNT || ' NULL sdogeometry or bad gtypes in ' || galactic_topos(i),
                                                        NULL,NULL,NULL,nullgeompsql,NULL,NULL,NULL);
 
@@ -4544,7 +4609,7 @@ AS
                     || 'WHERE a.meaningless_id IN (SELECT * FROM TABLE(:p2)) ';
 
                EXECUTE IMMEDIATE psql USING '2',
-                                             GZ_UTILITIES.stringarray_to_varray(badfaces);
+                                             GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(badfaces);
 
                output := output || '|From source topo ' || galactic_topos(i) || 'we have ' || badfaces.COUNT || ' NULL or wrong gtype sdogeometries ';
 
@@ -4563,11 +4628,11 @@ AS
 
                psql := 'UPDATE ' || merge_face_tab || ' a '
                     || 'SET '
-                    || 'a.sdogeometry =  GZ_UTILITIES.ORDINATE_ROUNDER(a.sdogeometry, :p1 ) '
+                    || 'a.sdogeometry =  GZ_GEOM_UTILS.ORDINATE_ROUNDER(a.sdogeometry, :p1 ) '
                     || 'WHERE '
                     || 'a.source_topo = :p2 ';
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                       'Rolling sdogeometry precision back to 8 digits ' || galactic_topos(i),
                                                       NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -4591,12 +4656,12 @@ AS
          ----------------------------------------------------------------------------------
 
          --seems polite to do this no matter what
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                 'Index ' || merge_face_tab || ' sdogeometry ',
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
          --this is actually a drop and rebuild
-         GZ_UTILITIES.ADD_SPATIAL_INDEX(merge_face_tab,
+         GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(merge_face_tab,
                                         'SDOGEOMETRY',
                                         merge_parms.gen_merge_srid,
                                         merge_parms.gen_merge_tolerance);
@@ -4608,7 +4673,7 @@ AS
          --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
          ----------------------------------------------------------------------------------
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                 'Calling topofix on  ' || merge_face_tab,
                                                 NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -4627,32 +4692,32 @@ AS
                                                merge_parms.gen_merge_tolerance,
                                                merge_parms.gen_merge_srid);
 
-         /*
-         fix_val := GZ_TOPOFIX.GZ_FIX_FACE(p_jobid_in,
-                                           p_topo_out,
-                                           merge_face_tab,
-                                           'MERGE',
-                                           'Y',   --Yes hold universal
-                                           'N',   --No calc sdo in advance
-                                            merge_parms.gen_merge_tolerance,
-                                           'QC',
-                                           'SDOGEOMETRY',
-                                           merge_parms.gen_merge_srid);
-         */
-
-         IF fix_val != '0'
+         IF fix_val <> '0'
+         AND p_topofix_qa = 'Y'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            --SOP when a failure, we want to investigate any problems at merge before building final shapes and shapefiles
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'We cant get a valid geometry in ' || merge_face_tab || ' for some faces',
                                                        NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
             output := output || '| We have some invalid face sdogeometries ';
 
+         ELSIF fix_val <> '0'
+         AND p_topofix_qa = 'N'
+         THEN
+
+            --Overriding the failure via gz_merge_setup.topofix_qa
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+                                                   'We cant get a valid geometry in ' || merge_face_tab || ' for some faces ' ||
+                                                   'but wont fail the job since topofix QA is N',
+                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+
+
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                     'Good: We have a valid geometry in ' || merge_face_tab || ' for all of our faces',
                                                      NULL,NULL,NULL,badgeompsql,NULL,NULL,NULL);
 
@@ -4677,13 +4742,13 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc MBR and index it ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'MBR',
                                                   'ALL',
@@ -4709,7 +4774,7 @@ AS
                --nobody gives a pudding
                --just log and update QC val of 3
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                       'We cant get a valid geometry in ' || galactic_topos(i) || ' for ' || badfaces.COUNT || 'of our MBRs',
                                                       NULL,NULL,NULL,badgeompsql,NULL,NULL,NULL);
 
@@ -4720,7 +4785,7 @@ AS
                      || 'a.qc IS NULL ';
 
                 EXECUTE IMMEDIATE psql USING '4',
-                                              GZ_UTILITIES.stringarray_to_varray(badfaces);
+                                              GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(badfaces);
 
                 COMMIT;
 
@@ -4743,11 +4808,11 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc areatotal ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'AREATOTAL',
                                                   'ALL',
@@ -4772,13 +4837,13 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc perimeter ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
             -- 'unit=meter' is hard coded into utility  !
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'PERIMETER',
                                                   'ALL',
@@ -4802,13 +4867,13 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc pa_ratio ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
             --DECODEs when area is 0 to avoid divide by 0
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_Tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_Tab,
                                                   'FACE_ID',
                                                   'PA_RATIO',
                                                   'ALL',
@@ -4833,11 +4898,11 @@ AS
          AND measurehash.EXISTS('LLX')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc llX ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'LLX',
                                                   'ALL',
@@ -4860,11 +4925,11 @@ AS
          AND measurehash.EXISTS('LLY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc lly ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'LLY',
                                                   'ALL',
@@ -4888,11 +4953,11 @@ AS
          AND measurehash.EXISTS('URX')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc urx ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'URX',
                                                   'ALL',
@@ -4915,11 +4980,11 @@ AS
          AND measurehash.EXISTS('URY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Calc ury ' || galactic_topos(i),
                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(merge_face_tab,
                                                   'FACE_ID',
                                                   'URY',
                                                   'ALL',
@@ -4934,11 +4999,11 @@ AS
 
 
       --index the MBR
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                              'Calc sidx on ' || merge_face_tab || ' MBR ',
                                              NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(merge_face_tab,
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(merge_face_tab,
                                      'MBR',
                                      merge_parms.gen_merge_srid,
                                      merge_parms.gen_merge_tolerance,
@@ -4977,11 +5042,16 @@ AS
       p_face_out           IN VARCHAR2,
       p_modules            IN VARCHAR2 DEFAULT 'YYYYYYYYYY',
       p_restart_flag       IN VARCHAR2 DEFAULT 'N',
-      p_fix_edge           IN VARCHAR2 DEFAULT 'Y'
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'Y' 
    ) RETURN VARCHAR2
    AS
 
       --Matt! 5/25/11
+      --Matt! 6/10/13 added topofix_qa option
+      --M! 12/30/13 More rearranging of the topofix and validate topo deck chairs
 
       psql              VARCHAR2(4000);
       retval            VARCHAR2(4000) := '1';  --set to fail, must set to pass in modules
@@ -4990,6 +5060,7 @@ AS
       errm              VARCHAR2(8000) := 'ERROR:'; --default for line 1 in log error message, if no SQLERRM
       p_top_layer_tab   VARCHAR2(4000);
       merge_parms       GZ_TYPES.GEN_TOPO_MERGE_PARAMETERS_REC;
+      topofix_qa        VARCHAR2(1);
 
 
    BEGIN
@@ -5037,26 +5108,29 @@ AS
             RAISE_APPLICATION_ERROR(-20002,'Failed before we could even create a log.  Check the basics, like schema name');
          END;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'SET_UP',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'SET_UP',NULL,
                                                 'Inputs are (' || p_schema || ',' || p_gz_jobid || ',' || p_release || ','
                                                 || p_project_id_in || ',' || p_topo_in_table || ','
                                                 || p_topo_out || ',' || p_face_out || ',' || p_modules || ','
-                                                ||  p_restart_flag || ')');
+                                                ||  p_restart_flag || ',' || p_validate_topo || ','
+                                                || p_fix_edge || ',' || p_fix_2edge || ','
+                                                || p_topofix_qa || ')');
 
 
          --make work tables
          --need to give this more thought later
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'SET_UP',NULL,
-                                                 'Starting table set up for ' || p_gz_jobid,
-                                                 NULL,NULL,NULL,NULL,NULL,NULL );
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'SET_UP',NULL,
+                                                     'Starting table set up for ' || p_gz_jobid,
+                                                     NULL,NULL,NULL,NULL,NULL,NULL );
+                                                     
          GZ_TOPO_MERGE.SET_UP(p_schema,
                               p_release,
                               p_project_id_in,
                               p_topo_out,
                               p_face_out);
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'SET_UP',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'SET_UP',NULL,
                                                  'Finished table set up for ' || p_gz_jobid,
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5080,12 +5154,26 @@ AS
       IF retval != '0'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'VERIFY_MERGE_INPUTS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'VERIFY_MERGE_INPUTS',NULL,
                                                 'UNRECOVERABLE ERROR: Problem in verify merge_inputs: ' || retval,
                                                  NULL,NULL,NULL,NULL,NULL,substr(retval , 1, 4000) );
 
          --kick it down to the generic error handler
          RAISE_APPLICATION_ERROR(-20001,'Problem with merge inputs: ' || retval);
+
+      END IF;
+
+      IF p_topofix_qa IS NULL
+      OR p_topofix_qa = 'Y'
+      THEN
+
+         --Default is to fail for QA when faces or edges are invalid after the merge
+         --we are too close to final shapefiles, last chance
+         topofix_qa := 'Y';
+
+      ELSE
+
+         topofix_qa := 'N';
 
       END IF;
 
@@ -5132,7 +5220,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5142,7 +5230,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_COOKIE_CUTTERS',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5195,7 +5283,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5205,7 +5293,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_COOKIE_CUTTERS',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5256,7 +5344,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_EMPTY_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_EMPTY_TOPOLOGY',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5264,7 +5352,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_EMPTY_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'CREATE_EMPTY_TOPOLOGY',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5315,7 +5403,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5324,7 +5412,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_CUTTER_TOPO',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5377,7 +5465,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5386,7 +5474,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_CUTTER_TOPO',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5439,7 +5527,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5448,7 +5536,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ALIGN_FACES',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5504,7 +5592,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5513,7 +5601,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'BUILD_FACE_TOPO',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5566,7 +5654,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5575,7 +5663,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'ASSESS_FACE_TOPO',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5629,7 +5717,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5638,7 +5726,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TRANSFER_FACE_ATTRIBUTES',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5672,7 +5760,10 @@ AS
                                                               p_top_layer_tab,
                                                               p_topo_out,
                                                               p_face_out,
-                                                              p_fix_edge);
+                                                              p_validate_topo,
+                                                              p_fix_edge,
+                                                              p_fix_2edge,
+                                                              topofix_qa);
 
          EXCEPTION
          WHEN OTHERS
@@ -5696,16 +5787,15 @@ AS
             --almost always invalid face sdogeometry gets us right here
             --at least until automated fixer gets incorporated
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
-                                                   'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
-                                                   NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+                                                        'UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
+                                                        NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
             RETURN '1';
 
-
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'POPULATE_MEASUREMENTS_ETC',NULL,
                                                    'Complete for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5747,7 +5837,7 @@ AS
             stack := DBMS_UTILITY.format_error_backtrace;
 
             --NB: Different here
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'TIDY_EXIT',NULL,
                                                    'Weird: Tidy Exit UNRECOVERABLE ERROR: Ending processing for ' || p_gz_jobid,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || tidy_retval || chr(10) || stack , 1, 4000) );
          END IF;
@@ -5787,7 +5877,7 @@ AS
             -- Word up to "good practice"
 
             errm := SQLERRM || DBMS_UTILITY.format_error_backtrace;
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'EXCEPTION HANDLER',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'EXCEPTION HANDLER',NULL,
                                                    'UNRECOVERABLE ERROR: Topo merge caught this exception and has no clue ',
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm, 1, 4000) );
 
@@ -5800,151 +5890,19 @@ AS
 
    END GENERALIZATION_TOPO_MERGE;
 
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --Public---------------------------------------------------------------------------------
-
-   PROCEDURE GZ_ALIGN_EDGES (
-      p_tab_name              IN VARCHAR2,
-      p_geom_col_name         IN VARCHAR2,
-      p_out_tab_name          IN VARCHAR2,
-      p_tolerance             IN NUMBER DEFAULT .0000005,  --8265 NULL SRID .05 tol
-      p_drop_out_tab          IN VARCHAR2 DEFAULT 'N'
-   )
-   AS
-
-      --Matt! 5/13/11
-      --This fella is still kind of in progress.  Not sure what I want here exactly
-      --Wrapper for Dan Geringer align_edges
-      --Input is expected to be a normal 8265 table with no spatial index (ie a work table)
-      --6/10/11 Switched to "NULL" srid tolerance and expect NULL srid input
-
-      --NB: There is no checking of output results in here. Caller beware of 2004s and other junk
-
-      --Goal is to simply update that table with aligned sdo_geometries
-      -- 1. creates special NULL srid, updates metadata and sidx on input table
-      -- 2. also creates special Dan G required temp rowid + geom table
-      -- 3. still outputs that temp table though now you can drop it, and also control the sdogeometry col
-      -- 4. then updates the geom col of the input table
-      -- 5. Rebuilds input table srid, metadata, and index back to real world
-      --   ***Make a backup of the original geom if you need it***
-
-      psql           VARCHAR2(4000);
-      kount          PLS_INTEGER;
-      tolerance      NUMBER := p_tolerance;
-      srid           NUMBER;
-
-
-   BEGIN
-
-
-      --Need SRID no matter what
-      psql := 'SELECT a.' || p_geom_col_name || '.sdo_srid '
-           || 'FROM '
-           ||  p_tab_name || ' a '
-           || 'WHERE rownum = 1 ';
-
-      EXECUTE IMMEDIATE psql INTO srid;
-
-      IF srid IS NOT NULL
-      THEN
-
-         --update input table to NULL srid
-         psql := 'UPDATE ' || p_tab_name || ' a '
-              || 'SET '
-              || 'a.' || p_geom_col_name || '.sdo_srid  = NULL ';
-
-         EXECUTE IMMEDIATE psql;
-         COMMIT;
-
-      END IF;
-
-
-      --must update input table (or create for first time) to NULL SRID in both metadata and SIDX
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(UPPER(p_tab_name),
-                                     UPPER(p_geom_col_name),
-                                     NULL,
-                                     p_tolerance); --original real tolerance in metadata for spatial queries
-
-
-
-      --create table expected by Dan G align edges
-      --order does matter due to insert statements
-      --do not like this naked create table
-      psql := 'CREATE TABLE ' || p_out_tab_name || ' '
-           || '(sdo_rowid ROWID, ' || p_geom_col_name || ' SDO_GEOMETRY)';
-
-      BEGIN
-         EXECUTE IMMEDIATE psql;
-      EXCEPTION
-      WHEN OTHERS THEN
-         EXECUTE IMMEDIATE 'DROP TABLE ' || p_out_tab_name;
-         EXECUTE IMMEDIATE psql;
-      END;
-
-
-      --the bad boy
-      GZ_UTILITIES.ALIGN_EDGES(UPPER(p_tab_name),
-                               UPPER(p_geom_col_name),
-                               UPPER(p_out_tab_name),
-                               tolerance); --special cartesian tolerance
-
-
-      --now have output table with rowid and sdogeometry
-      --update input table name with new geom
-
-      psql := 'UPDATE ' || p_tab_name || ' a '
-           || 'SET '
-           || 'a.' || p_geom_col_name || ' = '
-           ||    '(SELECT b.' || p_geom_col_name || ' '
-           ||    'FROM '
-           ||    p_out_tab_name || ' b '
-           ||    'WHERE a.rowid = b.sdo_rowid) ';
-
-      EXECUTE IMMEDIATE psql;
-      COMMIT;
-
-
-      --update back to original SRID and no bogus sidx
-
-      --not robust chump
-      psql := 'DROP INDEX ' || p_tab_name || '_SIDX ';
-      EXECUTE IMMEDIATE psql;
-
-      IF srid IS NOT NULL
-      THEN
-
-         psql := 'UPDATE ' || p_tab_name || ' a '
-              || 'SET '
-              || 'a.' || p_geom_col_name || '.sdo_srid  = :p1 ';
-
-         EXECUTE IMMEDIATE psql USING srid;
-         COMMIT;
-
-      END IF;
-
-
-      IF p_drop_out_tab = 'Y'
-      THEN
-
-         EXECUTE IMMEDIATE 'DROP TABLE ' || p_out_tab_name || ' ';
-
-      END IF;
-
-   END GZ_ALIGN_EDGES;
-
    ------------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
 
    FUNCTION MAX_GAP_EVALUATION_2 (
-      p_topo_out      IN VARCHAR2,
-      p_tab           IN VARCHAR2,
-      p_step          IN VARCHAR2,
-      p_work_tab      IN VARCHAR2,
-      p_sdo_col       IN VARCHAR2 DEFAULT 'SDOGEOMETRY',
-      p_null_tol      IN NUMBER DEFAULT .0000005,
-      p_sample_count  IN NUMBER DEFAULT 100
+      p_topo_out           IN VARCHAR2,
+      p_tab                IN VARCHAR2,
+      p_step               IN VARCHAR2,
+      p_work_tab           IN VARCHAR2,
+      p_sdo_col            IN VARCHAR2 DEFAULT 'SDOGEOMETRY',
+      p_null_tol           IN NUMBER DEFAULT .0000005,
+      p_sample_count       IN NUMBER DEFAULT 100,
+      p_gz_union           IN VARCHAR2 DEFAULT 'N'
    ) RETURN NUMBER
    AS
 
@@ -5952,6 +5910,8 @@ AS
       --Replaces problematic MAX_GAP_EVALUATION
       --12/27/11 Fiddle with tolerance, no longer user tol * tol in the straight oracle calls
       --         Hopped up tolerance was mysteriously producing giant incorrect gaps
+      --6/25/13  Added gz_union option in case bugs proliferate
+
       --Goal is to be total troglodytes
       --No fancy sdo_aggr_union, just union each piece with nieghbors
       --Hopefully will take us through the same Oracle code that does sdo_difference in align_edges
@@ -5988,7 +5948,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
       ---------------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                               'Starting', NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
@@ -6006,7 +5966,7 @@ AS
       IF kount != 0
       THEN
 
-          GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                 'Yo, ' || p_tab || ' has invalid sdogeometry at tolerance ' || p_null_tol,
                                                  NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -6016,7 +5976,7 @@ AS
 
       --need SIDX for this guy. Should be on unaligned_sdo column
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(p_tab,
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_tab,
                                      p_sdo_col,
                                      NULL,
                                      p_null_tol);
@@ -6038,7 +5998,7 @@ AS
       FOR i IN 1 .. all_outlines.COUNT
       LOOP
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                'Starting ' || all_outlines(i), NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
          --get buddies
@@ -6070,13 +6030,26 @@ AS
             IF j = 1
             THEN
 
-               psql := 'SELECT SDO_GEOM.SDO_UNION(a.' || p_sdo_col || ', b.' || p_sdo_col || ', :p1) '
-                    || 'FROM '
-                    || p_tab || ' a, '
-                    || p_tab || ' b '
-                    || 'WHERE '
-                    || 'a.source_topo = :p1 AND '
-                    || 'b.source_topo = :p2 ';
+               IF p_gz_union = 'N'
+               THEN
+
+                  psql := 'SELECT SDO_GEOM.SDO_UNION(a.' || p_sdo_col || ', b.' || p_sdo_col || ', :p1) ';
+
+               ELSE
+
+                  psql := 'SELECT GZ_GEOM_UTILS.GZ_UNION(a.' || p_sdo_col || ', b.' || p_sdo_col || ', :p1) ';
+
+               END IF;
+
+               psql := psql || 'FROM '
+                       || p_tab || ' a, '
+                       || p_tab || ' b '
+                       || 'WHERE '
+                       || 'a.source_topo = :p1 AND '
+                       || 'b.source_topo = :p2 ';
+
+
+
 
                EXECUTE IMMEDIATE psql INTO work_geom USING p_null_tol,
                                                            all_outlines(i),
@@ -6084,8 +6057,18 @@ AS
 
             ELSE
 
-               psql := 'SELECT SDO_GEOM.SDO_UNION(a.' || p_sdo_col || ', :p1, :p2) '
-                    || 'FROM '
+               IF p_gz_union = 'N'
+               THEN
+
+                  psql := 'SELECT SDO_GEOM.SDO_UNION(a.' || p_sdo_col || ', :p1, :p2) ';
+
+               ELSE
+
+                  psql := 'SELECT GZ_GEOM_UTILS.GZ_UNION(a.' || p_sdo_col || ', :p1, :p2) ';
+
+               END IF;
+
+               psql := psql || 'FROM '
                     || p_tab || ' a '
                     || 'WHERE '
                     || 'a.source_topo = :p3 ';
@@ -6130,7 +6113,7 @@ AS
             EXECUTE IMMEDIATE psql BULK COLLECT INTO second_cousins USING hull_geom,
                                                                           'mask=INSIDE',
                                                                           'TRUE',
-                                                                          GZ_UTILITIES.stringarray_to_varray(buddy_outlines),
+                                                                          GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(buddy_outlines),
                                                                           all_outlines(i);
 
             IF second_cousins.COUNT > 0
@@ -6155,13 +6138,23 @@ AS
                      IF SDO_GEOM.RELATE(work_geom, 'mask=ANYINTERACT', second_geom, p_null_tol) != 'FALSE'
                      THEN
 
-                        GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                                'Adding second cousin ' ||  second_cousins(j) || ' to ' || all_outlines(i),
                                                                NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-                        work_geom := SDO_GEOM.SDO_UNION(work_geom,
-                                                        second_geom,
-                                                        p_null_tol);
+                        IF p_gz_union = 'N'
+                        THEN
+
+                           work_geom := SDO_GEOM.SDO_UNION(work_geom,
+                                                           second_geom,
+                                                           p_null_tol);
+
+                        ELSE
+
+                           work_geom := GZ_GEOM_UTILS.GZ_UNION(work_geom,
+                                                               second_geom,
+                                                               p_null_tol);
+                        END IF;
 
                      END IF;
 
@@ -6176,13 +6169,25 @@ AS
                         IF SDO_GEOM.RELATE(work_geom, 'mask=ANYINTERACT', SDO_UTIL.EXTRACT(second_geom,k), p_null_tol) != 'FALSE'
                         THEN
 
-                           GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+                           GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                                   'Adding piece of second cousin ' ||  second_cousins(j) || ' to ' || all_outlines(i),
                                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-                           work_geom := SDO_GEOM.SDO_UNION(work_geom,
-                                                           SDO_UTIL.EXTRACT(second_geom,k),
-                                                           p_null_tol);
+                           IF p_gz_union = 'N'
+                           THEN
+
+                              work_geom := SDO_GEOM.SDO_UNION(work_geom,
+                                                              SDO_UTIL.EXTRACT(second_geom,k),
+                                                              p_null_tol);
+
+                           ELSE
+
+                              work_geom := GZ_GEOM_UTILS.GZ_UNION(work_geom,
+                                                                  SDO_UTIL.EXTRACT(second_geom,k),
+                                                                  p_null_tol);
+
+
+                           END IF;
 
                         END IF;
 
@@ -6221,8 +6226,8 @@ AS
             EXECUTE IMMEDIATE psql BULK COLLECT INTO third_cousins USING hull_geom,
                                                                          'mask=OVERLAPBDYINTERSECT+OVERLAPBDYDISJOINT',
                                                                           'TRUE',
-                                                                          GZ_UTILITIES.stringarray_to_varray(buddy_outlines),
-                                                                          GZ_UTILITIES.stringarray_to_varray(second_cousins),
+                                                                          GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(buddy_outlines),
+                                                                          GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(second_cousins),
                                                                           all_outlines(i),
                                                                           2007;
 
@@ -6252,16 +6257,27 @@ AS
                      AND SDO_GEOM.RELATE(work_geom, 'mask=ANYINTERACT', SDO_UTIL.EXTRACT(third_geom,k), p_null_tol) != 'FALSE'
                      THEN
 
-                        GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                                'Adding piece of third cousin ' || third_cousins(j) || ' to ' || all_outlines(i),
                                                                NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
                         --piece is entirely inside hull and it touches, add it
 
-                        work_geom := SDO_GEOM.SDO_UNION(work_geom,
-                                                        SDO_UTIL.EXTRACT(third_geom,k),
-                                                        p_null_tol);
+                        IF p_gz_union = 'N'
+                        THEN
+
+                           work_geom := SDO_GEOM.SDO_UNION(work_geom,
+                                                           SDO_UTIL.EXTRACT(third_geom,k),
+                                                           p_null_tol);
+
+                        ELSE
+
+                           work_geom := GZ_GEOM_UTILS.GZ_UNION(work_geom,
+                                                               SDO_UTIL.EXTRACT(third_geom,k),
+                                                               p_null_tol);
+
+                        END IF;
 
 
                      END IF;
@@ -6298,15 +6314,34 @@ AS
             COMMIT;
 
 
-            IF sdo_geom.validate_geometry_with_context(work_geom, p_null_tol) != 'TRUE'
+            IF work_geom IS NOT NULL
+            AND sdo_geom.validate_geometry_with_context(work_geom, p_null_tol) != 'TRUE'
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                    'Result of aggregation in ' || p_work_tab ||
-                                                   ', step ' || p_step || '.' || all_outlines(i) || '.AGGR_GEOM is not valid',
-                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                                                   ', step ' || p_step || '.' || all_outlines(i) || '.AGGR_GEOM is not valid');
 
                RAISE_APPLICATION_ERROR(-20001,'Result of aggregation at ' || p_step || '.' || all_outlines(i) || '.AGGR_GEOM' || ' is not valid');
+
+            ELSIF work_geom IS NULL
+            THEN
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+                                                   'Result of aggregation in ' || p_work_tab ||
+                                                   ', step ' || p_step || '.' || all_outlines(i) || '.AGGR_GEOM is NULL');
+
+               RAISE_APPLICATION_ERROR(-20001,'Result of aggregation at ' || p_step || '.' || all_outlines(i) || '.AGGR_GEOM' || ' is NULL');
+
+               --One ridiculous backup option is just to let this slide
+               --this is an Oracle bug that was introduced at some point in spring 2013
+               --where unions of valid geoms result in null output
+               --I have no consistent workaround, can only ignore it and hope for the best
+               --GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+                 --                                          'WARNING: Result of aggregation in ' || p_work_tab ||
+                   --                                        ', step ' || p_step || '.' || all_outlines(i) || '.AGGR_GEOM is NULL. ' ||
+                     --                                      'No gap evaluation can happen');
+
 
             END IF;
 
@@ -6314,7 +6349,12 @@ AS
             --extract holes cycles through the inner rings, if any
             --and turns them inside out, into a 2007
 
-            hole_geom := GZ_TOPO_MERGE.EXTRACT_HOLES(work_geom);
+            IF work_geom IS NOT NULL
+            THEN
+
+               hole_geom := GZ_GEOM_UTILS.EXTRACT_HOLES(work_geom);
+
+            END IF;
 
             --done with you for now
             work_geom := NULL;
@@ -6340,7 +6380,7 @@ AS
                IF sdo_geom.validate_geometry_with_context(hole_geom, p_null_tol) != 'TRUE'
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                          'Result of hole geom ' || p_step || '.' || all_outlines(i) || '.HOLE_GEOM is not valid',
                                                           NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -6354,7 +6394,7 @@ AS
 
                   ring := SDO_UTIL.EXTRACT(hole_geom,j);
 
-                  width := GZ_TOPO_MERGE.MEASURE_SLIVER_WIDTH(ring,
+                  width := GZ_GEOM_UTILS.MEASURE_SLIVER_WIDTH(ring,
                                                               p_sample_count,
                                                               (p_null_tol * p_null_tol));
 
@@ -6412,13 +6452,13 @@ AS
       END IF;
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                              'Finished gap evaluation on ' || p_tab || ' Just FYI, min gap = ' || min_width);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                              'Max gap size is ' || max_width);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                              'Max gap at step ' || max_step);
 
       ---------------------------------------------------------------------------------------
@@ -6477,7 +6517,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
       ---------------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                               'Starting', NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
@@ -6495,7 +6535,7 @@ AS
       IF kount != 0
       THEN
 
-          GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                 'Yo, ' || p_tab || ' has invalid sdogeometry at tolerance ' || p_null_tol,
                                                  NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -6547,7 +6587,7 @@ AS
          --sometimes the output doesnt merge this sliver
          --I consider this to be buggy behavior of sdo_aggr_union, but it is what it is
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                 'As usual, result of aggregation in ' || p_work_tab || ' is not valid',
                                                  NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -6593,7 +6633,7 @@ AS
 
          --this means there are no holes
          --seems fishy, unless we are just playing, but lets log and keep rolling
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                 'FISHY WARNING: Result of aggregation in ' || p_work_tab || ' has no holes',
                                                  NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -6613,7 +6653,7 @@ AS
       IF result != 'TRUE'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                                 'Result of hole geom in ' || p_work_tab || ' is not valid',
                                                  NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -6637,7 +6677,7 @@ AS
 
          ring := SDO_UTIL.EXTRACT(work_geom,i);
 
-         width := GZ_TOPO_MERGE.MEASURE_SLIVER_WIDTH(ring,
+         width := GZ_GEOM_UTILS.MEASURE_SLIVER_WIDTH(ring,
                                                      p_sample_count,
                                                      p_null_tol * p_null_tol);
 
@@ -6664,10 +6704,10 @@ AS
 
       --lets log some junk that isnt 100% germane to the test
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                              'Finished gap evaluation on ' || p_tab || ' Just FYI, min gap = ' || min_width);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_GAP_EVALUATION',NULL,
                                              'Finished gap evaluation on ' || p_tab || ' Just FYI, total gap count = ' || SDO_UTIL.GETNUMELEM(work_geom));
 
 
@@ -6694,13 +6734,17 @@ AS
       p_work_tab      IN VARCHAR2,
       p_sdo_col       IN VARCHAR2 DEFAULT 'SDOGEOMETRY',
       p_null_tol      IN NUMBER DEFAULT .0000005,
-      p_sample_count  IN NUMBER DEFAULT 100
+      p_sample_count  IN NUMBER DEFAULT 100,
+      p_gz_intersect  IN VARCHAR2 DEFAULT 'N'
    ) RETURN NUMBER
    AS
 
       --Matt! 6/14/11
       --12/28/11 Fiddle with tolerance, no longer using tol * tol in the straight oracle calls
       --         Hopped up tolerance was mysteriously producing giant intersections
+      --6/26/13 Added p_gz_intersect option to call GZ_MERGE_INTERSECTION which further wraps sdo_intersection
+      --           to deal with buggy NULL output.  Change to Y to pull the trigger
+
       --Takes an input table with geometries expected to be contiguous and continuous, mas o menos
       --Cycles through each geometry and finds neighbors
       --Intersects geom with neighbors to find overlaps
@@ -6733,7 +6777,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
       ---------------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                               'Starting', NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
@@ -6750,7 +6794,7 @@ AS
       IF kount != 0
       THEN
 
-          GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                                 'Yo, ' || p_tab || ' has invalid sdogeometry at tolerance ' || p_null_tol,
                                                  NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -6760,7 +6804,7 @@ AS
 
       --need SIDX for this guy. Should be on unaligned_sdo column
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(p_tab,
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_tab,
                                      p_sdo_col,
                                      NULL,
                                      p_null_tol);
@@ -6832,20 +6876,36 @@ AS
                THEN
 
                   --log for funs
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                                          'FYI, relationship between ' || all_outlines(i) || ' and '
                                                          || buddy_outlines(j) || ' is ' || touch_buddy);
 
 
                   --intersect buddies
-                  psql := 'SELECT '
-                       || 'GZ_TOPO_MERGE.GZ_INTERSECTION(a.' || p_sdo_col || ', b.' || p_sdo_col || ', :p1) '
+                  psql := 'SELECT ';
+
+                  IF p_gz_intersect = 'N'
+                  THEN
+
+                     --standard intersection wrapper
+                     psql := psql
+                       || 'GZ_TOPO_MERGE.GZ_INTERSECTION(a.' || p_sdo_col || ', b.' || p_sdo_col || ', :p1) ';
+
+                  ELSE
+
+                     --bug workaround wrapper. wraps gz_intersection
+                     psql := psql
+                        || 'GZ_TOPO_MERGE.GZ_MERGE_INTERSECTION(a.' || p_sdo_col || ', b.' || p_sdo_col || ', :p1) ';
+
+                  END IF;
+
+                  psql := psql
                        || 'FROM '
                        || p_tab || ' a, '
                        || p_tab || ' b '
                        || 'WHERE '
-                       || 'a.source_topo = :p2 AND '
-                       || 'b.source_topo = :p3 ';
+                       || 'a.source_topo = :p3 AND '
+                       || 'b.source_topo = :p4 ';
 
                   EXECUTE IMMEDIATE psql INTO ringgeom USING p_null_tol,
                                                              all_outlines(i),
@@ -6895,7 +6955,7 @@ AS
 
       EXECUTE IMMEDIATE psql BULK COLLECT INTO stepz USING p_step || '.OVERLAP.' || '%';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                              'Measuring the width of ' || stepz.COUNT || ' overlaps ');
 
       FOR i IN 1 .. stepz.COUNT
@@ -6910,20 +6970,42 @@ AS
 
          -- Validate to be safe. Use hopped up tol
          -- This shouldnt happen, lets just throw an error
-         IF SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT(geom, p_null_tol) != 'TRUE'
+         IF geom IS NOT NULL
+         AND SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT(geom, p_null_tol) != 'TRUE'
          THEN
 
-            RAISE_APPLICATION_ERROR(-20001,'Got an invalid overlap geometry!');
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+                                                        'Got an invalid overlap geometry (see sqlstmt) on step ' || stepz(i),
+                                                        p_sqlstmt=>'SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT(geom, ' || p_null_tol || ')',
+                                                        p_sdo_dump=>geom);
+
+            RAISE_APPLICATION_ERROR(-20001,'Got an invalid overlap geometry on step ' || stepz(i));
+
+         ELSIF geom IS NULL
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+                                                        'Got a NULL overlap geometry (see sqlstmt) on step ' || stepz(i),
+                                                        p_sqlstmt=>'SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT(geom, ' || p_null_tol || ')',
+                                                        p_sdo_dump=>geom);
+
+            RAISE_APPLICATION_ERROR(-20001,'Got a NULL overlap geometry on step ' || stepz(i));
+
+            --One absurd option is just to let this slide
+            --This is an oracle bug, dont have much of an alternative
+            --GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+              --                                          'WARNING: Got a NULL overlap geometry (see sqlstmt) on step ' || stepz(i),
+                --                                        p_sqlstmt=>'SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT(geom, ' || p_null_tol || ')',
+                  --                                      p_sdo_dump=>geom);
 
          END IF;
-
 
          FOR j IN 1 .. SDO_UTIL.GETNUMELEM(geom)
          LOOP
 
             ring    := SDO_UTIL.EXTRACT(geom,j);
 
-            overlap := GZ_TOPO_MERGE.MEASURE_SLIVER_WIDTH(ring,
+            overlap := GZ_GEOM_UTILS.MEASURE_SLIVER_WIDTH(ring,
                                                           p_sample_count,
                                                           (p_null_tol * p_null_tol));
 
@@ -6953,7 +7035,6 @@ AS
 
             END IF;
 
-
          END LOOP;
 
 
@@ -6977,20 +7058,20 @@ AS
          max_ring := 0;
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                              'Finished overlap evaluation on ' || p_tab || ' Just FYI, total overlap count = ' || stepz.COUNT,
                                              NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                              'Min overlap = ' || min_overlap,
                                              NULL,NULL,NULL,NULL,NULL,NULL,small_ring);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                              'Max overlap = ' || max_overlap || ' (see sdo-->) ',
                                              NULL,NULL,NULL,NULL,NULL,NULL,big_ring);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_topo_out,'MAX_OVERLAP_EVALUATION',NULL,
                                              'Max overlap at step ' || max_step || ' ring ' || max_ring,
                                              NULL,NULL,NULL,NULL,NULL,NULL,big_ring);
 
@@ -7011,314 +7092,6 @@ AS
    --Public---------------------------------------------------------------------------------
 
 
-   FUNCTION EXTRACT_HOLES (
-      geom_in           IN SDO_GEOMETRY
-   ) RETURN SDO_GEOMETRY DETERMINISTIC
-   AS
-
-      --Matt! 5/11/11
-      --Takes a geometry with inner rings (aka holes)
-      --And returns just the inner rings as a new geometry
-      --Helper, not currently called in production code
-
-      --Sample call: select gz_utilities.extract_holes(a.sdogeometry)
-      --from TAB10SL040_CF_AGGR a
-
-      geom_temp      SDO_GEOMETRY;
-      eleminfo       SDO_ELEM_INFO_ARRAY := SDO_ELEM_INFO_ARRAY();
-      geom_out       SDO_GEOMETRY;
-      inner_ring     SDO_GEOMETRY;
-
-
-   BEGIN
-
-
-      IF geom_in.SDO_GTYPE != 2003
-      AND geom_in.SDO_GTYPE != 2007
-      THEN
-         RAISE_APPLICATION_ERROR(-20001,'Got gtype ' || geom_in.SDO_GTYPE || '. Whats the deal?');
-      END IF;
-
-
-      FOR i IN 1 .. SDO_UTIL.GETNUMELEM(geom_in)
-      LOOP
-
-
-         --Get each outer ring
-         geom_temp := SDO_UTIL.EXTRACT(geom_in,i);
-
-         eleminfo := geom_temp.SDO_ELEM_INFO;
-
-         IF eleminfo.COUNT = 3
-         THEN
-
-            --no inner rings
-            NULL;
-
-         ELSE
-
-            --we have inner rings
-            --ELEM info is in triplets
-
-            FOR j IN 1 .. (eleminfo.COUNT)/3
-            LOOP
-
-
-               IF j = 1
-               THEN
-
-                  --outer ring
-                  NULL;
-
-               ELSE
-
-                  --get the inner ring
-                  --element is always 1 since the EXTRACT up above guarantees a 2003
-                  --ring is 2 or higher
-                  inner_ring := SDO_UTIL.EXTRACT(geom_temp,1,j);
-
-                  IF geom_out IS NULL
-                  THEN
-
-                     geom_out := inner_ring;
-
-                  ELSE
-
-                     geom_out := SDO_UTIL.APPEND(geom_out, inner_ring);
-
-                  END IF;
-
-               END IF; --end if on keep or nokeep
-
-            END LOOP;   --end loop over inner rings
-
-         END IF;
-
-      END LOOP; --end loop over this piece of the original
-
-
-      IF geom_out.SDO_GTYPE != 2003
-      AND geom_out.SDO_GTYPE != 2007
-      THEN
-
-         RAISE_APPLICATION_ERROR(-20001,'Got some sort of weird output ');
-
-      ELSIF geom_out IS NULL
-      THEN
-
-         RETURN NULL;
-
-      ELSE
-
-         RETURN geom_out;
-
-      END IF;
-
-
-   END EXTRACT_HOLES;
-
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --Public---------------------------------------------------------------------------------
-
-   FUNCTION MEASURE_SLIVER_WIDTH (
-      geom_in           IN SDO_GEOMETRY,
-      p_sample_kount    IN PLS_INTEGER DEFAULT 100,
-      p_tolerance       IN NUMBER DEFAULT .00000005, --kinda expecting NULL srid from geodetic
-      p_debug           IN NUMBER DEFAULT 0
-   ) RETURN NUMBER DETERMINISTIC
-   AS
-
-      --Matt! 5/11/11
-      --Takes as input a single outer ring
-      --Assumes that the ring is very sliver-like.  Height to width ratio to the max
-      --Attempts to find the max width line across the sliver
-      --Then bisects the sliver into two halves based on the long axis
-      --Measures the distance across, from one side to the other in the geom's units
-      --increase p_sample_kount to get more accurate results, or lower for less accurate, faster performance
-      --Tolerance must be granular enough to distinguish the sliver width.
-
-
-
-      --sample call: select gz_utilities.MEASURE_SLIVER_WIDTH(SDO_GEOMETRY
-      --                                                     (2003,NULL,NULL,SDO_ELEM_INFO_ARRAY(1,1003,3),SDO_ORDINATE_ARRAY(1,1, 5,7)),
-      --                                                      100, .0000005) from dual
-      --returns 4 since the rectangle gets bisected diagonally, and the horizontal width is 5-1
-
-      geom_line         SDO_GEOMETRY;
-      geom_pts          GZ_TYPES.geomarray;
-      max_dist          NUMBER := 0;
-      current_dist      NUMBER;
-      measure           NUMBER := 0;
-      bisect_pt1        PLS_INTEGER;
-      bisect_pt2        PLS_INTEGER;
-      ordinates_lower   SDO_ORDINATE_ARRAY :=  SDO_ORDINATE_ARRAY();
-      ordinate_kount    PLS_INTEGER := 0;
-      lower_geom        SDO_GEOMETRY;
-      sliver_distance   NUMBER;
-      project_pt        SDO_GEOMETRY;
-
-
-   BEGIN
-
-      IF geom_in.SDO_GTYPE != 2003
-      THEN
-
-         RAISE_APPLICATION_ERROR(-20001,'Input gtype is ' || geom_in.sdo_gtype || ', expecting a 2003 ');
-
-      END IF;
-
-      geom_line := SDO_UTIL.POLYGONTOLINE(geom_in);
-
-      IF p_debug = 1
-      THEN
-         dbms_output.put_line('verify polygton to line');
-         dbms_output.put_line('SELECT ' || TO_CHAR(GZ_UTILITIES.DUMP_SDO(geom_line)) || ' FROM DUAL');
-      END IF;
-
-
-      FOR i in 1 .. p_sample_kount
-      LOOP
-
-         --GZ_LOCATE_PT uses a measure of 1000
-
-         measure := measure + (1000/p_sample_kount);
-
-         geom_pts(i) := GZ_CLIP.GZ_LOCATE_PT(geom_line,measure);
-
-      END LOOP;
-
-      FOR i in 1 .. geom_pts.COUNT
-      LOOP
-
-         --ex 1 (2 3 4 5 6 7 8 9 10)
-         --   2 (3 4 5 6 7 8 9 10) ...
-         --   9 (10)
-         FOR j IN (i+1) .. geom_pts.COUNT
-         LOOP
-
-            current_dist := SDO_GEOM.SDO_DISTANCE(geom_pts(i),
-                                                  geom_pts(j),
-                                                  p_tolerance);
-
-            IF current_dist > max_dist
-            THEN
-
-               max_dist := current_dist;
-               bisect_pt1 := i;  --this is just a position in the geom_pts array
-               bisect_pt2 := j;  --not a measure or a geom
-
-            END IF;
-
-         END LOOP;
-
-      END LOOP;
-
-
-      IF max_dist <= 0
-      THEN
-
-         RAISE_APPLICATION_ERROR(-20001,'Got a max width of ' || max_dist || ' check ya tolerance and ya hole ');
-
-      END IF;
-
-
-      --Build just one geom for the lower side of the sliver
-      --bisect_pt1 is a positive integer, and it stretches around to bisect_pt2
-      --to form the "upper" side of the sliver.  We will just use those points as starters
-
-      --bisect_pt2 to geom_pts.COUNT, then 1 to bisect_pt1
-      --this is the lower side of the sliver
-      --its ok that our two sides overlap at the shared endpoints
-      --This will just be a distance of 0 and better be tossed
-
-      ordinate_kount := 0;
-
-      FOR ii IN bisect_pt2 .. geom_pts.COUNT
-      LOOP
-
-         ordinates_lower.EXTEND(2);
-
-         ordinate_kount := ordinate_kount + 1;
-         ordinates_lower(ordinate_kount) := geom_pts(ii).sdo_point.X;
-         ordinate_kount := ordinate_kount + 1;
-         ordinates_lower(ordinate_kount) := geom_pts(ii).sdo_point.Y;
-
-      END LOOP;
-
-      FOR ii IN 1 .. bisect_pt1
-      LOOP
-
-         ordinates_lower.EXTEND(2);
-
-         ordinate_kount := ordinate_kount + 1;
-         ordinates_lower(ordinate_kount) := geom_pts(ii).sdo_point.X;
-         ordinate_kount := ordinate_kount + 1;
-         ordinates_lower(ordinate_kount) := geom_pts(ii).sdo_point.Y;
-
-      END LOOP;
-
-
-      lower_geom := geom_line;
-      lower_geom.sdo_ordinates := ordinates_lower;
-
-      --we gots a series of points representing the upper half of the sliver
-      --And a line representing the lower half of the sliver
-      --Both geoms are likely densified from the original sliver geometry. For the best
-
-      max_dist := 0;
-      current_dist := 0;
-
-      IF p_debug = 1
-      THEN
-
-         dbms_output.put_line('bisecting points are ');
-         dbms_output.put_line('SELECT ' || TO_CHAR(GZ_UTILITIES.DUMP_SDO(geom_pts(bisect_pt1))) || ' FROM DUAL');
-         dbms_output.put_line('SELECT ' || TO_CHAR(GZ_UTILITIES.DUMP_SDO(geom_pts(bisect_pt2))) || ' FROM DUAL');
-
-      END IF;
-
-      FOR ii IN bisect_pt1 .. bisect_pt2
-      LOOP
-
-         --for each ordinate in the upper set
-         --project_pt onto the lower line and measure the distance
-         --yes I know that the actual project_pt command has a distance IN OUT
-
-         project_pt := GZ_CLIP.GZ_PROJECT_PT(geom_pts(ii),
-                                             lower_geom,
-                                             p_tolerance);
-
-         current_dist := SDO_GEOM.SDO_DISTANCE(project_pt,
-                                               geom_pts(ii),
-                                               p_tolerance);
-
-         IF current_dist > max_dist
-         THEN
-
-            max_dist := current_dist;
-
-            IF p_debug = 1
-            THEN
-
-               dbms_output.put_line('got a max ' || current_dist || ' for top bisect point ' || ii);
-               dbms_output.put_line('heres the two pts ');
-               dbms_output.put_line('SELECT ' || TO_CHAR(GZ_UTILITIES.DUMP_SDO(project_pt)) || ' FROM DUAL');
-               dbms_output.put_line('SELECT ' || TO_CHAR(GZ_UTILITIES.DUMP_SDO(geom_pts(ii))) || 'FROM DUAL');
-
-            END IF;
-
-         END IF;
-
-      END LOOP;
-
-      RETURN max_dist;
-
-   END MEASURE_SLIVER_WIDTH;
-
-   ---------------------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --Public-------------------------------------------------------------------------------------------
 
    FUNCTION GZ_AGGR_UNION (
       p_tab_name      IN VARCHAR2,
@@ -7389,6 +7162,206 @@ AS
 
    END GZ_AGGR_UNION;
 
+   ---------------------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public-------------------------------------------------------------------------------------------
+
+   FUNCTION GZ_MERGE_INTERSECTION (
+      geom1_in             IN SDO_GEOMETRY,
+      geom2_in             IN SDO_GEOMETRY,
+      p_tolerance          IN NUMBER DEFAULT .00000005,
+      p_debug              IN NUMBER DEFAULT 1,
+      p_recursive          IN NUMBER DEFAULT 0
+   ) RETURN SDO_GEOMETRY DETERMINISTIC
+   AS
+
+      --Matt! 6/25/13
+      --Wrapper to standard gz_intersection (which in turn is a wrapper to sdo_geom.sdo_intersection)
+      --This version is only to be used if sdo_geom.sdo_intersection is known to be buggy
+      --    in typical merge usage.  Returns NULL sometimes
+
+      --Slightly different order of operations from the bug wrappers for difference and union
+
+      output            SDO_GEOMETRY;
+      deadman           PLS_INTEGER := 0;
+      tolerance         NUMBER;
+
+   BEGIN
+
+
+      IF geom1_in IS NULL
+      OR geom2_in IS NULL
+      THEN
+
+         RAISE_APPLICATION_ERROR(-20001, 'Input geometry is NULL');
+
+      END IF;
+
+      IF geom1_in.sdo_srid IS NOT NULL
+      OR geom2_in.sdo_srid IS NOT NULL
+      THEN
+
+         RAISE_APPLICATION_ERROR(-20001, 'Sorry, an input srid is not null.  This embarrassment only works on graph paper');
+
+      END IF;
+
+      IF (geom1_in.sdo_gtype <> 2003 AND geom1_in.sdo_gtype <> 2007)
+      OR (geom2_in.sdo_gtype <> 2003 AND geom2_in.sdo_gtype <> 2007)
+      THEN
+
+         RAISE_APPLICATION_ERROR(-20001,'One of the inputs isnt a polygon.  Sorry, only wrote this mess for polys');
+
+      END IF;
+
+      IF p_tolerance IS NULL
+      THEN
+
+         RAISE_APPLICATION_ERROR(-20001, 'Need a real tolerance, got null');
+
+      ELSE
+
+         tolerance := p_tolerance;
+
+      END IF;
+
+
+      LOOP
+
+         IF p_debug = 1
+         THEN
+
+            dbms_output.put_line('using tolerance ' || tolerance || ' on try ' || (deadman + 1));
+
+         END IF;
+
+         BEGIN
+
+            output := GZ_TOPO_MERGE.GZ_INTERSECTION(geom1_in,
+                                                    geom2_in,
+                                                    tolerance);
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            IF SQLERRM LIKE '%unable to construct spatial object%'
+            THEN
+
+               --Lazarus time
+               --ORA-13050: unable to construct spatial object
+               --ORA-06512: at "MDSYS.SDO_3GL", line 1606
+               --ORA-06512: at "MDSYS.SDO_3GL", line 1646
+               --ORA-06512: at "MDSYS.SDO_3GL", line 1750
+               --ORA-06512: at "MDSYS.SDO_3GL", line 1844
+               --ORA-06512: at "MDSYS.SDO_GEOM", line 1408
+               --ORA-06512: at "MDSYS.SDO_GEOM", line 1493
+
+               IF p_debug = 1
+               THEN
+
+                  dbms_output.put_line(SQLERRM || ' on try ' || (deadman + 1));
+
+               END IF;
+
+            ELSE
+
+               RAISE;
+
+            END IF;
+
+         END;
+
+         IF output IS NOT NULL
+         AND output.sdo_gtype IN (2003,2007)
+         AND sdo_geom.validate_geometry_with_context(output,p_tolerance) = 'TRUE'
+         THEN
+
+            EXIT;
+
+         ELSE
+
+            IF output IS NOT NULL
+            AND output.sdo_gtype NOT IN (2003,2007)
+            AND p_debug = 1
+            THEN
+               dbms_output.put_line('Got a geometry but a bad gtype');
+            END IF;
+
+            IF output IS NOT NULL
+            AND sdo_geom.validate_geometry_with_context(output,p_tolerance) <> 'TRUE'
+            AND p_debug = 1
+            THEN
+               dbms_output.put_line('Got a geometry but its not valid at ' || p_tolerance);
+            END IF;
+
+
+            --Recursive call with rounding to tolerance + 1 digits
+            IF p_recursive = 0
+            THEN
+
+               --Always try rounding in intersection
+               IF p_debug = 1
+               THEN
+                  dbms_output.put_line('Going into the rabbit hole.  Rounding ordinates at ' || (length(p_tolerance) - deadman));
+               END IF;
+
+               --only call on the surface, never in the hole
+               --decimal pt = +1 (usually 9 to start) then subtract a digit on each loop
+               output := GZ_TOPO_MERGE.GZ_MERGE_INTERSECTION(GZ_GEOM_UTILS.ORDINATE_ROUNDER(geom1_in, length(p_tolerance) - deadman),
+                                                             GZ_GEOM_UTILS.ORDINATE_ROUNDER(geom2_in, length(p_tolerance) - deadman),
+                                                             p_tolerance,  --use original target tolerance
+                                                             p_debug,
+                                                            (p_recursive+1));
+
+               IF output IS NOT NULL
+               AND output.sdo_gtype IN (2003,2007)
+               AND sdo_geom.validate_geometry_with_context(output,p_tolerance) = 'TRUE'
+               THEN
+
+                  EXIT;
+
+               END IF;
+
+            END IF;
+
+            --If no exit, another loop
+
+            deadman := deadman + 1;
+
+            tolerance := tolerance / 10; --no idea
+
+         END IF;
+
+
+         IF p_recursive > 0
+         THEN
+
+            --just one call in recursive
+            RETURN output;
+
+         END IF;
+
+
+         IF deadman > 10
+         THEN
+
+            RAISE_APPLICATION_ERROR(-20001,'Out of ideas');
+
+         END IF;
+
+      END LOOP;
+
+      IF p_debug = 1
+      THEN
+
+         dbms_output.put_line('Final tolerance used: ' || tolerance || ' on try ' || (deadman + 1));
+
+      END IF;
+
+      RETURN output;
+
+
+   END GZ_MERGE_INTERSECTION;
 
    ---------------------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -7627,7 +7600,7 @@ AS
 
       IF p_incoming.SDO_GTYPE != 2002 AND p_incoming.SDO_GTYPE != 2006
       THEN
-         RAISE_APPLICATION_ERROR(-20001,'DZ_LINE_INTERSECTION: input_line sdo geometry is not 2002 or 2006 but ' || p_incoming.SDO_GTYPE || '!');
+         RAISE_APPLICATION_ERROR(-20001,'GZ_LINE_INTERSECTION: input_line sdo geometry is not 2002 or 2006 but ' || p_incoming.SDO_GTYPE || '!');
       END IF;
 
       IF p_clipper.SDO_GTYPE != 2003 AND p_clipper.SDO_GTYPE != 2007
@@ -7890,7 +7863,7 @@ AS
      ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -7990,7 +7963,7 @@ AS
      ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -8090,7 +8063,7 @@ AS
      ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -8173,7 +8146,7 @@ AS
      ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
    END CREATE_GEN_MERGE_PHONY_FSL;
 
@@ -8209,14 +8182,14 @@ AS
 
       merge_parms := GZ_TOPO_MERGE.GET_MERGE_PARAMETERS(p_release, p_project_id);
 
-      geogs := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      geogs := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                       p_project_id,
                                                       'ATTRIBUTE',
                                                       merge_parms.gen_merge_face_fields);
 
 
 
-      measurements := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      measurements := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                              p_project_id,
                                                              'MEASUREMENT',
                                                              merge_parms.gen_merge_face_fields);
@@ -8267,7 +8240,7 @@ AS
       END LOOP;
 
       --add hard coded QC field.  Maybe it should be marked a measurement in the reference_face_fields table?
-      --now QC is returned by GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS
+      --now QC is returned by GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS
       --psql := psql || ' QC NUMBER ) NOPARALLEL NOLOGGING ';
 
 
@@ -8341,19 +8314,19 @@ AS
 
      --bitmap index on handful (50ish usually) source topos
 
-     GZ_UTILITIES.ADD_INDEX(p_table_name,
+     GZ_BUSINESS_UTILS.ADD_INDEX(p_table_name,
                             p_table_name || '_ST',
                             'SOURCE_TOPO',
                             'BITMAP');
 
      --source face ids arent unique.
-     GZ_UTILITIES.ADD_INDEX(p_table_name,
+     GZ_BUSINESS_UTILS.ADD_INDEX(p_table_name,
                             p_table_name || '_SF',
                             'SOURCE_FACE_ID');
 
      --output face ids are almost unique
      --unless they experience mitosis
-     GZ_UTILITIES.ADD_INDEX(p_table_name,
+     GZ_BUSINESS_UTILS.ADD_INDEX(p_table_name,
                             p_table_name || '_FA',
                             'FACE_ID');
 
@@ -8366,7 +8339,7 @@ AS
      ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
    END CREATE_MERGE_FACE;
@@ -8500,7 +8473,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -8648,7 +8621,7 @@ AS
       THEN
 
          --entire topology topomap, can be expensive
-         ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,toponame,2);
+         ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,toponame,2);
 
       ELSE
 
@@ -8661,7 +8634,7 @@ AS
 
          END IF;
 
-         ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,
+         ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,
                                                         toponame,
                                                         2,
                                                         p_topomap_mbr.sdo_ordinates(1),
@@ -8741,7 +8714,7 @@ AS
          --switch out for regular sql
          psql := psql2;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
                                                 'Special try ' || ordertry,
                                                 NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -8770,14 +8743,14 @@ AS
 
                IF stupid_number_array.COUNT > 1
                AND ( ordertry > 5
-                     OR GZ_UTILITIES.QUERY_DELIMITED_LIST(special_ids,topotab(i).id) != 0 )
+                     OR GZ_BUSINESS_UTILS.QUERY_DELIMITED_LIST(special_ids,topotab(i).id) != 0 )
                THEN
 
                   --SOL.
                   --Calling it quits after either 5 tries or because the same face is coming back at us
 
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
                                                          'Yo, we expect non overlapping inputs but we got ' || stupid_number_array.COUNT
                                                       || ' faces for ' || featuretable_pkc || ' record ' || topotab(i).id,
                                                          NULL,NULL,NULL,NULL,NULL,NULL,NULL);
@@ -8786,7 +8759,7 @@ AS
                                               || ' faces for ' || featuretable_pkc || ' record ' || topotab(i).id );
 
                ELSIF stupid_number_array.COUNT > 1
-               AND GZ_UTILITIES.QUERY_DELIMITED_LIST(special_ids,topotab(i).id) = 0
+               AND GZ_BUSINESS_UTILS.QUERY_DELIMITED_LIST(special_ids,topotab(i).id) = 0
                THEN
 
 
@@ -8794,7 +8767,7 @@ AS
                   --we'll try to put this spoiled baby into the topology first
                   ordertry := ordertry + 1;
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
                                                          'going back for try ' || ordertry || 'adding ' || topotab(i).id || ' to the shoot list',
                                                          NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -8889,7 +8862,7 @@ AS
       THEN
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
                                                  'Yo, ' || kount || ' faces in ' || featuretable || ' have no matching face in face$ ',
                                                  NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -8906,7 +8879,7 @@ AS
 
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_A_POLY_FROM_SPATIAL',NULL,
                                              'Done ', NULL,NULL,NULL,NULL,NULL,NULL,NULL);
       --Anything to return?
 
@@ -8988,7 +8961,7 @@ AS
                        || 'SET a.' || p_featuretable_id || ' = :p1 '
                        || 'WHERE a.' || p_featuretable_pkc || ' = :p2 ';
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'MITOSIS_MANAGER',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'MITOSIS_MANAGER',NULL,
                                                          'Updating parent record. p1,p2 are ' || mitosis_face_ids(j) || ',' || special_ids(j),
                                                           NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -9006,7 +8979,7 @@ AS
                        || '(' || p_featuretable_id || ',' || p_subset_col || ',' || p_mitosis_col || ',' || p_featuretable_pkc || ') '
                        || 'VALUES(:p1,:p2,:p3,:p4) ';
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'MITOSIS_MANAGER',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'MITOSIS_MANAGER',NULL,
                                                          'Duplicating record ' || distinct_ids(i) ||
                                                          ' giving it ' || p_featuretable_id || ' ' || mitosis_face_ids(j),
                                                           NULL,NULL,NULL,psql,NULL,NULL,NULL);
@@ -9068,6 +9041,7 @@ AS
       --! 10/13/11 Updates for out of memory catch and retries. Havent actually seen this in add_poly
       --! 10/19/11 Removed memory management, all caller now
       --! 12/14/12 Rudimentary handling for not found in cache bug error
+      --! 11/25/13 Added obsolete node removal
 
       --This one will handle input geoms being split into multiple faces
       --See add_a_poly_from_spatial for more hard core in your faces face code
@@ -9191,7 +9165,7 @@ AS
       THEN
 
          --entire topology topomap, can be expensive
-         ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,toponame,2);
+         ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,toponame,2);
 
       ELSE
 
@@ -9204,7 +9178,7 @@ AS
 
          END IF;
 
-         ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,
+         ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,
                                                         toponame,
                                                         2,
                                                         p_topomap_mbr.sdo_ordinates(1),
@@ -9249,7 +9223,7 @@ AS
       END IF;
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                              'Opening cursor to call add_polygon_geometry ',
                                              NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -9279,7 +9253,7 @@ AS
                WHEN OTHERS
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                                          'ADD_POLYS_FROM_SPATIAL error on id ' || topotab(i).id || ' message--> ',
                                                           NULL,NULL,NULL,NULL,NULL,SQLERRM,topotab(i).sdogeometry);
 
@@ -9300,24 +9274,24 @@ AS
 
                   END IF;
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
-                                                         'NULLing out any ' || featuretable_id || 's in ' || featuretable 
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+                                                         'NULLing out any ' || featuretable_id || 's in ' || featuretable
                                                          || ' that we updated before the error' ,
                                                          NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
 
                   EXECUTE IMMEDIATE psql;
                   COMMIT;
-                     
+
                   IF (UPPER(SQLERRM) LIKE '%OUTOFMEMORYERROR%'
                   OR UPPER(SQLERRM) LIKE '%JAVA OUT OF MEMORY CONDITION%')  --WTF causes this instead of the first?
                   THEN
 
                      --nothing in this handler has ever succeeded
                      --attempting to avoid this ahead of time in the caller
-                     
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                                             'Memory error, just gonna call the magick java memory manager ',
                                                             NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -9327,14 +9301,14 @@ AS
                         --this is just a placeholder, not expecting it to work at present
                         --Caller should call this same procedure before we get here
 
-                        GZ_UTILITIES.JAVA_MEMORY_MANAGER(featuretable,
+                        GZ_BUSINESS_UTILS.JAVA_MEMORY_MANAGER(featuretable,
                                                          'SDOGEOMETRY',
                                                          SQLERRM);  --<-- handle it wizard!
                      EXCEPTION
                      WHEN OTHERS
                      THEN
 
-                        GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                                                'JAVA_MEMORY_MANAGER failed to clean house--> ',
                                                                 NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -9351,7 +9325,7 @@ AS
                      --ORA-29532: Java call terminated by uncaught Java exception:
                      --oracle.spatial.topo.TopoEntityNotFoundException: Edge ID 483909 not found in cache
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                                             'F''ing edge id X not found in cache error on '
                                                             || featuretable_pkc ||  ' ' || topotab(i).id,
                                                              NULL,NULL,NULL,NULL,NULL,SQLERRM);
@@ -9383,7 +9357,7 @@ AS
                ELSIF stupid_number_array.COUNT > 1
                THEN
 
-                   GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+                   GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                                           'Warning: Got ' || stupid_number_array.COUNT || ' ' ||
                                                           'faces for ' || featuretable || ' ' || featuretable_pkc || ': ' || topotab(i).id,
                                                            NULL,NULL,NULL,NULL,NULL,NULL,NULL);
@@ -9435,7 +9409,32 @@ AS
       END;
 
       CLOSE my_cursor;
+      
+      ----------------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      DBMS_APPLICATION_INFO.SET_ACTION('Step 40');
+      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('ADD_POLYS_FROM_SPATIAL: Remove obsolete nodes from ' || newtopomap);
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      ----------------------------------------------------------------------------------
 
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+                                                  'Remove any obsolete nodes from topomap ' || newtopomap,
+                                                   NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                                              
+      --From the docs
+      --"Obsolete nodes can result when the SDO_TOPO_MAP.ADD_POLYGON_GEOMETRY function is used repeatedly to build a topology"
+      --This is generally harmless in the merged topologies, but sloppy
+      --is harmful when topofix stuff is called where an obsolete exists
+      
+      --unfortunately gz_topo_util.REMOVE_OBSOLETE_NODES expects no topomap open, full topo
+      --error handler?
+      --b4 and after counts? No care
+      SDO_TOPO_MAP.REMOVE_OBSOLETE_NODES(NULL);      
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+                                             'Complete: remove any obsolete nodes from topomap ' || newtopomap,
+                                              NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                                              
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -9444,19 +9443,17 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                              'Commit and drop topo map ',
                                               NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
+      
       SDO_TOPO_MAP.COMMIT_TOPO_MAP();
       SDO_TOPO_MAP.DROP_TOPO_MAP(newtopomap);
 
-      --JUST SAY NO
-      --SDO_TOPO.INITIALIZE_METADATA(toponame);
-
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 40');
+      DBMS_APPLICATION_INFO.SET_ACTION('Step 60');
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('ADD_POLYS_FROM_SPATIAL: Deal with mitosis ');
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
@@ -9464,7 +9461,7 @@ AS
       IF distinct_ids.COUNT > 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                                  'Calling mitosis manager for ' || distinct_ids.COUNT || ' input records ',
                                                  NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
@@ -9511,7 +9508,7 @@ AS
       THEN
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                                  'Yo, ' || kount || ' faces in ' || featuretable || ' have no matching face in face$ ',
                                                  NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -9521,14 +9518,14 @@ AS
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 60');
+      DBMS_APPLICATION_INFO.SET_ACTION('');
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('ADD_POLYS_FROM_SPATIALL: Complete ');
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('MERGE',p_toponame,'ADD_POLYS_FROM_SPATIAL',NULL,
                                              'Done ', NULL,NULL,NULL,NULL,NULL,NULL,NULL);
       --Anything to return?
 

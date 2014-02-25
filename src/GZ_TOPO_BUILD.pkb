@@ -5115,7 +5115,7 @@ IF ContinueStatus THEN
  --
  -- Grant privileges 
  --
- GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',vtopology||'%');
+ GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',vtopology||'%');
  --
  -- Check if national run or state based 
  --
@@ -5293,11 +5293,11 @@ IF ContinueStatus THEN
    --
    -- Gather stats on entire topology
    --
-   GZ_UTILITIES.GATHER_TOPO_STATS(vtopology);
+   GZ_TOPO_UTIL.GATHER_TOPO_STATS(vtopology);
    --
    -- Grant privileges 
    --
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',vtopology||'%');
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',vtopology||'%');
    --
    -- Validating the Topology 
    -- 

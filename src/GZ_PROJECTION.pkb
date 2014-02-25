@@ -70,7 +70,7 @@ BEGIN
       THEN
 
          --new standalone projection job, make a log table
-         GZ_UTILITIES.CREATE_GEN_XTEND_TRACKING_LOG(SYS_CONTEXT('USERENV', 'CURRENT_USER'),
+         GZ_BUSINESS_UTILS.CREATE_GEN_XTEND_TRACKING_LOG(SYS_CONTEXT('USERENV', 'CURRENT_USER'),
                                                     Topology || '_'||log_type||'_TRACKING');
    END IF;
 

@@ -105,7 +105,7 @@ AS
 
       --these two have to exist and have records
 
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(v_gz_layers_out)
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(v_gz_layers_out)
       THEN
 
          output := output || '| Table ' || v_gz_layers_out || ' doesnt appear to exist ';
@@ -113,7 +113,7 @@ AS
       END IF;
 
 
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(v_gz_layers_in)
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(v_gz_layers_in)
       THEN
 
          output := output || '| Table ' || v_gz_layers_in || ' doesnt appear to exist ';
@@ -486,7 +486,7 @@ AS
                                                         layers_out(j).layer);
 
             --aggregate source is comma delimited
-            layers := GZ_UTILITIES.SPLIT(layer_aggr.source,',');
+            layers := GZ_BUSINESS_UTILS.SPLIT(layer_aggr.source,',');
 
             IF layers.COUNT < 2
             THEN
@@ -730,7 +730,7 @@ AS
          EXECUTE IMMEDIATE psql INTO kount USING p_release,
                                                  projects(i);
 
-         IF kount > 0
+         IF kount = 1
          THEN
 
             psql := 'SELECT COUNT(*) FROM '
@@ -755,6 +755,21 @@ AS
                                  || 'the fields of the same layer on ' || v_gz_layers_fields;
 
             END IF;
+
+         ELSIF kount > 1
+         THEN
+
+            --Theres some code in initial topo build and the QA module that expect a single add_to_face value
+            --Weve never had more than one in a project.  Could be handled if theres a good reason for it
+            output := output || '| ' || v_gz_layers_out || ' Project ' || projects(i) || ' has more than one '
+                             || 'add_to_face value. Theres some code that assumes only one value - lets talk if this is intentional';
+
+         ELSIF kount = 0
+         THEN
+
+            --Im gonna allow this.  Could be possible theres no add to state because we are running nation-nation-nation
+            --without a clip. Probably suspicious though, leaving this here as a reminder
+            NULL;
 
          END IF;
 
@@ -788,10 +803,10 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.CREATE_GEN_XTEND_TRACKING_LOG(sys_context('USERENV','CURRENT_SCHEMA'),
+      GZ_BUSINESS_UTILS.CREATE_GEN_XTEND_TRACKING_LOG(sys_context('USERENV','CURRENT_SCHEMA'),
                                                  p_output_topology || '_OUTPUT_TRACKING');
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',
                                              p_output_topology,
                                              'START_OUTPUT_LOGGING', NULL,
                                              'STARTING RELEASE:' || p_release
@@ -1928,7 +1943,7 @@ AS
 
    BEGIN
 
-      schema_dot_table := GZ_UTILITIES.SPLIT(p_source, '\.');
+      schema_dot_table := GZ_BUSINESS_UTILS.SPLIT(p_source, '\.');
 
       IF schema_dot_table.COUNT <> 2
       THEN
@@ -2148,7 +2163,7 @@ AS
                                                           p_layer);
 
 
-         aggregate_sources := GZ_UTILITIES.SPLIT(layer_aggregate.source,',');
+         aggregate_sources := GZ_BUSINESS_UTILS.SPLIT(layer_aggregate.source,',');
 
          IF GZ_OUTPUT.LAYER_IS_INITIAL(p_release,
                                        p_gen_project_id,
@@ -2509,7 +2524,7 @@ AS
                                                              p_layer);
 
             --source is comma delimited
-            layer_aggr_sources := GZ_UTILITIES.SPLIT(layer_aggregate.source, ',');
+            layer_aggr_sources := GZ_BUSINESS_UTILS.SPLIT(layer_aggregate.source, ',');
 
             IF layer_aggr_sources.COUNT <> 2
             THEN
@@ -3003,8 +3018,8 @@ AS
            || 'FROM TABLE(:p2) t2 ';
 
       EXECUTE IMMEDIATE psql BULK COLLECT INTO output
-                                          USING GZ_UTILITIES.stringarray_to_varray(p_input1),
-                                                GZ_UTILITIES.stringarray_to_varray(p_input2);
+                                          USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(p_input1),
+                                                GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(p_input2);
 
       --ok if output is empty?  Guess so
 
@@ -3041,7 +3056,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,'STARTING ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,'STARTING ' || p_output_topology);
 
       --do checks not part of parm checker first
 
@@ -3087,7 +3102,7 @@ AS
       IF cheker <> '0'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,
                                                 'VERIFY_OUTPUT_PARMS(''' || p_release || ''') returned bad--> ',
                                                 NULL,NULL,NULL,NULL,NULL,cheker);
 
@@ -3235,7 +3250,7 @@ AS
       THEN
 
          aggregate_rec := GET_AGGREGATE_LAYER(p_release,p_layer);
-         sources       := GZ_UTILITIES.SPLIT(aggregate_rec.source,',');
+         sources       := GZ_BUSINESS_UTILS.SPLIT(aggregate_rec.source,',');
 
          IF  LAYER_IS_INITIAL(p_release,p_gen_project_id,sources(1))
          AND LAYER_IS_INITIAL(p_release,p_gen_project_id,sources(2))
@@ -3278,6 +3293,8 @@ AS
 
       psql           VARCHAR2(4000);
       output         VARCHAR2(4000) := '0';
+      obj_new        PLS_INTEGER := 0; --assume no
+      set_new        PLS_INTEGER := 0;
 
    BEGIN
 
@@ -3286,6 +3303,9 @@ AS
       BEGIN
 
          EXECUTE IMMEDIATE psql;
+
+         --only get here on first run in a schema
+         obj_new := 1;
 
       EXCEPTION
       WHEN OTHERS
@@ -3315,6 +3335,9 @@ AS
 
          EXECUTE IMMEDIATE psql;
 
+         --only get here on first run in a schema
+         set_new := 1;
+
       EXCEPTION
       WHEN OTHERS
       THEN
@@ -3336,19 +3359,42 @@ AS
 
       END;
 
-      psql := 'GRANT EXECUTE ON output_prim_set TO PUBLIC';
-
-      BEGIN
-
-         EXECUTE IMMEDIATE psql;
-
-      EXCEPTION
-      WHEN OTHERS
+      IF obj_new = 1
+      OR set_new = 1
       THEN
 
-         NULL;
+         --if new grant execute
+         --allows a remote schema to select * from the output tables when partially complete
 
-      END;
+         psql := 'GRANT EXECUTE ON output_prim_set TO "PUBLIC" ';
+
+         BEGIN
+
+            EXECUTE IMMEDIATE psql;
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            NULL;
+
+         END;
+
+         psql := 'GRANT EXECUTE ON output_prim_obj TO "PUBLIC" ';
+
+         BEGIN
+
+            EXECUTE IMMEDIATE psql;
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            NULL;
+
+         END;
+
+      END IF;
 
       RETURN output;
 
@@ -3392,7 +3438,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,'STARTING setup for ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,'STARTING setup for ' || p_output_topology);
 
       IF p_restart_flag = 'N'
       THEN
@@ -3408,13 +3454,13 @@ AS
 
          --create and drop work tables
 
-         GZ_UTILITIES.CREATE_GZ_LAYERS_OUT_GEOM(NULL, p_output_topology || '_LAYERS_OUT_SUPE', srid);
+         GZ_BUSINESS_UTILS.CREATE_GZ_LAYERS_OUT_GEOM(NULL, p_output_topology || '_LAYERS_OUT_SUPE', srid);
 
-         GZ_UTILITIES.CREATE_GZ_LAYERS_OUT_GEOM(NULL, p_output_topology || '_LAYERS_OUT_BASE', srid);
+         GZ_BUSINESS_UTILS.CREATE_GZ_LAYERS_OUT_GEOM(NULL, p_output_topology || '_LAYERS_OUT_BASE', srid);
 
-         GZ_UTILITIES.CREATE_GZ_LAYERS_OUT_INFO(NULL, p_output_topology || '_LAYERS_OUT_INFO');
+         GZ_BUSINESS_UTILS.CREATE_GZ_LAYERS_OUT_INFO(NULL, p_output_topology || '_LAYERS_OUT_INFO');
 
-         GZ_UTILITIES.CREATE_GZ_LAYERS_OUT_HELP(NULL, p_output_topology || '_LAYERS_OUT_HELP');
+         GZ_BUSINESS_UTILS.CREATE_GZ_LAYERS_OUT_HELP(NULL, p_output_topology || '_LAYERS_OUT_HELP');
 
          IF p_output_srid IS NULL
          THEN
@@ -3422,16 +3468,16 @@ AS
             --indicates Z9 albers 1000082 srid
             --plop out the pile of gz_projection work tables. We will at least re-use these for each layer now
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
                                                    'Looks like Z9. Creating buku tables for GZ_PROJECTION');
 
-            GZ_UTILITIES.CREATE_GZ_PROJECTION_WRK2003(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_2003');
-            GZ_UTILITIES.CREATE_GZ_PROJECTION_WRKAREA(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_AREA');
-            GZ_UTILITIES.CREATE_GZ_PROJECTION_WRKOUT(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_Z9TMP');
-            GZ_UTILITIES.CREATE_GZ_PROJECTION_OUTPUT(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_Z9OUT');
+            GZ_BUSINESS_UTILS.CREATE_GZ_PROJECTION_WRK2003(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_2003');
+            GZ_BUSINESS_UTILS.CREATE_GZ_PROJECTION_WRKAREA(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_AREA');
+            GZ_BUSINESS_UTILS.CREATE_GZ_PROJECTION_WRKOUT(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_Z9TMP');
+            GZ_BUSINESS_UTILS.CREATE_GZ_PROJECTION_OUTPUT(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),p_output_topology || '_OUT_Z9OUT');
 
             BEGIN
-               GZ_UTILITIES.CREATE_PROJECTION_SEQ(p_output_topology || '_OUT_SEQ');
+               GZ_BUSINESS_UTILS.CREATE_PROJECTION_SEQ(p_output_topology || '_OUT_SEQ');
             EXCEPTION
             WHEN OTHERS
             THEN
@@ -3458,7 +3504,7 @@ AS
       psql := 'INSERT INTO ' || p_output_topology || '_LAYERS_OUT_INFO '
            || 'SELECT * FROM TABLE(GZ_OUTPUT.PIPE_LAYERS(:p1,:p2,:p3,:p4,:p5,:p6,:p7)) ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
                                              'Inserting records into work table ' || p_output_topology || '_LAYERS_OUT_INFO',
                                              NULL,NULL,NULL,psql);
 
@@ -3510,7 +3556,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,'COMPLETED setup for ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,'COMPLETED setup for ' || p_output_topology);
 
       RETURN output;
 
@@ -3622,13 +3668,13 @@ AS
       IF p_idx_col IS NOT NULL
       THEN
 
-         GZ_UTILITIES.ADD_INDEX(p_table_name,
+         GZ_BUSINESS_UTILS.ADD_INDEX(p_table_name,
                                 p_table_name || 'IDX',
                                 p_idx_col);
 
       END IF;
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 
@@ -3687,7 +3733,7 @@ AS
 
       --are there more columns? QC?  Dunno where to look
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                              'DDL for layer ' || p_layer,
                                              NULL,NULL,NULL,psql);
 
@@ -3698,24 +3744,24 @@ AS
 
       --additional chucked in index on oid_superior
 
-      GZ_UTILITIES.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V',
+      GZ_BUSINESS_UTILS.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V',
                              p_output_topology || '_FSL' || p_layer || 'V' || 'IDX2',
                              'OID_SUPERIOR');
 
       --additional chucked in bitmap indexes on source_base and source_superior
 
-      GZ_UTILITIES.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V',
+      GZ_BUSINESS_UTILS.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V',
                              p_output_topology || '_FSL' || p_layer || 'V' || 'IDX3',
                              'SOURCE_BASE',
                              'BITMAP');
 
-      GZ_UTILITIES.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V',
+      GZ_BUSINESS_UTILS.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V',
                              p_output_topology || '_FSL' || p_layer || 'V' || 'IDX4',
                              'SOURCE_SUPERIOR',
                              'BITMAP');
 
       --special index on storage name of the nested split_primitives table
-      GZ_UTILITIES.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V_STO',    --nested table name, see create above
+      GZ_BUSINESS_UTILS.ADD_INDEX(p_output_topology || '_FSL' || p_layer || 'V_STO',    --nested table name, see create above
                              p_output_topology || '_FSL' || p_layer || 'V_STOIDX', --our name for idx
                              'FACE_ID');                                           --the (only) column in the output_prim_obj is defined as this
 
@@ -3757,7 +3803,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,'STARTING create_layer for ' || p_layer);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,'STARTING create_layer for ' || p_layer);
 
 
       --Get layer level, should always be possible to GET it
@@ -3768,7 +3814,7 @@ AS
                                                p_output_topology,
                                                p_layer);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                              'Decided ' || p_layer || ' layer level is ' || layer_level);
 
       --drop from topo first, in case of rerun
@@ -3783,13 +3829,13 @@ AS
       FOR i IN 1 .. table_hierarchy.COUNT
       LOOP
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                 'Deregister and drop ' || table_hierarchy(i),
                                                 NULL,NULL,p_release);
 
          BEGIN
 
-            GZ_UTILITIES.DEREGISTER_FEATURE_TABLES(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
+            GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
                                                    p_output_topology,
                                                    'Y', --yeah, drop it
                                                    0,   --just go with 0, any greater than
@@ -3798,7 +3844,7 @@ AS
          WHEN OTHERS
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                    'Caught error deregistering ' || table_hierarchy(i) || ', must not be a rerun',
                                                    NULL,NULL,NULL,NULL,NULL, DBMS_UTILITY.format_error_backtrace);
 
@@ -3809,7 +3855,7 @@ AS
 
       --Build the empty table
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                              'Creating table ' ||  p_output_topology || '_FSL' || p_layer || 'V');
 
       IF layer_level = 0
@@ -3836,14 +3882,14 @@ AS
          IF (NOT GZ_OUTPUT.LAYER_IS_INITIAL(p_release,
                                             p_gen_project_id,
                                             base_layer)
-             AND NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_output_topology || '_FSL' || base_layer || 'V',TRUE)) --allow empty tables
+             AND NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_output_topology || '_FSL' || base_layer || 'V',TRUE)) --allow empty tables
          OR (NOT GZ_OUTPUT.LAYER_IS_INITIAL(p_release,
                                             p_gen_project_id,
                                             superior_layer)
-             AND NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_output_topology || '_FSL' || superior_layer || 'V',TRUE)) --allow empty tables
+             AND NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_output_topology || '_FSL' || superior_layer || 'V',TRUE)) --allow empty tables
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                    'KICKING out, split dependency ' || base_layer ||
                                                    ' or ' || superior_layer || ' isnt built yet');
 
@@ -3865,10 +3911,10 @@ AS
       THEN
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                 'Adding to topology 0-level table ' ||  p_output_topology || '_FSL' || p_layer || 'V');
 
-         GZ_UTILITIES.GZ_ADD_TOPO_GEOMETRY_LAYER(p_output_topology,
+         GZ_TOPO_UTIL.GZ_ADD_TOPO_GEOMETRY_LAYER(p_output_topology,
                                                  p_output_topology || '_FSL' || p_layer || 'V',
                                                  'TOPOGEOM',
                                                  'POLYGON');
@@ -3886,11 +3932,11 @@ AS
 
          BEGIN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                    'Adding to topology table ' ||  p_output_topology || '_FSL' || p_layer || 'V'
                                                 || ' with child layer ' || child_layer);
 
-            GZ_UTILITIES.GZ_ADD_TOPO_GEOMETRY_LAYER(p_output_topology,
+            GZ_TOPO_UTIL.GZ_ADD_TOPO_GEOMETRY_LAYER(p_output_topology,
                                                     p_output_topology || '_FSL' || p_layer || 'V',
                                                     'TOPOGEOM',
                                                     'POLYGON',
@@ -3903,7 +3949,7 @@ AS
             IF SQLERRM LIKE '%No matching records found in user_sdo_topo_metadata%' --my error in GET_TG_LAYER_ID
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                       'KICKING out, Child layer ' || child_layer || ' isnt built yet');
 
                RETURN '-1';
@@ -3926,7 +3972,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,'COMPLETE create_layer for ' || p_layer);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,'COMPLETE create_layer for ' || p_layer);
 
       RETURN output;
 
@@ -3951,8 +3997,9 @@ AS
       --For subset and initial layers
       --Insert the record oids into the output table
       --No topogeom yet
-      
+
       --2/4/13 Added oid_clob functionality, but commented it since mid-production
+      --6/10/13 turned on oid_clob
 
       psql                 VARCHAR2(4000);
       layer_subset         GZ_TYPES.GZ_LAYERS_SUBSET_REC;
@@ -4026,14 +4073,17 @@ AS
 
       --ex tab10st09.county a
       --must enforce the a alias on parameters
-      
-      --START REPLACEMENT FOR OID_CLOB HERE
 
-      IF source_where_clause IS NOT NULL
-      OR p_layer_type = 'INITIAL'
+
+      IF source_where_clause IS NOT NULL    --means we are joining to bench source
+      OR layer_subset.oid_clob IS NOT NULL  --ditto, we are matching bench source oids to this list
+      OR p_layer_type = 'INITIAL'           --we at least need a NOT NULL where clause to the face table
       THEN
 
+         --Some sort of where clause
+
          IF source_where_clause IS NOT NULL
+         OR layer_subset.oid_clob IS NOT NULL
          THEN
 
             --must join to deep source
@@ -4067,7 +4117,16 @@ AS
 
               psql := psql || 'f.' || layer_subset.source || ' IS NOT NULL ';
 
+              IF layer_subset.oid_clob IS NOT NULL
+              THEN
+
+                 --otherwise cartesian join
+                 psql := psql || 'AND a.' || source_key || ' = f.' || layer_subset.source || ' ';
+
+              END IF;
+
          ELSIF p_layer_type = 'SUBSET'
+         AND source_where_clause IS NOT NULL
          THEN
 
             --subset with where clause
@@ -4076,136 +4135,48 @@ AS
             psql := psql || 'a.' || source_key || ' = f.oid_base AND '
                          || '(' || source_where_clause || ') ';
 
+         ELSIF p_layer_type = 'SUBSET'
+         AND source_where_clause IS NULL
+         THEN
+
+            --subset with oid_clob, no where clause
+            psql := psql || 'a.' || source_key || ' = f.oid_base ';
+
+         ELSE
+
+            RAISE_APPLICATION_ERROR(-20001, 'Woops');
+
+         END IF;
+
+         IF layer_subset.oid_clob IS NOT NULL
+         THEN
+
+            psql := psql || 'AND a.' || source_key || ' IN (SELECT * FROM TABLE(:p1))';
+
          END IF;
 
 
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SUBSET_OIDS',NULL,
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SUBSET_OIDS',NULL,
                                              'Inserting oids for ' || p_layer_type || ' layer ' || p_layer,
                                              NULL,NULL,p_release,psql);
 
-      EXECUTE IMMEDIATE psql;
-      COMMIT;
-      
-      --END REPLACEMENT FOR OID_CLOB HERE
-      
-      
-      
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      --Replacement code
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
-      
---      IF source_where_clause IS NOT NULL    --means we are joining to bench source
---      OR layer_subset.oid_clob IS NOT NULL  --ditto, we are matching bench source oids to this list
---      OR p_layer_type = 'INITIAL'           --we at least need a NOT NULL where clause to the face table
---      THEN
---      
---         --Some sort of where clause
---
---         IF source_where_clause IS NOT NULL
---         OR layer_subset.oid_clob IS NOT NULL
---         THEN
---
---            --must join to deep source
---
---            psql := psql || ', '
---                         || p_source_schema || '.' || source_table || ' a ';
---
---         END IF;
---
---         --always a where
---         psql := psql || 'WHERE ';
---
---         IF p_layer_type = 'INITIAL'
---         AND source_where_clause IS NOT NULL
---         THEN
---
---            --initial + where clause
---            --ensure face column is not null
---            --and add where clause
---
---            psql := psql || 'a.' || source_key || ' = f.' || layer_subset.source || ' AND '
---                         || 'f.' || layer_subset.source || ' IS NOT NULL AND '
---                         || '(' || source_where_clause || ') ';
---
---         ELSIF p_layer_type = 'INITIAL'
---         AND source_where_clause IS NULL
---         THEN
---
---             --initial, no where clause
---             --just ensure face col is not null
---
---              psql := psql || 'f.' || layer_subset.source || ' IS NOT NULL ';
---              
---              IF layer_subset.oid_clob IS NOT NULL
---              THEN
---              
---                 --otherwise cartesian join
---                 psql := psql || 'AND a.' || source_key || ' = f.' || layer_subset.source || ' ';
---              
---              END IF;
---
---         ELSIF p_layer_type = 'SUBSET'
---         AND source_where_clause IS NOT NULL
---         THEN  
---
---            --subset with where clause
---            --join on source key and add where clause
---
---            psql := psql || 'a.' || source_key || ' = f.oid_base AND '
---                         || '(' || source_where_clause || ') ';
---                         
---         ELSIF p_layer_type = 'SUBSET'
---         AND source_where_clause IS NULL
---         THEN
---         
---            --subset with oid_clob, no where clause
---            psql := psql || 'a.' || source_key || ' = f.oid_base ';
---         
---         ELSE
---         
---            RAISE_APPLICATION_ERROR(-20001, 'Woops');
---
---         END IF;
---      
---         IF layer_subset.oid_clob IS NOT NULL
---         THEN
---         
---            psql := psql || 'AND a.' || source_key || ' IN (SELECT * FROM TABLE(:p1))';         
---         
---         END IF;
---
---
---      END IF;
---
---
---      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SUBSET_OIDS',NULL,
---                                             'Inserting oids for ' || p_layer_type || ' layer ' || p_layer,
---                                             NULL,NULL,p_release,psql);
---
---      IF layer_subset.oid_clob IS NULL
---      THEN
---      
---         EXECUTE IMMEDIATE psql;
---         COMMIT;
---         
---      ELSE
---      
---         EXECUTE IMMEDIATE psql USING GZ_UTILITIES.CLOB_TO_VARRAY(layer_subset.oid_clob);
---         COMMIT;
---      
---      END IF;
+      IF layer_subset.oid_clob IS NULL
+      THEN
 
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      --End Replacement code
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
+         EXECUTE IMMEDIATE psql;
+         COMMIT;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SUBSET_OIDS',NULL,
+      ELSE
+
+         EXECUTE IMMEDIATE psql USING GZ_BUSINESS_UTILS.CLOB_TO_VARRAY(layer_subset.oid_clob);
+         COMMIT;
+
+      END IF;
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SUBSET_OIDS',NULL,
                                              'Completed inserting oids for ' || p_layer_type || ' layer ' || p_layer,
                                              NULL,NULL,p_release);
 
@@ -4332,14 +4303,14 @@ AS
 
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_HIERARCHICAL_OIDS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_HIERARCHICAL_OIDS',NULL,
                                              'Inserting oids for ' || p_layer_type || ' layer ' || p_layer,
                                              NULL,NULL,p_release,psql);
 
       EXECUTE IMMEDIATE psql;
       COMMIT;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_HIERARCHICAL_OIDS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_HIERARCHICAL_OIDS',NULL,
                                              'Completed inserting oids for ' || p_layer_type || ' layer ' || p_layer,
                                              NULL,NULL,p_release);
 
@@ -4387,7 +4358,7 @@ AS
       layer_aggregate := GZ_OUTPUT.GET_AGGREGATE_LAYER(p_release,
                                                        p_layer);
 
-      sourcez := GZ_UTILITIES.SPLIT(layer_aggregate.source,',');
+      sourcez := GZ_BUSINESS_UTILS.SPLIT(layer_aggregate.source,',');
 
       IF sourcez.COUNT <> 2
       THEN
@@ -4549,14 +4520,14 @@ AS
          END IF;
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_AGGREGATE_OIDS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_AGGREGATE_OIDS',NULL,
                                                 'Inserting set ' || i || ' of  aggregate ' || sourcez(i) || ' oids for layer ' || p_layer,
                                                 NULL,NULL,p_release,psql);
 
          EXECUTE IMMEDIATE psql;
          COMMIT;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_AGGREGATE_OIDS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_AGGREGATE_OIDS',NULL,
                                                 'Completed inserting aggregate ' || sourcez(i) || ' oids for layer ' || p_layer,
                                                 NULL,NULL,p_release);
 
@@ -4584,7 +4555,7 @@ AS
       --Insert base oids for split layers
       --8/17/12 updated for splits of splits
       --        Add phony base geo_id temporary pass through to split work table geo_id for processing assist
-      
+
       --1/28/13 - Allow splits of splits to split deep split remainders
       --          By transferring oid_superior (onlys) --> oid_base at this step
 
@@ -4665,45 +4636,45 @@ AS
       END IF;
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SPLIT_OIDS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SPLIT_OIDS',NULL,
                                              'Inserting split oids for ' || p_layer_type || ' layer ' || p_layer,
                                              NULL,NULL,p_release,psql);
 
       EXECUTE IMMEDIATE psql;
       COMMIT;
-      
-      
+
+
       IF NOT GZ_OUTPUT.LAYER_IS_INITIAL(p_release,
                                         p_gen_project_id,
                                         layer_split.base_layer)
       THEN
-      
+
          IF GZ_OUTPUT.GET_LAYER_TYPE(p_output_topology,
                                    layer_split.base_layer) = 'SPLIT'
          THEN
-      
-            --dreaded split of a split. 
+
+            --dreaded split of a split.
             --Any superior-only remainders from the deep split
             --need to be shifted over into base records for current split processing
-         
+
             --get the deep split layer itself
             deep_split := GZ_OUTPUT.GET_SPLIT_LAYER(p_release,
                                                     layer_split.base_layer);
-         
+
             --need to get the KEY for these records.  Not explicitly stored in the processing table
             superior_source_key := GZ_OUTPUT.GET_DEEP_SOURCE (p_release,
                                                               p_gen_project_id,
                                                               p_output_topology,
                                                               deep_split.superior_layer,
                                                               'KEY');
-     
+
             psql := 'INSERT /*+ APPEND */ INTO '
                || p_output_topology || '_FSL' || p_layer || 'V '
                || '(oid_base, source_base, key_base, geo_id) ' --temp phony geo_id
                || 'SELECT ';
-               
+
             --just to make it look like above, note however superior values are being selected and transferred to base
-            
+
             psql := psql || 'f.oid_superior, '
                          || 'f.source_superior, '
                          || 'CAST(''' || superior_source_key || ''' AS VARCHAR2(32)), '
@@ -4711,19 +4682,19 @@ AS
                          || 'FROM '
                          || p_output_topology || '_FSL' || layer_split.base_layer || 'V f '
                          || 'WHERE f.oid_base IS NULL ';  --remainder records only
-                         
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SPLIT_OIDS',NULL,
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SPLIT_OIDS',NULL,
                                                    'Inserting split of split remainder oids for ' || p_layer_type || ' layer ' || p_layer,
                                                    NULL,NULL,p_release,psql);
 
             EXECUTE IMMEDIATE psql;
             COMMIT;
-            
+
          END IF;
 
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SPLIT_OIDS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'INSERT_SPLIT_OIDS',NULL,
                                              'Completed inserting oids for ' || p_layer_type || ' layer ' || p_layer,
                                              NULL,NULL,p_release);
 
@@ -4768,8 +4739,12 @@ AS
       --January 2013 work on performance - helper tables and sdo_join haymaking
       --             added temp idx on face table when base or superior is initial
       --             Reworked split of split logic
-      
+
       --1/28/13 - Allow splits of splits to split deep split remainders
+
+      --10/23/13 - Getting incorrect buggy results on the multiset except.  Its clearing out 22,000 primitives
+      --              from a superior record based on a handful of base primitives
+      --           Rewrote both multiset excepts as MINUSes
 
       --Summary of steps. The numbers no longer match the comments in the code below
 
@@ -4861,11 +4836,11 @@ AS
          --add an index on the face column that we are gonna be hitting on each loop
          --ex z699tm_merge_face.SDUNI
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                 'Creating temp idx on ' || p_face_table || ' column ' || layer_split.base_layer,
                                                  NULL,NULL,p_release);
 
-         GZ_UTILITIES.ADD_INDEX(p_face_table,
+         GZ_BUSINESS_UTILS.ADD_INDEX(p_face_table,
                                 p_face_table || SUBSTR(layer_split.base_layer,1,2) || 'X', --ex z699tm_merge_facesdx
                                 UPPER(layer_split.base_layer));
 
@@ -4881,18 +4856,18 @@ AS
 
             --dreaded split of a split. Gird loins and stuff
             split_of_split := 1;
-            
+
             --if we are splitting remainders we need to join from an oid_base on this split
             --   (this is how we set it up in insert_split_oids)
             --to an oid_superior populated, oid_base null back in the deep split
             --Of course, most often We arent splitting remainders (either not requested or nonexistent)
             --if so we'll never match this source in the main loop below
-            
+
             --get the deep split layer itself
             deep_split := GZ_OUTPUT.GET_SPLIT_LAYER(p_release,
                                                     layer_split.base_layer);
-                     
-            --Note the source for the deep split superior layer in case it comes up in the loop                               
+
+            --Note the source for the deep split superior layer in case it comes up in the loop
             deep_source_table := p_source_schema || '.' || GZ_OUTPUT.GET_DEEP_SOURCE(p_release,
                                                                                      p_gen_project_id,
                                                                                      p_output_topology,
@@ -4913,11 +4888,11 @@ AS
 
          superior_is_initial := 1;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                 'Creating temp idx on ' || p_face_table || ' column ' || layer_split.superior_layer,
                                                  NULL,NULL,p_release);
 
-         GZ_UTILITIES.ADD_INDEX(p_face_table,
+         GZ_BUSINESS_UTILS.ADD_INDEX(p_face_table,
                                 p_face_table || SUBSTR(layer_split.superior_layer,1,2) || 'X',
                                 UPPER(layer_split.superior_layer));
 
@@ -4952,7 +4927,7 @@ AS
       ---------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                              'Emptying helper tables',
                                              NULL,NULL,p_release);
 
@@ -5028,7 +5003,7 @@ AS
 
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                              'Inserting superior geometries into ' || p_output_topology || '_layers_out_supe ',
                                              NULL,NULL,p_release,psql);
 
@@ -5082,7 +5057,7 @@ AS
               || 'a.oid_base = b.' || base_hash(pkey) || ' AND '
               || 'a.source_base = :p1 )';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                 'Inserting base geometries into ' || p_output_topology || '_layers_out_base for source ' || pkey,
                                                 NULL,NULL,p_release,psql);
 
@@ -5119,7 +5094,7 @@ AS
            || 'c.rowid1 = a.rowid AND '
            || 'c.rowid2 = b.rowid ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                              'Inserting sdo_join cross product of base and superior into ' || p_output_topology || '_layers_out_help',
                                              NULL,NULL,p_release,psql);
 
@@ -5194,14 +5169,14 @@ AS
          OR dbug = 1
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    'Logging on first loop, determine oids of superior layers that overlap this base oid ' || base_oidz(i),
                                                    NULL,NULL,p_release,psql);
 
          ELSIF MOD(i,1000) = 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    'Processed 1000 more ' || p_layer || 's',
                                                     NULL,NULL,p_release);
 
@@ -5231,14 +5206,14 @@ AS
             IF bases_in_spaces < 25
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                       'WARNING: BASES IN SPACES: Base oid ' || base_oidz(i) || ' intersects no superior. Tossing it',
                                                       NULL,NULL,p_release,psql);
 
             ELSIF bases_in_spaces = 25
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                       'OK we''ve just tossed 25 bases in spaces, lets stop logging, there are probably lots',
                                                       NULL,NULL,p_release,psql);
 
@@ -5264,11 +5239,11 @@ AS
          THEN
 
             --NOT initial, get faces from base layer
-            
+
             IF split_of_split = 0                       --not split of a split
             OR deep_source_table <> base_sourcez(i)     --or if split of a split, still a standard join back to oid_base
             THEN
-            
+
                --SOP 99.9 pct
 
                psql := 'UPDATE ' || p_output_topology || '_FSL' || p_layer || 'V v '
@@ -5282,12 +5257,12 @@ AS
                     || '   FROM DUAL) '
                     || 'WHERE v.oid_base = :p3 AND v.geo_id = :p4 ';  --oid base + base geo_id temporarily in the geo_id column
                                                                       --is the only unique ID for complex splits as inputs
-                                                                      
+
             ELSE
-            
+
                --rare split of a split and this record is a remainder in the deep split
                --join btwn current base oid and oid_superior (+ geo_id) to get the deep split primitives
-               
+
                psql := 'UPDATE ' || p_output_topology || '_FSL' || p_layer || 'V v '
                     || 'SET v.split_primitives = '
                     || '(SELECT CAST ('
@@ -5298,27 +5273,47 @@ AS
                     || '                              WHERE a.oid_superior = :p1 AND a.geo_id = :p2) sub) AS OUTPUT_PRIM_SET) '   -- <-- deep superior
                     || '   FROM DUAL) '
                     || 'WHERE v.oid_base = :p3 AND v.geo_id = :p4 ';  -- <-- join to current oid base
-            
-            
+
+
             END IF;
 
 
             IF i = 1 OR dbug = 1
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                       'Logging on first loop base oid ' || base_oidz(i) || ' geo_id ' || base_geoidz(i)
                                                       || ', populating split primitives for ' || p_layer || ' using base ' || layer_split.base_layer,
                                                        NULL,NULL,p_release,psql);
 
             END IF;
 
-            EXECUTE IMMEDIATE psql USING base_oidz(i),
-                                         base_geoidz(i),
-                                         base_oidz(i),
-                                         base_geoidz(i);
+            BEGIN
 
-            COMMIT;
+               EXECUTE IMMEDIATE psql USING base_oidz(i),
+                                            base_geoidz(i),
+                                            base_oidz(i),
+                                            base_geoidz(i);
+
+               COMMIT;
+
+            EXCEPTION
+            WHEN OTHERS
+            THEN
+
+               --Very once in a million get connect by loop in user data on the get_topo_elements call to the child
+               --This is almost impossible to mine out for a user, particularly since the layer with the problem is not the active layer
+               --so leave breadcrumbs
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+                                                           'Error with bind variables :p1 ' || base_oidz(i) || ' :p2 ' || base_geoidz(i)
+                                                           || ' :p3 ' || base_oidz(i) || ' :p4 ' || base_geoidz(i),
+                                                           NULL,NULL, p_release, psql,
+                                                           p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+               RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+            END;
 
          ELSE
 
@@ -5338,17 +5333,35 @@ AS
             IF i = 1 OR dbug = 1
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                       'Logging on first loop, populating split primitives for ' || p_layer || ' using base ' || layer_split.base_layer,
                                                        NULL,NULL,p_release,psql);
 
             END IF;
 
-            EXECUTE IMMEDIATE psql USING base_oidz(i),
-                                         base_oidz(i),
-                                         base_geoidz(i); --for initial bases this is just a duplicate of the base_oidz(i) value
+            BEGIN
 
-            COMMIT;
+               EXECUTE IMMEDIATE psql USING base_oidz(i),
+                                            base_oidz(i),
+                                            base_geoidz(i); --for initial bases this is just a duplicate of the base_oidz(i) value
+
+               COMMIT;
+
+            EXCEPTION
+            WHEN OTHERS
+            THEN
+
+               --get topo elements connect by loop - possible breadcrumbs
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+                                                           'Error with bind variables :p1 ' || base_oidz(i) || ' :p2 ' || base_oidz(i)
+                                                           || ' :p3 ' || base_geoidz(i),
+                                                           NULL,NULL, p_release, psql,
+                                                           p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+               RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+            END;
 
          END IF;
 
@@ -5358,7 +5371,7 @@ AS
          IF MOD(i,1000) = 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    'Step 2AA 1000 base recs cost ' || TO_CHAR(elapsed2AA),
                                                    NULL,NULL,p_release);
 
@@ -5381,7 +5394,7 @@ AS
 
          --seems like I could keep a running list of these instead of querying over and over
          --actually this is best because the list of oid superiors is constantly getting trimmed near the end of the loop
-         EXECUTE IMMEDIATE psql BULK COLLECT INTO new_superior_oidz USING GZ_UTILITIES.stringarray_to_varray(superior_oidz);
+         EXECUTE IMMEDIATE psql BULK COLLECT INTO new_superior_oidz USING GZ_BUSINESS_UTILS.STRINGARRAY_to_varray(superior_oidz);
 
          ------------------------------------------------
          end_time := systimestamp;
@@ -5389,7 +5402,7 @@ AS
          IF MOD(i,1000) = 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    'Step 3C 1000 base recs cost ' || TO_CHAR(elapsed3C),
                                                    NULL,NULL,p_release);
 
@@ -5447,11 +5460,12 @@ AS
             IF i = 1 OR dbug = 1
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                       'Logging on first loop, add all superior primitives First superior is ' ||new_superior_oidz(1),
                                                        NULL,NULL,p_release,psql);
 
             END IF;
+
 
             FORALL ii IN 1 .. new_superior_oidz.COUNT
               EXECUTE IMMEDIATE psql USING new_superior_oidz(ii),
@@ -5468,7 +5482,7 @@ AS
             IF MOD(i,1000) = 0
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                       'Step 3C1 1000 base recs cost ' || TO_CHAR(elapsed3C1),
                                                       NULL,NULL,p_release);
 
@@ -5582,7 +5596,7 @@ AS
             AND ii = 1 ) OR dbug = 1
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                       'Logging on first loop, Multiset intersect the base record primitives with each of the superior oid primitives'
                                                       || ' base oid ' || base_oidz(i) || ', geo_id ' || base_geoidz(i)
                                                       || ', superior oid ' || superior_oidz(ii) ,
@@ -5653,6 +5667,10 @@ AS
             IF insert_kount <> 0
             THEN
 
+               /* This was working fine and then one day in one case it didnt
+                  Result set after subtracting a handful of primitives from 22,000 primitives was null
+                  Killing off multiset except and tabling() the primitives before a MINUS
+
                psql := 'UPDATE  ' || p_output_topology || '_FSL' || p_layer || 'V v '
                     || 'SET v.split_primitives = '
                     || '(SELECT (SELECT split_primitives '
@@ -5664,12 +5682,31 @@ AS
                     || '          WHERE oid_base = :p2 AND geo_id = :p3 AND oid_superior = :p4) '
                     || 'FROM DUAL) '
                     || 'WHERE v.oid_superior = :p5 AND v.oid_base IS NULL ';
+               */
+
+               psql := 'UPDATE  ' || p_output_topology || '_FSL' || p_layer || 'V v '
+                    || 'SET v.split_primitives = '
+                    || '(SELECT CAST ( '
+                    || '   MULTISET (SELECT f.face_id '
+                    || '      FROM (SELECT b.face_id '
+                    || '            FROM ' || p_output_topology || '_FSL' || p_layer || 'V a, '
+                    || '                      TABLE (a.split_primitives) b '
+                    || '               WHERE a.oid_superior = :p1 AND a.oid_base IS NULL '
+                    || '            MINUS '
+                    || '            SELECT b.face_id '
+                    || '            FROM ' || p_output_topology || '_FSL' || p_layer || 'V a, '
+                    || '                      TABLE (a.split_primitives) b '
+                    || '               WHERE a.oid_base = :p2 AND a.geo_id = :p3 AND a.oid_superior = :p4 '
+                    || '            ) f '
+                    || '    ) AS OUTPUT_PRIM_SET) '
+                    || 'FROM DUAL) '
+                    || 'WHERE v.oid_superior = :p5 AND v.oid_base IS NULL ';
 
                IF (i = 1
                AND ii = 1) OR dbug = 1
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                          'Logging on first loop, Multiset except to remove the primitives from the superior record',
                                                           NULL,NULL,p_release,psql);
 
@@ -5681,6 +5718,8 @@ AS
                                             base_geoidz(i),
                                             superior_oidz(ii),
                                             superior_oidz(ii);
+
+               COMMIT;
 
 
                --       Remove shared primitives from the base record
@@ -5698,6 +5737,10 @@ AS
                --             FROM DUAL)
                -- WHERE v.oid_base = 28090334230863 AND v.oid_superior IS NULL
 
+
+               -- Didnt experience a problem with this one, like the above
+               -- but rewrote with MINUS just to be safe
+               /*
                psql := 'UPDATE ' || p_output_topology || '_FSL' || p_layer || 'V v '
                     || 'SET v.split_primitives = '
                     || '(SELECT (SELECT split_primitives '
@@ -5710,12 +5753,31 @@ AS
                     || 'FROM DUAL) '
                     || 'WHERE '
                     || 'v.oid_base = :p6 AND v.geo_id = :p7 AND v.oid_superior IS NULL ';
+               */
+
+               psql := 'UPDATE ' || p_output_topology || '_FSL' || p_layer || 'V v '
+                    || 'SET v.split_primitives = '
+                    || '       (SELECT CAST ( '
+                    || '                  MULTISET (SELECT f.face_id '
+                    || '                              FROM (SELECT b.face_id '
+                    || '                                      FROM ' || p_output_topology || '_FSL' || p_layer || 'V a, '
+                    || '                                           TABLE (a.split_primitives) b '
+                    || '                                     WHERE a.oid_base = :p1 AND a.geo_id = :p2 AND a.oid_superior IS NULL '
+                    || '                                    MINUS '
+                    || '                                    SELECT b.face_id '
+                    || '                                      FROM ' || p_output_topology || '_FSL' || p_layer || 'V a, '
+                    || '                                           TABLE (a.split_primitives) b '
+                    || '                                     WHERE a.oid_superior = :p3 AND a.oid_base = :p4 AND a.geo_id = :p5 '
+                    || '                                    ) f ) AS OUTPUT_PRIM_SET) '
+                    || '          FROM DUAL) '
+                    || 'WHERE v.oid_base = :p6 AND v.geo_id = :p7 AND v.oid_superior IS NULL ';
+
 
                IF (i = 1
                AND ii = 1) OR dbug = 1
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                          'Logging on first loop, subtract ie multiset except the base record primitives the superior oid primitives',
                                                           NULL,NULL,p_release,psql);
 
@@ -5747,7 +5809,7 @@ AS
          IF MOD(i,1000) = 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    'Step 3D 1000 base recs cost ' || TO_CHAR(elapsed3D),
                                                    NULL,NULL,p_release);
 
@@ -5786,7 +5848,7 @@ AS
          IF MOD(i,1000) = 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    'Step 3E 1000 base recs cost ' || TO_CHAR(elapsed3E),
                                                    NULL,NULL,p_release);
 
@@ -5820,7 +5882,7 @@ AS
          IF MOD(i,1000) = 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    'Step 3F 1000 base recs cost ' || TO_CHAR(elapsed3F),
                                                    NULL,NULL,p_release);
 
@@ -5849,7 +5911,7 @@ AS
               || 'WHERE v.oid_superior IS NOT NULL AND '
               || 'v.oid_base IS NULL ';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                 'Deleting superior-only remainders from ' || p_output_topology || '_FSL' || p_layer || 'V v ',
                                                  NULL,NULL,p_release,psql);
 
@@ -5888,7 +5950,7 @@ AS
          --In the future, if we see a base oid that didn't match any superior faces
          --And its pre-clip, then this is a mistake
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                 'Error, we have split records with no primitives in ' || p_output_topology || '_FSL' || p_layer || 'V ',
                                                  NULL,NULL,p_release,psql);
 
@@ -5919,7 +5981,7 @@ AS
          LOOP
 
             --Write special log record. Put the clipped off SQLs in the sql_stmt column
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                    '<clipped entity>',
                                                     NULL,NULL,p_release,clipped_sqls(i));
 
@@ -5943,7 +6005,7 @@ AS
       FOR i IN 1 .. temp_idxs.COUNT
       LOOP
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PROCESS_SPLITS',NULL,
                                                 'Dropping temp idx on ' || p_face_table || ', ' || temp_idxs(i),
                                                  NULL,NULL,p_release);
 
@@ -6030,7 +6092,7 @@ AS
                                                  p_gen_project_id,
                                                  p_layer);
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_output_topology,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_output_topology,
                                                   p_output_topology ||  '_FSL' || p_layer || 'V',
                                                   'TOPOGEOM',
                                                   'POLYGON');
@@ -6046,7 +6108,7 @@ AS
               || 'a.oid_base = f.' || layer_subset.source || ' ' --must include since we may have limited
               || 'ORDER BY a.oid_base ';                         --the universe in previous step with a where clause
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
                                                 'Opening cursor to collect face ids for ' || p_layer,
                                                 NULL,NULL,p_release,psql);
 
@@ -6143,7 +6205,7 @@ AS
                   || 'a.topogeom = SDO_TOPO_GEOMETRY(:p1,:p2,:p3,:p4,NULL) '  --MUST have explicit null in delete position
                   || 'WHERE a.oid_base = :p5 ';
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
                                                    'Calling constructor for ' || stupid_array.COUNT || ' records on ' || p_layer,
                                                    NULL,NULL,p_release,psql2);
 
@@ -6172,7 +6234,7 @@ AS
          psql := 'SELECT a.oid_base '
               || 'FROM ' || p_output_topology ||  '_FSL' || p_layer || 'V a ';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
                                                 'Opening cursor to collect oids for ' || p_layer,
                                                 NULL,NULL,p_release,psql);
 
@@ -6200,7 +6262,7 @@ AS
 
             END LOOP;
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
                                                    'Calling parents-style create_feature for ' || oidz.COUNT || ' records on ' || p_layer,
                                                    NULL,NULL,p_release,psql2);
 
@@ -6219,7 +6281,7 @@ AS
       END IF;
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SUBSET_TOPOGEOM',NULL,
                                              'Complete for ' || p_layer,
                                              NULL,NULL,p_release);
 
@@ -6251,7 +6313,7 @@ AS
 
       --split on ||s first.  May not be any, tis fine
 
-      tokenz := GZ_UTILITIES.SPLIT(p_string,'\|\|');
+      tokenz := GZ_BUSINESS_UTILS.SPLIT(p_string,'\|\|');
 
       FOR i IN 1 .. tokenz.COUNT
       LOOP
@@ -6311,7 +6373,7 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                              'POPULATE_HIERARCHICAL_HELPER starting with some cleanup',
                                               NULL,NULL,NULL);
 
@@ -6370,7 +6432,7 @@ AS
            || 'd.oid_base = b.oid AND '
            || p_parent_nesting || ' = ' || child_nesting;  --a to b aliasing
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                              'Inserting records into ' || p_output_topology || '_LAYERS_OUT_HELP',
                                               NULL,NULL,NULL,psql);
 
@@ -6395,7 +6457,7 @@ AS
            || p_output_topology || '_LAYERS_OUT_HELP b '
            || 'WHERE b.oid_child = a.oid_base)';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                              'Updating entire child table ' || p_child_fsl || ' with superior oids',
                                               NULL,NULL,NULL,psql);
 
@@ -6403,7 +6465,7 @@ AS
 
       COMMIT;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                              'Completed one time POPULATE_HIERARCHICAL_HELPER',
                                               NULL,NULL,NULL,psql);
 
@@ -6469,17 +6531,17 @@ AS
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('UPDATE_HIERARCHICAL_TOPOGEOM: starting');
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
-      
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_output_topology ||  '_FSL' || p_layer || 'V') --no exist if no rows
+
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_output_topology ||  '_FSL' || p_layer || 'V') --no exist if no rows
       THEN
-      
+
          --Get out if no oids to work with
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                 'Exiting for layer ' || p_layer || ', no records',
                                                 NULL,NULL,p_release,NULL);
-                                                         
+
          RETURN;
-      
+
       END IF;
 
       IF p_layer_type NOT IN ('HIERARCHICAL')
@@ -6493,7 +6555,7 @@ AS
                                                              p_gen_project_id,
                                                              p_layer);
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_output_topology,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_output_topology,
                                                   p_output_topology ||  '_FSL' || p_layer || 'V',
                                                   'TOPOGEOM',
                                                   'POLYGON');
@@ -6569,7 +6631,7 @@ AS
       psql := 'SELECT a.oid_base, a.source_base, a.key_base '
            || 'FROM ' || p_output_topology ||  '_FSL' || p_layer || 'V a ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                              'Opening cursor to collect oids and sources for hierarchical layer ' || p_layer,
                                               NULL,NULL,p_release,psql);
 
@@ -6605,7 +6667,7 @@ AS
                IF i = 1
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                          'Heres the SQL to get the nesting val for ' || oidz.COUNT || ' on the parent of ' || p_layer,
                                                           NULL,NULL,p_release,psql2);
 
@@ -6615,7 +6677,7 @@ AS
 
             END LOOP;
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                    'Completed geting nesters for ' || oidz.COUNT || ' ' || p_layer,
                                                    NULL,NULL,p_release,psql2);
 
@@ -6660,7 +6722,7 @@ AS
                IF i = 1
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                          'Heres our face fetch for ' || oidz.COUNT || ' ' || p_layer,
                                                          NULL,NULL,p_release,psql3);
 
@@ -6695,7 +6757,7 @@ AS
                IF i = 1
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                          'Completed face fetch and array for first of ' || oidz.COUNT || ' ' || p_layer,
                                                          NULL,NULL,p_release,psql3);
 
@@ -6720,7 +6782,7 @@ AS
                IF i = 1
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                          'Heres our child tgl_id fetch for ' || oidz.COUNT || ' ' || p_layer,
                                                          NULL,NULL,p_release,psql3);
 
@@ -6756,7 +6818,7 @@ AS
                IF i = 1
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                          'Completed child tgl_id fetch and array for first of ' || oidz.COUNT || ' ' || p_layer,
                                                          NULL,NULL,p_release,psql3);
 
@@ -6779,7 +6841,7 @@ AS
          IF nesting_layer_initial = 1
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                    'Constructor call for ' || oidz.COUNT || ' ' || p_layer,
                                                    NULL,NULL,p_release,psql4);
 
@@ -6799,7 +6861,7 @@ AS
             prim_ids_array.DELETE;
             prim_ids_array_kount := 0;
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                    'Completed constructor call for ' || oidz.COUNT || ' ' || p_layer,
                                                    NULL,NULL,p_release,psql4);
 
@@ -6807,7 +6869,7 @@ AS
 
             --higher uses UPDATE Using Constructor with SDO_TGL_OBJECT_ARRAY
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                    'Update topogeom call for ' || oidz.COUNT || ' ' || p_layer,
                                                     NULL,NULL,p_release);
 
@@ -6830,7 +6892,7 @@ AS
             child_ids_array.DELETE;
             child_ids_array_kount := 0;
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                    'Completed update topogeom call for ' || oidz.COUNT || ' ' || p_layer,
                                                     NULL,NULL,p_release);
 
@@ -6857,7 +6919,7 @@ AS
       IF kount > 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                 'ERROR for ' || p_layer || '. '|| kount || ' records in '
                                                 || p_output_topology || '_FSL' || p_layer || 'V missing topogeom',
                                                 NULL,NULL,p_release);
@@ -6867,7 +6929,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_HIERARCHICAL_TOPOGEOM',NULL,
                                                 'Complete for ' || p_layer || '. All records in '
                                                 || p_output_topology || '_FSL' || p_layer || 'V have topogeoms',
                                                 NULL,NULL,p_release);
@@ -6953,7 +7015,7 @@ AS
       layer_aggregate := GZ_OUTPUT.GET_AGGREGATE_LAYER(p_release,
                                                        p_layer);
 
-      sourcez := GZ_UTILITIES.SPLIT(layer_aggregate.source,',');
+      sourcez := GZ_BUSINESS_UTILS.SPLIT(layer_aggregate.source,',');
 
       IF sourcez.COUNT <> 2
       THEN
@@ -6963,7 +7025,7 @@ AS
 
       END IF;
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_output_topology,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_output_topology,
                                                   p_output_topology ||  '_FSL' || p_layer || 'V',
                                                   'TOPOGEOM',
                                                   'POLYGON');
@@ -7006,7 +7068,7 @@ AS
 
          END IF;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_AGGREGATE_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_AGGREGATE_TOPOGEOM',NULL,
                                                 'Opening cursor to collect ' || sourcez(iii) || ' face ids for ' || p_layer,
                                                 NULL,NULL,p_release,psql);
 
@@ -7103,7 +7165,7 @@ AS
                   || 'a.topogeom = SDO_TOPO_GEOMETRY(:p1,:p2,:p3,:p4,NULL) '  --must have explicit null delete
                   || 'WHERE a.oid_base = :p5 ';
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_AGGREGATE_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_AGGREGATE_TOPOGEOM',NULL,
                                                    'Calling constructor for ' || stupid_array.COUNT || ' records on ' || p_layer,
                                                    NULL,NULL,p_release,psql2);
 
@@ -7124,7 +7186,7 @@ AS
 
       END LOOP;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_AGGREGATE_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_AGGREGATE_TOPOGEOM',NULL,
                                              'Complete for ' || p_layer,
                                              NULL,NULL,p_release);
 
@@ -7202,7 +7264,7 @@ AS
       layer_split := GZ_OUTPUT.GET_SPLIT_LAYER(p_release,
                                                p_layer);
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_output_topology,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_output_topology,
                                                   p_output_topology ||  '_FSL' || p_layer || 'V',
                                                   'TOPOGEOM',
                                                   'POLYGON');
@@ -7220,7 +7282,7 @@ AS
            || 'WHERE a.oid_base IS NOT NULL '
            || 'ORDER by a.oid_base, a.oid_superior ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
                                              'Opening cursor to collect split_primitives face ids for ' || p_layer,
                                               NULL,NULL,p_release,psql);
 
@@ -7333,7 +7395,7 @@ AS
                || 'a.oid_superior = :p6 AND '
                || 'a.geo_id = :p7 ';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
                                                 'Calling constructor for ' || stupid_array.COUNT || ' records on ' || p_layer,
                                                 NULL,NULL,p_release,psql2);
 
@@ -7374,7 +7436,7 @@ AS
               || 'WHERE a.oid_base IS NULL '
               || 'ORDER by a.oid_superior ';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
                                                 'Opening cursor to collect REMAINDER split_primitives face ids for ' || p_layer,
                                                  NULL,NULL,p_release,psql);
 
@@ -7475,7 +7537,7 @@ AS
                   || 'a.oid_superior = :p5 AND '
                   || 'a.oid_base IS NULL ';     -- <-- !!!
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
                                                    'Calling constructor for ' || stupid_array.COUNT || ' remainder records on ' || p_layer,
                                                    NULL,NULL,p_release,psql2);
 
@@ -7499,7 +7561,7 @@ AS
 
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_SPLIT_TOPOGEOM',NULL,
                                              'Complete for ' || p_layer,
                                              NULL,NULL,p_release);
 
@@ -7547,7 +7609,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
                                              'STARTING for ' || p_layer,NULL,NULL,p_release);
 
       layer_type := GZ_OUTPUT.GET_LAYER_TYPE(p_output_topology,
@@ -7661,7 +7723,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
                                              'Complete for ' || p_layer,NULL,NULL,p_release);
 
       RETURN output;
@@ -7697,7 +7759,7 @@ AS
       IF layer_split.create_remainders = 'N'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_REMAINDER_ATTRIBUTES',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_REMAINDER_ATTRIBUTES',NULL,
                                                 'No remainders requested for ' || p_layer,NULL,NULL,p_release);
 
       ELSE
@@ -7716,7 +7778,7 @@ AS
                  || 'SET a.' || layer_split.remainder_code_field || ' = :p1 '
                  || 'WHERE a.oid_base IS NULL ';
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_REMAINDER_ATTRIBUTES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_REMAINDER_ATTRIBUTES',NULL,
                                                    'Populating remainder code field for ' || p_layer,
                                                    NULL,NULL,p_release,psql);
 
@@ -7747,7 +7809,7 @@ AS
                  || 'WHERE b.oid_base = a.oid_superior) '
                  || 'WHERE a.oid_base IS NULL ';
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_REMAINDER_ATTRIBUTES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_REMAINDER_ATTRIBUTES',NULL,
                                                    'Populating remainder name for ' || p_layer,
                                                    NULL,NULL,p_release,psql);
 
@@ -7780,15 +7842,19 @@ AS
       --our work table has correct spatial topogeoms
       --but is a wild west of oids and sources
       --We can only use the table itself at this point to figure out where its rows came from
-      
+
       --1/29/13 - Changed cannibal deep split attribute sql to use geo_id only
       --          Allows split remainders - these weirdos join current base to deep superior oid
+
+      --! 1/8/14 - Fixed bug mangling the update statement when final columns in the list arent to be updated
 
 
       output               VARCHAR2(4000) := '0';
       layer_type           VARCHAR2(32);
       psql                 VARCHAR2(4000);
       psql2                VARCHAR2(4000);
+      psql_set             VARCHAR2(4000);
+      psql_select          VARCHAR2(4000);
       fieldz               GZ_TYPES.stringarray;
       crosswalk_hash       GZ_TYPES.stringhash;
       fieldz_superior      GZ_TYPES.stringarray;
@@ -7802,6 +7868,7 @@ AS
       superior_source_key  VARCHAR2(32);
       kount                PLS_INTEGER;
       remainder_kount      PLS_INTEGER;
+      update_a_column      PLS_INTEGER := 0;
 
 
    BEGIN
@@ -7830,15 +7897,15 @@ AS
       IF kount = 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
-                                                'No records, exiting for ' || p_layer,NULL,NULL,p_release);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                                                     'No records, exiting for ' || p_layer,NULL,NULL,p_release);
 
          RETURN output;
 
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
-                                             'STARTING for ' || p_layer,NULL,NULL,p_release);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                                                  'STARTING for ' || p_layer,NULL,NULL,p_release);
 
       layer_type := GZ_OUTPUT.GET_LAYER_TYPE(p_output_topology,
                                              p_layer);
@@ -7879,8 +7946,7 @@ AS
       FOR i IN 1 .. update_sets.COUNT
       LOOP
 
-
-         source_n_key := GZ_UTILITIES.SPLIT(update_sets(i),',');
+         source_n_key := GZ_BUSINESS_UTILS.SPLIT(update_sets(i),',');
 
          IF source_n_key.COUNT <> 2
          THEN
@@ -7900,6 +7966,7 @@ AS
             --required assumption - if the base layer has multiple sources (ex INCPLACE + CDP)
             --   the available fields in the base are the same. Wont work any other way
 
+            --this guy only returns fields with crosswalk matches, non-benchmarked never get in play
             fieldz_superior := GZ_OUTPUT.GET_MISSING_FIELDS(p_layer,
                                                             source_n_key(1),  --ex tab10.county
                                                             fieldz,
@@ -7920,17 +7987,31 @@ AS
          FOR i IN 1 .. fieldz.COUNT
          LOOP
 
-            IF crosswalk_hash.EXISTS(fieldz(i))  --skip Geo_id.  Wont have a corresponding bench_field, so not in xwalk
+            IF crosswalk_hash.EXISTS(fieldz(i))  --skip Geo_id or some other weirdos.  No corresponding bench_field, so not in xwalk
             THEN
 
-               IF i <> fieldz.COUNT
+               IF update_a_column = 0
                THEN
 
-                  psql := psql || 'z.' || fieldz(i) || ',';
+                  --test that we actually got in here once, both for comma management in this loop
+                  --and for tracking below of a simple layer that has no field except geo_id
+                  update_a_column := 1;
+
+                               --z.state
+                  psql_set := 'z.' || fieldz(i) || ' ';
+
+                                 --a.statefp
+                  psql_select := 'a.' || crosswalk_hash(fieldz(i)) || ' ';
 
                ELSE
 
-                  psql := psql || 'z.' || fieldz(i) || ' ) = ( SELECT ';
+                  --start loop comma style. Gangster
+
+                                -- z.state , z.county
+                  psql_set := psql_set || ', z.' || fieldz(i) || ' ';
+
+                                    -- a.statefp , a.countyfp
+                  psql_select := psql_select || ', a.' || crosswalk_hash(fieldz(i)) || ' ';
 
                END IF;
 
@@ -7938,35 +8019,23 @@ AS
 
          END LOOP;
 
+         IF update_a_column = 1
+         THEN
 
-         FOR i IN 1 .. fieldz.COUNT
-         LOOP
+            --assemble the full update statement
 
-            IF crosswalk_hash.EXISTS(fieldz(i))  --skip Geo_id.  Wont have a corresponding bench_field, so not in xwalk
-            THEN
+            --Full table scans are the exadata exaway
+            --Plus, pretty sure that even a BIG table in the output world is gonna be something like county
+            --Just a few thousand rows
 
-               IF i <> fieldz.COUNT
-               THEN
+            psql2 := psql || psql_set || ' ) = ( SELECT '
+                          || psql_select
+                          || 'FROM ' || source_n_key(1) || ' a '  -- <-- includes schema DOT
+                          || 'WHERE z.oid_base = a.' || source_n_key(2) || ') '
+                          || 'WHERE z.source_base = :p1 AND '
+                          || 'z.key_base = :p2 ';
 
-                  psql := psql || 'a.' || crosswalk_hash(fieldz(i)) || ',';
-
-               ELSE
-
-                  psql := psql || 'a.' || crosswalk_hash(fieldz(i)) || ' ';
-
-               END IF;
-
-            END IF;
-
-         END LOOP;
-
-         --Full table scans are the exadata exaway
-         --Plus, pretty sure that even a BIG table in the output world is gonna be something like county
-         --Just a few thousand rows
-         psql2 := psql || 'FROM ' || source_n_key(1) || ' a '  -- <-- includes schema DOT
-                       || 'WHERE z.oid_base = a.' || source_n_key(2) || ') '
-                       || 'WHERE z.source_base = :p1 AND '
-                       || 'z.key_base = :p2 ';
+         END IF;
 
          IF  layer_type = 'SPLIT'
          THEN
@@ -7976,15 +8045,33 @@ AS
 
          END IF;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
-                                                i || ': Calling attribute update SQL for ' || p_layer
-                                                || ' using ' || source_n_key(1) || ',' || source_n_key(2),
-                                                NULL,NULL,p_release,psql2);
+         IF update_a_column = 1
+         THEN
 
-         EXECUTE IMMEDIATE psql2 USING source_n_key(1),
-                                       source_n_key(2);
-         COMMIT;
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                                                   i || ': Calling attribute update SQL for ' || p_layer
+                                                   || ' using ' || source_n_key(1) || ',' || source_n_key(2),
+                                                   NULL,NULL,p_release,psql2);
 
+            EXECUTE IMMEDIATE psql2 USING source_n_key(1),
+                                          source_n_key(2);
+            COMMIT;
+
+         ELSE
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                                                   i || ': Skipping attribute update SQL for ' || p_layer
+                                                   || ' since there are no columns to update from the benchmark',
+                                                   NULL,NULL,p_release);
+
+         END IF;
+
+         --reset sql parts in case of a second loop, like aggregate layers
+         psql        := '';
+         psql_set    := '';
+         psql_select := '';
+         psql2       := '';
+         update_a_column := 0;
 
       END LOOP;
 
@@ -7992,6 +8079,12 @@ AS
       IF layer_type = 'SPLIT'
       AND fieldz_superior.COUNT > 0
       THEN
+
+         --fieldz_superior is truly fields that come from the superior layer
+         --doesnt include any "false" fields without crosswalk matches
+
+         --reset
+         update_a_column := 0;
 
          layer_split := GZ_OUTPUT.GET_SPLIT_LAYER(p_release,
                                                   p_layer);
@@ -8043,63 +8136,74 @@ AS
          FOR i IN 1 .. fieldz_superior.COUNT
          LOOP
 
-            IF crosswalk_hash.EXISTS(fieldz_superior(i))  --skip Geo_id.  Wont have a corresponding bench_field, so not in xwalk
+            IF crosswalk_hash.EXISTS(fieldz_superior(i))  --should always EXIST, fieldz_superior should always have xwalk values
             THEN
 
-               IF i <> fieldz_superior.COUNT
+               IF update_a_column = 0
                THEN
 
-                  psql := psql || 'z.' || fieldz_superior(i) || ',';
+                  --test that we actually got in here once, this time only for comma management in this loop
+                  update_a_column := 1;
+
+                               --z.state
+                  psql_set := 'z.' || fieldz_superior(i) || ' ';
+
+                                 --a.statefp
+                  psql_select := 'a.' || crosswalk_hash(fieldz_superior(i)) || ' ';
 
                ELSE
 
-                  psql := psql || 'z.' || fieldz_superior(i) || ' ) = ( SELECT ';
+                  --start commas
+                  -- z.state , z.county
+                  psql_set := psql_set || ', z.' || fieldz_superior(i) || ' ';
+
+                                    -- a.statefp , a.countyfp
+                  psql_select := psql_select || ', a.' || crosswalk_hash(fieldz_superior(i)) || ' ';
 
                END IF;
+
+            ELSE
+
+               RAISE_APPLICATION_ERROR(-20001, 'Shouldnt hit this, how can ' || fieldz_deep_superior(i)
+                                            || ' not have a crosswalk value? ');
 
             END IF;
 
          END LOOP;
 
 
-         FOR i IN 1 .. fieldz_superior.COUNT
-         LOOP
+         IF update_a_column = 1
+         THEN
 
-            IF crosswalk_hash.EXISTS(fieldz_superior(i))  --skip Geo_id.  Wont have a corresponding bench_field, so not in xwalk
-            THEN
+            --assemble the full update statement
 
-               IF i <> fieldz_superior.COUNT
-               THEN
+            --Full table scans are the exadata exaway
+            --Plus, pretty sure that even a BIG table in the output world is gonna be something like county
+            --Just a few thousand rows
 
-                  psql := psql || 'a.' || crosswalk_hash(fieldz_superior(i)) || ',';
+            psql2 := psql || psql_set || ' ) = ( SELECT '
+                          || psql_select
+                          || 'FROM ' || source_superior || ' a '  -- <-- includes schema DOT
+                          || 'WHERE z.oid_superior = a.' || superior_source_key || ') '
+                          || 'WHERE z.source_superior = :p1 AND '
+                          || 'z.oid_base IS NOT NULL ';
 
-               ELSE
 
-                  psql := psql || 'a.' || crosswalk_hash(fieldz_superior(i)) || ' ';
 
-               END IF;
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                                                   ' Calling superior attribute update SQL for ' || p_layer
+                                                   || ' using ' || source_superior || ',' || superior_source_key,
+                                                   NULL,NULL,p_release,psql2);
 
-            END IF;
+            EXECUTE IMMEDIATE psql2 USING source_superior;
+            COMMIT;
 
-         END LOOP;
+         ELSE
 
-         --Full table scans are the exadata exaway
-         --Plus, pretty sure that even a BIG table in the output world is gonna be something like county
-         --Just a few thousand rows
-         psql2 := psql || 'FROM ' || source_superior || ' a '  -- <-- includes schema DOT
-                       || 'WHERE z.oid_superior = a.' || superior_source_key || ') '
-                       || 'WHERE z.source_superior = :p1 AND '
-                       || 'z.oid_base IS NOT NULL ';
+            RAISE_APPLICATION_ERROR(-20001, 'This shouldnt be possible based on the logic in get_missing_fields '
+                                         || 'We got ' || fieldz_superior.COUNT || ' superior fields without a match in the crosswalk?');
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
-                                                ' Calling superior attribute update SQL for ' || p_layer
-                                                || ' using ' || source_superior || ',' || superior_source_key,
-                                                NULL,NULL,p_release,psql2);
-
-         EXECUTE IMMEDIATE psql2 USING source_superior;
-
-         COMMIT;
-
+         END IF;
 
          IF fieldz_deep_superior.COUNT > 0
          THEN
@@ -8125,7 +8229,7 @@ AS
             FOR i IN 1 .. fieldz_deep_superior.COUNT
             LOOP
 
-               IF crosswalk_hash.EXISTS(fieldz_deep_superior(i))  --still skip Geo_id and etc
+               IF crosswalk_hash.EXISTS(fieldz_deep_superior(i))  --should always have a Xwalk
                THEN
 
                   IF i <> fieldz_deep_superior.COUNT
@@ -8139,6 +8243,11 @@ AS
 
                   END IF;
 
+               ELSE
+
+                  RAISE_APPLICATION_ERROR(-20001, 'Shouldnt hit this, how can ' || fieldz_deep_superior(i)
+                                               || ' not have a crosswalk value? ');
+
                END IF;
 
             END LOOP;
@@ -8147,7 +8256,7 @@ AS
             FOR i IN 1 .. fieldz_deep_superior.COUNT
             LOOP
 
-               IF crosswalk_hash.EXISTS(fieldz_deep_superior(i))  --skip Geo_id.  Wont have a corresponding bench_field, so not in xwalk
+               IF crosswalk_hash.EXISTS(fieldz_deep_superior(i))   --this should always EXIST in here
                THEN
 
                   IF i <> fieldz_deep_superior.COUNT
@@ -8161,6 +8270,12 @@ AS
 
                   END IF;
 
+               ELSE
+
+                  --repeat.  Double logically impossible to reach code
+                  RAISE_APPLICATION_ERROR(-20001, 'Shouldnt hit this, how can ' || fieldz_deep_superior(i)
+                                               || ' not have a crosswalk value? ');
+
                END IF;
 
             END LOOP;
@@ -8173,7 +8288,7 @@ AS
                           || 'WHERE z.source_superior = :p1 AND '  --not sure if this is necessary
                           || 'z.oid_base IS NOT NULL ';
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
                                                    ' Calling cannibal split layer update for ' || p_layer
                                                    || ' using ' || source_superior || ',' || superior_source_key,
                                                    NULL,NULL,p_release,psql2);
@@ -8182,7 +8297,6 @@ AS
             COMMIT;
 
          END IF; --if we have splits of splits
-
 
       END IF;  --If we are split and have some columns not found on the base
 
@@ -8218,13 +8332,11 @@ AS
             IF remainder_kount = 0
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
                                                       'No remainders actually exist, exiting ' || p_layer,
                                                       NULL,NULL,p_release,psql2);
 
             ELSE
-
-
 
                superior_source_key := GZ_OUTPUT.GET_DEEP_SOURCE (p_release,
                                                                  p_gen_project_id,
@@ -8239,12 +8351,15 @@ AS
                --should just be one result
                EXECUTE IMMEDIATE psql INTO source_superior;
 
+               --these are columns with Xwalk matches that are "missing" from the superior source list
+               --ie base columns
                fieldz_not_superior := GZ_OUTPUT.GET_MISSING_FIELDS(p_layer,
                                                                    source_superior,  --ex tab10.county
                                                                    fieldz,
                                                                    crosswalk_hash);
 
                --subtract the base-only columns from our list that we will process right below
+               --this result may include garbage columns like geo_id or "false" columns without benchmark matches
                fieldz := GZ_OUTPUT.STRINGARRAY_SUBTRACT(fieldz,
                                                         fieldz_not_superior);
 
@@ -8255,48 +8370,76 @@ AS
                psql := 'UPDATE ' || p_output_topology || '_FSL' || p_layer || 'V z '
                     || 'SET ( ';
 
+               update_a_column := 0;
+
                FOR i IN 1 .. fieldz.COUNT
                LOOP
 
-                  IF crosswalk_hash.EXISTS(fieldz(i))  --skip Geo_id.  Wont have a corresponding bench_field, so not in xwalk
+                  IF crosswalk_hash.EXISTS(fieldz(i))  --skip Geo_id or other "false" columns not in bench
                   THEN
 
                      IF layer_split.remainder_code_field IS NOT NULL
                      THEN
 
-                        --if null cant compare
+                        --if not null can compare right here
 
-                        IF  fieldz(i) <> layer_split.remainder_code_field --special handling for this in sub
+                        IF  fieldz(i) <> layer_split.remainder_code_field --special handling for this in POPULATE_REMAINDER_ATTRIBUTES sub
                         THEN
 
-                           IF i <> fieldz.COUNT
+                           IF update_a_column = 0
                            THEN
 
-                              psql := psql || 'z.' || fieldz(i) || ',';
+                              --test that we actually got in here once
+                              update_a_column := 1;
+
+                                         --z.state
+                              psql_set := 'z.' || fieldz(i) || ' ';
+
+                                          --a.statefp
+                              psql_select := 'a.' || crosswalk_hash(fieldz(i)) || ' ';
 
                            ELSE
 
-                              psql := psql || 'z.' || fieldz(i) || ' ) = ( SELECT ';
+                              --commas at start, brain
+
+                                          -- z.state , z.county
+                              psql_set := psql_set || ', z.' || fieldz(i) || ' ';
+
+                                           -- a.statefp , a.countyfp
+                              psql_select := psql_select || ', a.' || crosswalk_hash(fieldz(i)) || ' ';
+
 
                            END IF;
 
                         END IF;
 
-                     ELSE
+                     ELSE --layer_split.remainder_code is null
 
-                        --ick if null cant compare
+                        --ick (code dupe) if null cant compare. Dont worry about it, doesnt exist at all. Poof
 
-                        IF i <> fieldz.COUNT
+                        IF update_a_column = 0
                         THEN
 
-                           psql := psql || 'z.' || fieldz(i) || ',';
+                           --test that we actually got in here once
+                           update_a_column := 1;
+
+                                      --z.state
+                           psql_set := 'z.' || fieldz(i) || ' ';
+
+                                       --a.statefp
+                           psql_select := 'a.' || crosswalk_hash(fieldz(i)) || ' ';
 
                         ELSE
 
-                           psql := psql || 'z.' || fieldz(i) || ' ) = ( SELECT ';
+                           --commas at start, brain
+
+                                       -- z.state , z.county
+                           psql_set := psql_set || ', z.' || fieldz(i) || ' ';
+
+                                        -- a.statefp , a.countyfp
+                           psql_select := psql_select || ', a.' || crosswalk_hash(fieldz(i)) || ' ';
 
                         END IF;
-
 
                      END IF;
 
@@ -8304,72 +8447,31 @@ AS
 
                END LOOP;
 
+               IF update_a_column = 1
+               THEN
 
-               FOR i IN 1 .. fieldz.COUNT
-               LOOP
+                  --assemble the full update statement
 
-                  IF crosswalk_hash.EXISTS(fieldz(i))  --skip Geo_id.  Wont have a corresponding bench_field, so not in xwalk
-                  THEN
+                  --Full table scans are the exadata exaway
+                  --Plus, pretty sure that even a BIG table in the output world is gonna be something like county
+                  --Just a few thousand rows
 
-                     IF layer_split.remainder_code_field IS NOT NULL
-                     THEN
-
-                        --if null cant compare
-
-                        IF  fieldz(i) <> layer_split.remainder_code_field --special handling for this in sub
-                        THEN
-
-                           IF i <> fieldz.COUNT
-                           THEN
-
-                              psql := psql || 'a.' || crosswalk_hash(fieldz(i)) || ',';
-
-                           ELSE
-
-                              psql := psql || 'a.' || crosswalk_hash(fieldz(i)) || ' ';
-
-                           END IF;
-
-                        END IF;
-
-                     ELSE
-
-                        --ick if null cant compare
-
-                        IF i <> fieldz.COUNT
-                        THEN
-
-                           psql := psql || 'a.' || crosswalk_hash(fieldz(i)) || ',';
-
-                        ELSE
-
-                           psql := psql || 'a.' || crosswalk_hash(fieldz(i)) || ' ';
-
-                        END IF;
+                  psql2 := psql || psql_set || ' ) = ( SELECT '
+                          || psql_select
+                          || 'FROM ' || source_superior || ' a '  -- <-- includes schema DOT
+                          || 'WHERE z.oid_superior = a.' || superior_source_key || ') '
+                          || 'WHERE z.source_superior = :p1 AND '
+                          || 'z.oid_base IS NULL ';
 
 
-                     END IF;
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                                                         ' Calling remainder attribute update SQL for ' || p_layer,
+                                                         NULL,NULL,p_release,psql2);
 
+                  EXECUTE IMMEDIATE psql2 USING source_superior;
+                  COMMIT;
 
-                  END IF;
-
-               END LOOP;
-
-               --Full table scans are the exadata exaway
-               --Plus, pretty sure that even a BIG table in the output world is gonna be something like county
-               --Just a few thousand rows
-               psql2 := psql || 'FROM ' || source_superior || ' a '  -- <-- includes schema DOT
-                             || 'WHERE z.oid_superior = a.' || superior_source_key || ') '
-                             || 'WHERE z.source_superior = :p1 AND '
-                             || 'z.oid_base IS NULL ';
-
-
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
-                                                      ' Calling remainder attribute update SQL for ' || p_layer,
-                                                      NULL,NULL,p_release,psql2);
-
-               EXECUTE IMMEDIATE psql2 USING source_superior;
-               COMMIT;
+               END IF;
 
                GZ_OUTPUT.POPULATE_REMAINDER_ATTRIBUTES(p_release,
                                                        p_gen_project_id,
@@ -8378,11 +8480,11 @@ AS
                                                        p_output_topology,
                                                        p_layer);
 
-            END IF; --end if we even have remainders in existence
+            END IF; --end if we even have remainders in existence for this table
 
-         END IF;
+         END IF;  --end if create_remainders is true
 
-      END IF;
+      END IF;  --end if layer_type = SPLIT
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -8391,7 +8493,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
                                              'Complete for ' || p_layer,NULL,NULL,p_release);
 
       RETURN output;
@@ -8558,6 +8660,36 @@ AS
 
 
    END ADD_TO_NAME_BASED_ON_SOURCE;
+   
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+   
+   FUNCTION GET_CDB_LSAD_ABB (
+      p_lsad               IN VARCHAR2,
+      p_cdb_lsad_table     IN VARCHAR2   --ex acs13cdb.lut_lsad
+   ) RETURN VARCHAR2 DETERMINISTIC
+   AS
+   
+      --Matt! 2/3/14
+      --Attempt to allow us to avoid having the lut_lsad live in the GZ schema
+      --Of course now the CDB name will have to change in our param tables with each release
+      
+      --sample usage in gz_layers_fields.update_fields
+      --set a.lsad = GZ_OUTPUT.GET_CDB_LSAD_ABB(a.lsad, 'ACS13CDB.LUT_LSAD') 
+      
+      --or a tester
+      --select GZ_OUTPUT.GET_CDB_LSAD_ABB('M1','ACS13CDB.LUT_LSAD') from dual
+   
+   BEGIN
+   
+      RETURN GZ_OUTPUT.GET_RELATED_VALUE_FROM_LUT(p_lsad,
+                                                  p_cdb_lsad_table, 
+                                                  'standard',
+                                                  'lsad',
+                                                  'Y');           --allow nulls.  00 usually   
+   
+   END GET_CDB_LSAD_ABB;
 
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -8567,19 +8699,15 @@ AS
       p_lsad               IN VARCHAR2,
       p_release            IN VARCHAR2 DEFAULT NULL,
       p_release_col        IN VARCHAR2 DEFAULT 'RELEASE'
-   ) RETURN VARCHAR2
+   ) RETURN VARCHAR2 DETERMINISTIC
    AS
 
       --Matt! 5/16/12
       --simplified wrapper with our standard usage of GET_RELATED_VALUE_FROM_LUT
-      --meant to make param table entry simpler
-      --Im not actually sure how this gets used
+      --intended to be used with a local copy of the LUT_LSAD table. If you dont have one,
+      --   see GET_CDB_LSAD_ABB above      
 
-      --Maybe like:
-      --update z609in_050 a
-      --set a.name = a.name || ' ' || GZ_OUTPUT.GET_STANDARD_LSAD_ABB(a.lsad)
-
-      --More likely
+      --Sample parameter in gz_layers_fields.update_fields -- your local LUT_LSAD table has no RELEASE column
       --a.lsad = GZ_OUTPUT.GET_STANDARD_LSAD_ABB(a.lsad)
 
       --or new syntax with RELEASE in the lut_lsad table
@@ -8611,7 +8739,7 @@ AS
                                                      'Y',           --allow nulls.  00 usually
                                                      p_release,
                                                      p_release_col);
-
+                                                     
       RETURN output;
 
    END GET_STANDARD_LSAD_ABB;
@@ -8642,8 +8770,7 @@ AS
       psql                 VARCHAR2(4000);
 
    BEGIN
-
-
+      
       psql := 'SELECT a.' || p_lut_col_we_want || ' '
            || 'FROM '
            || p_lut_table || ' a '
@@ -8651,7 +8778,7 @@ AS
 
       IF p_value2 IS NULL
       THEN
-
+         
          EXECUTE IMMEDIATE psql INTO output USING p_value;
 
       ELSE
@@ -8663,6 +8790,7 @@ AS
                                                   p_value2;
 
       END IF;
+
 
       IF output IS NOT NULL
       THEN
@@ -8690,6 +8818,188 @@ AS
 
 
    END GET_RELATED_VALUE_FROM_LUT;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION REPLACE_APOSTROPHES (p_string VARCHAR2)
+      RETURN VARCHAR2
+   AS
+      /*
+        Program Name:  replace_apostrophe
+        Author:  Stephanie Spahlinger
+        Creation Date: 20140210 (COPIED FROM CAMPS CR_METADATA)
+
+        Usage:
+           Call this program from inside another PL/SQL program.  One argument is
+           required:
+              p_string - the string you want to replace apostrophes in
+
+        Purpose:
+           Removes apostophes and replaces them with escaped apostophes
+           (' becomes '') to accomodate the need to escape apostrophe
+           characters in some functions
+           
+           Should probably use q'^^' quotes instead, but I don't really know how.
+
+        Dependencies:
+           None
+
+        Modification History:
+
+      */
+
+      v_newstring   VARCHAR2 (4000);
+
+   BEGIN
+   
+      -- Replace apostrophes in the given string with escaped apostrophes
+      -- This is used by the PUBL name creator (GET_PUBL_NAME) to prep
+      -- the string for use in REGEX REPLACE.
+
+      -- search and replace "'" with "''" in string
+
+      v_newstring :=
+         REPLACE (p_string, '''', UNISTR ('\0027') || UNISTR ('\0027'));
+
+      RETURN v_newstring;
+
+   END REPLACE_APOSTROPHES;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION GET_PUBL_NAME (pLsad                IN VARCHAR2,
+                           pBaseName            IN VARCHAR2,
+                           pLUT_LSAD            IN VARCHAR2 DEFAULT 'LUT_LSAD',
+                           pType                IN VARCHAR2 DEFAULT 'publ',
+                           p_release            IN VARCHAR2 DEFAULT NULL,
+                           p_release_col        IN VARCHAR2 DEFAULT 'RELEASE')
+      RETURN VARCHAR2
+   AS
+      /**
+
+        Program Name:  get_publ_name
+        Author:  Stephanie Spahlinger
+        Creation Date: February, 2014 based on CAMPS version of same for
+                       public cartographic boundary files.
+
+        Usage:
+          There are two required parameters and two optional parameters.
+
+          REQUIRED parameters:
+
+                 pLsad - the two digit LSAD for the entity as a string 
+                         ('06' for county, etc.  Must be a string!)
+
+                 pBaseName - the base name of the entity to append to the Lsad
+                             (usully from the NAME field in TIGER)
+
+          OPTIONAL parameters:
+
+                 pLUT_LSAD - the name of the LSAD look up table to use.
+                             This table is created with each benchmark
+                             and stored in the CPB_LSAD schema or somewhere 
+                             in the cartographic DB.
+                             If you leave this parameter off, it will assume 
+                             you have a table or view called LUT_LSAD in your
+                             schema.
+
+                 pType - the type of name to return.
+                         legal values are:
+                         'publ' - this is the default, it returns
+                                         the full publication name
+                         'stnd' - this returns the standard name
+                         'shrt' - this returns the short name
+                         if the user enters an illegal value, an error is
+                         raised.
+                         
+                  p_release  - the "release" name.  This is used and required to 
+                               get a unique record when more than one release 
+                               is stored in the referenced LUT_LSAD table
+                               or the "release" column in the LUT_LSAD is filled in.
+                  
+                  p_release_col  - the column name in the LUT_LSAD table where 
+                                   the "release" value is stored (see above).
+                                   This is used to get a unique 
+                                   record when more than one release is stored
+                                   in the referenced LUT_LSAD table.
+                                   If the column name is something other than 
+                                   "release," you must pass a value for this 
+                                   parameter.
+
+        Purpose:
+          The purpose of this program is to return the full publication name or
+          standard or short name variants for a single entity.  This is also
+          called the NAMELSAD translation.
+
+        Dependencies:
+          This program relies on an LUT_LSAD table (the benhcmark-tied
+          snapshot of MTFNS info with easy to substitute name styles)
+
+          This fucntion uses GET_RELATED_VALUE_FROM_LUT to obtain the default 
+          publication name string we need to insert the base name into.
+
+      */
+
+      vPubName     VARCHAR2 (4000);
+      vNameType    VARCHAR2 (4000);
+      vType        VARCHAR2(4000) := lower(pType);
+      vfull_name_format  VARCHAR2 (4000); -- to hold the publication name format,
+                                                          -- like '<NAME> County'
+      vBasename   VARCHAR2 (4000);      -- to hold adjusted name (to deal with
+                                                       -- apostophe's in names
+   BEGIN
+      IF vType NOT IN ('publ', 'stnd', 'shrt')
+      THEN
+         DBMS_OUTPUT.put_line (
+               'GET_PUBL_NAME:  WARNING!  No publication name generated, '
+            || 'Name type requested must be ''publ'',''stnd'',''shrt''.  '
+            || 'User entered '
+            || pType
+            || '.');
+         RAISE_APPLICATION_ERROR (
+            -20001,
+            'GET_PUBL_NAME: Name type requested must be ''publ'',''stnd'',''shrt''.');
+      END IF;
+
+      -- Adjust basename by escaping apostrophes.  If the name
+      -- contains an apostrophe, it will not work in the REGEX replace line
+      -- below unless we do this.
+
+      -- Could probably do this with q'^^' quotes, but not sure how.  This
+      -- works though.
+
+      vBasename := REPLACE_APOSTROPHES (pBasename);
+
+      CASE
+         WHEN (vType = 'publ')
+         THEN
+            vNameType := 'publ_name';
+         WHEN (vType = 'stnd')
+         THEN
+            vNameType := 'stnd_name';
+         WHEN (vType = 'shrt')
+         THEN
+            vNameType := 'shrt_name';
+      END CASE;
+
+      -- Concept of query ...
+      -- PubName := replace "<NAME>" with pBasename in PubSuf;
+
+      -- get full name format string from LUT.
+      vfull_name_format :=  get_related_value_from_LUT(pLsad,pLUT_LSAD , vNameType, 'LSAD', 'Y', p_release, p_release_col); 
+
+      -- replace <NAME> in full name string with the name passed in.
+      -- PubName := replace "<NAME>" with pBasename in publ_name or stnd_name or shrt_name;
+      
+      vPubName := regexp_replace(vfull_name_format,'<NAME>',pBaseName);
+
+      RETURN vPubName;
+
+   END GET_PUBL_NAME;
 
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -9032,14 +9342,16 @@ AS
 
    PROCEDURE ADD_LAYER_TO_FACE (
       p_release            IN VARCHAR2,
+      p_gen_project_id     IN VARCHAR2,
       p_output_topology    IN VARCHAR2,
-      p_layer              IN VARCHAR2,
-      p_add_to_face        IN VARCHAR2,
+      p_layer              IN VARCHAR2,  --The layer producing the values, like 050
+      p_add_to_face        IN VARCHAR2,  --STATE
       p_face_table         IN VARCHAR2
    )
    AS
 
       --Matt! 5/11/12
+      --10/17/13 Parameterized column length definition
 
       psql                 VARCHAR2(4000);
       oidz                 GZ_TYPES.stringarray;
@@ -9052,6 +9364,7 @@ AS
       psql2                VARCHAR2(4000);
       dbug                 PLS_INTEGER := 0;
       kount                PLS_INTEGER;
+      lengths              GZ_TYPES.stringarray;
 
 
 
@@ -9067,14 +9380,22 @@ AS
       --so on reruns of this module the column may still be present
       --if user already has an input layer of the same name we are in trouble
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
-                                             'Adding column ' || p_add_to_face
-                                             || ' to ' || p_face_table,
-                                             NULL,NULL,p_release,psql);
+      --return a single length, as a character
+      lengths := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                             p_gen_project_id,
+                                                             'ATTRIBUTE',
+                                                             'REFERENCE_FACE_FIELDS',
+                                                             'FIELD_LENGTH',
+                                                             p_add_to_face);
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
+                                                  'Adding column ' || p_add_to_face || ' VARCHAR2(' || lengths(1) || ')'
+                                                 || ' to ' || p_face_table,
+                                                 NULL,NULL,p_release,psql);
 
       GZ_OUTPUT.ADD_COLUMN_TO_TABLE(p_face_table,
                                     p_add_to_face,
-                                    'VARCHAR2(4000)');
+                                    'VARCHAR2(' || lengths(1) || ')');
 
 
       --bust out the primitive faces for our layer
@@ -9098,7 +9419,7 @@ AS
            || 'TABLE(b.topogeom.get_topo_elements()) t '
            || 'WHERE a.face_id = t.topo_id) ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
                                              'Updating column ' ||p_add_to_face
                                              || ' on ' || p_output_topology || '_FACE',
                                              NULL,NULL,p_release,psql);
@@ -9118,7 +9439,7 @@ AS
          FOR i IN 1 .. oidz.COUNT
          LOOP
 
-            facez := GZ_UTILITIES.GZ_GET_FSL_FACES(p_output_topology || '_FSL' || p_layer || 'V',
+            facez := GZ_TOPO_UTIL.GZ_GET_FSL_FACES(p_output_topology || '_FSL' || p_layer || 'V',
                                                    oidz(i),
                                                    'OID_BASE',
                                                    'TOPOGEOM');
@@ -9141,7 +9462,7 @@ AS
             OR dbug = 1
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
                                              'Updating column ' ||p_add_to_face
                                              || ' on ' || p_output_topology || '_FACE (current val ' || valz(i) || ')',
                                              NULL,NULL,p_release,psql2);
@@ -9171,13 +9492,13 @@ AS
       IF kount = 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
                                                 'Success, all ' || p_add_to_face || ' on ' || p_face_table || ' have values ',
                                                  NULL,NULL,p_release,psql);
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'ADD_LAYER_TO_FACE',NULL,
                                                 'Oops, ' || kount || ' ' || p_add_to_face || ' on ' || p_face_table || ' are NULL ',
                                                  NULL,NULL,p_release,psql);
 
@@ -9226,15 +9547,15 @@ AS
 
             --multiple statements split up
 
-            IF update_fields(update_string) = '|'
+            IF update_fields(update_string) IN ('|','?')
             THEN
 
-               --special special handling for pipe delimeter, maybe more
-               update_statements := GZ_UTILITIES.SPLIT(update_string,'\' || update_fields(update_string));
+               --special special handling for pipe, question delimiters doubling as metacharacters. Maybe more
+               update_statements := GZ_BUSINESS_UTILS.SPLIT(update_string,'\' || update_fields(update_string));
 
             ELSE
 
-               update_statements := GZ_UTILITIES.SPLIT(update_string,update_fields(update_string));
+               update_statements := GZ_BUSINESS_UTILS.SPLIT(update_string,update_fields(update_string));
 
             END IF;
 
@@ -9258,7 +9579,7 @@ AS
                psql := 'UPDATE ' || p_output_topology || '_FSL' || p_layer || 'V a '
                      || update_statements(i) || ' ';
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
                                                       'Calling update stmt on ' || p_output_topology || '_FSL' || p_layer || 'V',
                                                       NULL,NULL,p_release,psql);
 
@@ -9278,7 +9599,7 @@ AS
                psql := 'DELETE FROM ' || p_output_topology || '_FSL' || p_layer || 'V a '
                     || 'WHERE ' || update_statements(i) || ' ';
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
                                                       'Calling special DELETE stmt on ' || p_output_topology || '_FSL' || p_layer || 'V',
                                                       NULL,NULL,p_release,psql);
 
@@ -9306,7 +9627,7 @@ AS
                     || ' ' || update_statements(i) || '; '
                     || 'END; ';
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
                                                       'Calling special PROCEDURE stmt on ' || p_output_topology || '_FSL' || p_layer || 'V',
                                                       NULL,NULL,p_release,psql);
 
@@ -9325,7 +9646,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_FIELDS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_FIELDS',NULL,
                                                 'No update stmt for ' || p_output_topology || '_FSL' || p_layer || 'V',
                                                 NULL,NULL,p_release);
 
@@ -9383,7 +9704,7 @@ AS
            || 'SET '
            || 'a.geo_id = :p1 || :p2 || :p3 || :p4 ';
 
-      geocode_arr := GZ_UTILITIES.SPLIT(geocodes, ',');
+      geocode_arr := GZ_BUSINESS_UTILS.SPLIT(geocodes, ',');
 
       FOR i IN 1 .. geocode_arr.COUNT
       LOOP
@@ -9392,7 +9713,7 @@ AS
 
       END LOOP;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_GEO_ID',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_GEO_ID',NULL,
                                              'Calling geoid update stmt on ' || p_output_topology || '_FSL' || p_layer || 'V',
                                              NULL,NULL,p_release,psql);
 
@@ -9408,7 +9729,7 @@ AS
               || '      PRIMARY KEY(GEO_ID) '
               || ')';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_GEO_ID',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'UPDATE_GEO_ID',NULL,
                                              'Making geo_id the primary key for ' || p_output_topology || '_FSL' || p_layer || 'V',
                                              NULL,NULL,p_release,psql);
 
@@ -9453,7 +9774,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
                                              'STARTING for ' || p_single_layer|| ' '  || p_output_topology,NULL,NULL,p_release);
 
 
@@ -9490,6 +9811,7 @@ AS
 
 
             GZ_OUTPUT.ADD_LAYER_TO_FACE(p_release,
+                                        p_gen_project_id,
                                         p_output_topology,
                                         layerz(i).layer,
                                         layerz(i).add_to_face,
@@ -9509,7 +9831,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
                                              'Complete for ' || p_output_topology,NULL,NULL,p_release);
 
       RETURN output;
@@ -9522,19 +9844,42 @@ AS
    --Public---------------------------------------------------------------------------------
 
    FUNCTION POPULATE_MEASUREMENTS (
-      p_release            IN VARCHAR2,
-      p_gen_project_id     IN VARCHAR2,
-      p_output_topology    IN VARCHAR2,
-      p_single_layer       IN VARCHAR2,
-      p_face_table         IN VARCHAR2,
-      p_tolerance          IN NUMBER DEFAULT .05,
-      p_srid               IN NUMBER DEFAULT 8265,  --This is implicitly a "to" srid if diff
-      p_restart_flag       IN VARCHAR2 DEFAULT 'N'
+      p_release               IN VARCHAR2,
+      p_gen_project_id        IN VARCHAR2,
+      p_output_topology       IN VARCHAR2,
+      p_single_layer          IN VARCHAR2,
+      p_face_table            IN VARCHAR2,
+      p_prcs_slivers          IN VARCHAR2 DEFAULT 'N',
+      p_sliver_restart_flag   IN VARCHAR2 DEFAULT 'N',
+      p_sliver_width          IN NUMBER DEFAULT NULL,
+      p_segment_length        IN NUMBER DEFAULT NULL,
+      p_expendable_review     IN VARCHAR2 DEFAULT 'N',
+      p_reshape_review        IN VARCHAR2 DEFAULT 'Y',
+      p_tolerance             IN NUMBER DEFAULT .05,
+      p_srid                  IN NUMBER DEFAULT 8265,  --This is implicitly a "to" srid if diff
+      p_restart_flag          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_edge          IN VARCHAR2 DEFAULT 'Y',
+      p_topofix_2edge         IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa            IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2
    AS
 
 
       --Matt! 5/11/12
+      --M@! Adding sliver processing August 2013
+      --    Reminder to future: Sliver processing cant occur before this point
+      --                        since it needs to know about expendability and
+      --                        extinction for fully built and registered
+      --                        feature tables
+      --    Also added fix_edge and fix_face (check_face_tab)
+      --! 12/3/13 added p_close_edge and default to N
+
+      --Return values
+      --0   - success
+      --1|% - success with warnings, continue running to the end of output build
+      --      this includes any fix_edge, fix_face, or coastal_sliver processing
+      --      where something didnt get fixed as requested
+      --2|% - fail, stop processing
 
 
       output               VARCHAR2(4000) := '0';
@@ -9542,7 +9887,9 @@ AS
       layerz               GZ_TYPES.GZ_LAYERS_OUT_INFO;
       kount                PLS_INTEGER;
       topo_srid            NUMBER;
-
+      sliver_output        VARCHAR2(4000);
+      edgefix_val          VARCHAR2(1);
+      topofix_val          VARCHAR2(1);
 
    BEGIN
 
@@ -9553,249 +9900,549 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                             'STARTING for ' || p_output_topology,NULL,NULL,p_release);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                  'STARTING for ' || p_output_topology,NULL,NULL,p_release);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
-                                             'Gathering stats on ' || p_output_topology,NULL,NULL,p_release);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                  'Gathering stats on ' || p_output_topology,NULL,NULL,p_release);
 
       --doesnt really belong here
       --but all the tables are pretty well populated, and may save us some slowness ahead
-      GZ_UTILITIES.GATHER_TOPO_STATS(p_output_topology);
+      GZ_TOPO_UTIL.GATHER_TOPO_STATS(p_output_topology);
 
-      IF p_single_layer IS NULL
+      topo_srid := GZ_TOPO_UTIL.GET_SDO_TOPO_METADATA_NUM(p_output_topology,
+                                                          p_face_table,
+                                                          'srid');
+
+      --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      --Coastal Slivers--------------------------------------------------------
+      --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+
+
+      IF p_prcs_slivers = 'Y'
+      AND (p_sliver_restart_flag = 'N' OR p_sliver_restart_flag IS NULL)
       THEN
 
-         --SOP
-         layerz := GZ_OUTPUT.GET_LAYERS_OUT_INFO(p_output_topology);
+         --PROCESS SLIVERS with no SDO in the mix
+         --can currently handle Z9 here too
 
-      ELSE
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                     'Calling coastal sliver processing with no sdogeometry processing');
 
-         --single layer processing
-         layerz := GZ_OUTPUT.GET_LAYERS_OUT_INFO(p_output_topology, NULL, p_single_layer);
+         BEGIN
 
-      END IF;
+            sliver_output := GZ_TOPOFIX.GZ_COASTAL_SLIVERS(p_release,
+                                                           p_gen_project_id,
+                                                           p_output_topology,
+                                                           p_face_table,
+                                                           'OUTPUT',
+                                                           'N',
+                                                           p_sliver_width,
+                                                           p_segment_length,
+                                                           p_expendable_review,
+                                                           p_reshape_review,
+                                                           'N', --no, dont deal with sdogeometry. Will calculated it in the module next
+                                                           p_tolerance,
+                                                           topo_srid); --with no sdo, the only srid needed is the topo's
 
-      psql := 'SELECT srid FROM '
-           || 'user_sdo_topo_info '
-           || 'WHERE '
-           || 'topology = :p1 AND '
-           || 'rownum = 1 ';
-
-      EXECUTE IMMEDIATE psql INTO topo_srid USING UPPER(p_output_topology);
-
-      FOR i IN 1 .. layerz.COUNT
-      LOOP
-
-         --hmm no tiles. This does the entire table
-         --Better return to this
-
-         --make sure we have recs
-
-         psql := 'SELECT count(*) '
-              || 'FROM ' || p_output_topology || '_FSL' ||  layerz(i).layer || 'V '
-              || 'WHERE rownum = 1';
-
-         EXECUTE IMMEDIATE psql INTO kount;
-
-         IF kount = 1
-         AND (p_restart_flag = 'N' OR NOT (GZ_OUTPUT.IS_LAYER_THROUGH_MODULE(p_output_topology,
-                                                                             layerz(i).layer,
-                                                                             7)
-             ))
+         EXCEPTION
+         WHEN OTHERS
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                   'Calc ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                       'Coastal sliver processing bombed',
+                                                       p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
 
+            output := '2| ' || ' Coastal sliver processing bombed ' || CHR(10) || output;
 
-            IF p_srid IS NOT NULL
-            AND topo_srid = p_srid
-            THEN
+         END;
 
-               GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FSL' || layerz(i).layer || 'V',
-                                                     'GEO_ID',
-                                                     'SDOGEOMETRY',
-                                                     'ALL',
-                                                      p_tolerance);
-                                                      --do not call with srid, will transform 8265 to 8265 and make some messes
+         IF sliver_output IS NOT NULL
+         THEN
 
-               --seems polite to do this no matter what
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Index ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+            --possible errors here are failed input checks
+            --or unable to fix all slivers
 
-               GZ_UTILITIES.ADD_SPATIAL_INDEX(p_output_topology || '_FSL' || layerz(i).layer || 'V',
-                                              'SDOGEOMETRY',
-                                              p_srid,
-                                              p_tolerance);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                       'Coastal sliver processing returned with an error message',
+                                                       p_error_msg => sliver_output);
 
-            ELSIF p_srid IS NOT NULL
-            AND topo_srid <> p_srid
-            THEN
-
-               --never even tried this
-
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Calling with intent to transform to ' || p_srid || '. You are a titan of bravery ');
-
-               GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FSL' || layerz(i).layer || 'V',
-                                                     'GEO_ID',
-                                                     'SDOGEOMETRY',
-                                                     'ALL',
-                                                      p_tolerance,
-                                                      p_srid); --transformation
-
-                                                                     --seems polite to do this no matter what
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Index ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
-
-               GZ_UTILITIES.ADD_SPATIAL_INDEX(p_output_topology || '_FSL' || layerz(i).layer || 'V',
-                                              'SDOGEOMETRY',
-                                              p_srid,
-                                              p_tolerance);
-
-            ELSIF p_srid IS NULL
-            THEN
-
-               --this is our special input to indicate Z9 translated albers
-               --ultimately headed to 1000082
-
-               --SOP first, make sdo in 8265
-               GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FSL' || layerz(i).layer || 'V',
-                                                     'GEO_ID',
-                                                     'SDOGEOMETRY',
-                                                     'ALL',
-                                                      p_tolerance);
-
-               --call GZ_PROJECTION
-               --Trying to get a handle on the DDL required for gz_projection
-               --Have pre-created the 4 tables and 1 sequence, and will reuse them on each trip thru this loop
-
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Calling GZ_PROJECTION.PROJECT_2007_TO_ALBERS');
-
-               GZ_PROJECTION.PROJECT_2007_TO_ALBERS(p_output_topology,
-                                                    p_output_topology || '_FSL' || layerz(i).layer || 'V',
-                                                    'SDOGEOMETRY',
-                                                    'GEO_ID',                             --unique key col
-                                                    SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
-                                                    p_output_topology || '_OUT_Z9OUT',    --final table, holds the output
-                                                    'NEW_GEOMETRY',                       --default, column name
-                                                    NULL,                                 --exclude.  No clue
-                                                    'FALSE',                              --key is varchar, Sidey sez "ignored"
-                                                    'OUTPUT',                             --log type
-                                                    p_output_topology || '_OUT_SEQ',      --sequence
-                                                    p_output_topology || '_OUT_2003',     --2003 work table
-                                                    p_output_topology || '_OUT_AREA',     --area work table
-                                                    p_output_topology || '_OUT_Z9TMP'     --temp table, same format as _OUT_Z9OUT
-                                                    );
-
-               --move normal 8265 geometry over to empty qa_geometry column
-               psql := 'UPDATE ' ||  p_output_topology || '_FSL' || layerz(i).layer || 'V v '
-                    || 'SET '
-                    || 'v.qa_sdogeometry = v.sdogeometry, '
-                    || 'v.sdogeometry = NULL ';
-
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Shifting sdogeometry to qa_sdogeometry',
-                                                       NULL,NULL,p_release,psql);
-
-               EXECUTE IMMEDIATE psql;
-               COMMIT;
-
-               --update from temp table to layer table
-               psql := 'UPDATE ' ||  p_output_topology || '_FSL' || layerz(i).layer || 'V v '
-                    || 'SET v.sdogeometry = ('
-                    || 'SELECT z.new_geometry '
-                    || 'FROM ' || p_output_topology || '_OUT_Z9OUT z '
-                    || 'WHERE v.geo_id = z.geo_id) ';
-
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Move translated geometry from temp table to layer table',
-                                                       NULL,NULL,p_release,psql);
-
-               EXECUTE IMMEDIATE psql;
-               COMMIT;
-
-               --verify that we have geoms in all
-               psql := 'SELECT COUNT(*) FROM '
-                    || p_output_topology || '_FSL' || layerz(i).layer || 'V v '
-                    || 'WHERE v.sdogeometry IS NULL ';
-
-               EXECUTE IMMEDIATE psql INTO kount;
-
-               IF kount > 0
-               THEN
-
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                         'Error: We have ' || kount || ' NULL sdogeometries in ' ||
-                                                         p_output_topology || '_FSL' || layerz(i).layer || 'V v ',
-                                                         NULL,NULL,p_release,psql);
-
-                  RAISE_APPLICATION_ERROR(-20001,'We have ' || kount || ' NULL sdogeometries in ' ||
-                                                  p_output_topology || '_FSL' || layerz(i).layer || 'V v ');
-
-               ELSIF kount = 0
-               THEN
-
-                  --clean out the work tables
-                  --so we can at least reuse them for the next layer
-                  psql := 'DELETE FROM ' || p_output_topology || '_OUT_Z9OUT';
-                  EXECUTE IMMEDIATE psql;
-                  COMMIT;
-
-                  psql := 'DELETE FROM ' || p_output_topology || '_OUT_2003';
-                  EXECUTE IMMEDIATE psql;
-                  COMMIT;
-
-                  psql := 'DELETE FROM ' || p_output_topology || '_OUT_AREA';
-                  EXECUTE IMMEDIATE psql;
-                  COMMIT;
-
-                  psql := 'DELETE FROM ' || p_output_topology || '_OUT_Z9TMP';
-                  EXECUTE IMMEDIATE psql;
-                  COMMIT;
-
-               END IF;
-
-               --seems polite to do this no matter what
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Index ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
-
-               GZ_UTILITIES.ADD_SPATIAL_INDEX(p_output_topology || '_FSL' || layerz(i).layer || 'V',
-                                              'SDOGEOMETRY',
-                                              1000082, --hard coded
-                                              p_tolerance);
-
-
-            END IF;
-
+            output := '1| ' || sliver_output || CHR(10) || output;
 
          ELSE
 
-            IF kount = 0
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'Coastal sliver processing completed with no known errors');
+
+         END IF;
+
+      END IF;
+
+      IF (p_sliver_restart_flag = 'N' OR p_sliver_restart_flag IS NULL)  --dont do any fixing on pure sliver restarts
+      THEN
+
+         IF p_topofix_edge = 'Y'
+         THEN
+
+            --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+            --Fix Edge---------------------------------------------------------------
+            --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+
+            --By now, with coastal slivers removed, should be down to a very rare straggling bad edge
+            --Fix_edge does not update any sdogeometry
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'Call gz_fix_edge');
+
+            --return char 1 for some still bad, 0 for all good
+
+            edgefix_val := GZ_TOPOFIX.GZ_FIX_EDGE(p_release || '_' || p_gen_project_id,
+                                                  p_output_topology,
+                                                  'OUTPUT', --log type
+                                                  'Y', --hold univeral
+                                                  p_tolerance,
+                                                  NULL, --no insistence on loop counts. Continue as long as there is progress
+                                                  p_topofix_2edge); --check close edge, mad slow if Y
+
+            IF edgefix_val = '0'
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'No records. Skipping calc ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GZ_FIX_EDGE',NULL,
+                                                           'gz_fix_edge success');
+
+            ELSIF edgefix_val = '1'
+            AND p_topofix_qa = 'Y'
+            THEN
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GZ_FIX_EDGE',NULL,
+                                                           'GZ_FIX_EDGE not successful, we will fail the job to be safe');
+
+               IF output LIKE '2%'
+               THEN
+
+                  output := output || CHR(10) || ' Also failed to fix all edges in gz_fix_edge';
+
+               ELSE
+
+                  output := '1| ' || ' Failed to fix all edges in gz_fix_edge' || CHR(10) || output;
+
+               END IF;
+
+
+            ELSIF edgefix_val = '1'
+            AND p_topofix_qa = 'N'
+            THEN
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GZ_FIX_EDGE success',NULL,
+                                                           'GZ_FIX_EDGE not successful, but we wont fail since topofix QA is N');
+
 
             ELSE
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'Restart. Skipping previously calculated ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
-
+                RAISE_APPLICATION_ERROR(-20001,'Unknown edgefix result');
 
             END IF;
 
+         ELSE
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'Skipping fix_edge since topofix_edge is ' || p_topofix_edge);
+
          END IF;
-         --------------------------
-         --WHAT about fix?  QC col?
-         --------------------------
 
 
+         --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+         --Fix Face---------------------------------------------------------------
+         --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
 
-      END LOOP;
+         --always recalculate all face values
+         --fix edge may have changed something, and just in case of any outside the workflow fiddling
 
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                     'Recalculate sdogeometry for all ' || p_face_table || ' faces');
+
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_face_table,
+                                                   'FACE_ID',
+                                                   'SDOGEOMETRY',
+                                                   'ALL',
+                                                   p_tolerance,
+                                                   NULL);  --no TO srid. Stay in whatever get_geometry returns for face
+
+
+         --fix face does update face sdo when it makes changes
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                     'Call fix face (CHECK_FACE_TAB)');
+
+         --will update QC for all that it can't fix
+         --and update sdo for those it does fix
+         --Returns '0' for success, '1' for something bad
+         --QC 1 is 13349, 13356 or some other validate_Geometry_with_context error
+         --QC 2 is NULL sdogeometry
+         --QC 3 is non-2003 gtype
+
+         BEGIN
+
+            topofix_val := GZ_TOPOFIX.CHECK_FACE_TAB(p_release || '_' || p_gen_project_id,
+                                                     p_output_topology,
+                                                     p_face_table,
+                                                     'FACE_ID',
+                                                     'OUTPUT',
+                                                     p_tolerance,
+                                                     topo_srid);
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            --can occasionally bomb.  For some reason I have the input verification checks
+            --(most likely face$ -- feature face mismatch) in unprotected raise_application_errors
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'Fix face bombed, see error--> ',
+                                                        p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+            topofix_val := 1;
+
+         END;
+
+         IF topofix_val <> '0'
+         AND p_topofix_qa = 'Y'
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'We cant get a valid geometry in ' || p_face_table || ' for some of our faces');
+
+            IF output LIKE '2%'
+            THEN
+
+               output := output || CHR(10) || ' Also we cant get a valid geometry in ' || p_face_table || ' for some of our faces';
+
+            ELSE
+
+               output := '1| ' || ' We cant get a valid geometry in ' || p_face_table || ' for some of our faces ' || CHR(10) || output;
+
+            END IF;
+
+         ELSIF topofix_val <> '0'
+         AND p_topofix_qa = 'N'
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'We cant get a valid geometry in ' || p_face_table || ' for some of our faces '
+                                                     || 'but wont fail since topofix QA is N');
+
+         ELSE
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'Super: We have a valid geometry in ' || p_face_table || ' for all of our faces');
+
+         END IF;
+
+      END IF;
+
+      --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      --Populate Measurements on FSLS------------------------------------------
+      --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+
+      IF (p_sliver_restart_flag = 'N' OR p_sliver_restart_flag IS NULL)
+      THEN
+
+         IF p_single_layer IS NULL
+         THEN
+
+            --SOP
+            layerz := GZ_OUTPUT.GET_LAYERS_OUT_INFO(p_output_topology);
+
+         ELSE
+
+            --single layer processing
+            layerz := GZ_OUTPUT.GET_LAYERS_OUT_INFO(p_output_topology, NULL, p_single_layer);
+
+         END IF;
+
+         FOR i IN 1 .. layerz.COUNT
+         LOOP
+
+            --hmm no tiles. This does the entire table
+            --Better return to this
+
+            --make sure we have recs
+
+            psql := 'SELECT count(*) '
+                 || 'FROM ' || p_output_topology || '_FSL' ||  layerz(i).layer || 'V '
+                 || 'WHERE rownum = 1';
+
+            EXECUTE IMMEDIATE psql INTO kount;
+
+            IF kount = 1
+            AND (p_restart_flag = 'N' OR NOT (GZ_OUTPUT.IS_LAYER_THROUGH_MODULE(p_output_topology,
+                                                                                layerz(i).layer,
+                                                                                7)
+                ))
+            THEN
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                      'Calc ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+
+
+               IF p_srid IS NOT NULL
+               AND topo_srid = p_srid
+               THEN
+
+                  GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FSL' || layerz(i).layer || 'V',
+                                                        'GEO_ID',
+                                                        'SDOGEOMETRY',
+                                                        'ALL',
+                                                         p_tolerance);
+                                                         --do not call with srid, will transform 8265 to 8265 and make some messes
+
+                  --seems polite to do this no matter what
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Index ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+
+                  GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_output_topology || '_FSL' || layerz(i).layer || 'V',
+                                                 'SDOGEOMETRY',
+                                                 p_srid,
+                                                 p_tolerance);
+
+               ELSIF p_srid IS NOT NULL
+               AND topo_srid <> p_srid
+               THEN
+
+                  --never even tried this
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Calling with intent to transform to ' || p_srid || '. You are a titan of bravery ');
+
+                  GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FSL' || layerz(i).layer || 'V',
+                                                        'GEO_ID',
+                                                        'SDOGEOMETRY',
+                                                        'ALL',
+                                                         p_tolerance,
+                                                         p_srid); --transformation
+
+                                                                        --seems polite to do this no matter what
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Index ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+
+                  GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_output_topology || '_FSL' || layerz(i).layer || 'V',
+                                                 'SDOGEOMETRY',
+                                                 p_srid,
+                                                 p_tolerance);
+
+               ELSIF p_srid IS NULL
+               THEN
+
+                  --this is our special input to indicate Z9 translated albers
+                  --ultimately headed to 1000082
+
+                  --SOP first, make sdo in 8265
+                  GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FSL' || layerz(i).layer || 'V',
+                                                        'GEO_ID',
+                                                        'SDOGEOMETRY',
+                                                        'ALL',
+                                                         p_tolerance);
+
+                  --call GZ_PROJECTION
+                  --Trying to get a handle on the DDL required for gz_projection
+                  --Have pre-created the 4 tables and 1 sequence, and will reuse them on each trip thru this loop
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Calling GZ_PROJECTION.PROJECT_2007_TO_ALBERS');
+
+                  GZ_PROJECTION.PROJECT_2007_TO_ALBERS(p_output_topology,
+                                                       p_output_topology || '_FSL' || layerz(i).layer || 'V',
+                                                       'SDOGEOMETRY',
+                                                       'GEO_ID',                             --unique key col
+                                                       SYS_CONTEXT('USERENV','CURRENT_SCHEMA'),
+                                                       p_output_topology || '_OUT_Z9OUT',    --final table, holds the output
+                                                       'NEW_GEOMETRY',                       --default, column name
+                                                       NULL,                                 --exclude.  No clue
+                                                       'FALSE',                              --key is varchar, Sidey sez "ignored"
+                                                       'OUTPUT',                             --log type
+                                                       p_output_topology || '_OUT_SEQ',      --sequence
+                                                       p_output_topology || '_OUT_2003',     --2003 work table
+                                                       p_output_topology || '_OUT_AREA',     --area work table
+                                                       p_output_topology || '_OUT_Z9TMP'     --temp table, same format as _OUT_Z9OUT
+                                                       );
+
+                  --move normal 8265 geometry over to empty qa_geometry column
+                  psql := 'UPDATE ' ||  p_output_topology || '_FSL' || layerz(i).layer || 'V v '
+                       || 'SET '
+                       || 'v.qa_sdogeometry = v.sdogeometry, '
+                       || 'v.sdogeometry = NULL ';
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Shifting sdogeometry to qa_sdogeometry',
+                                                          NULL,NULL,p_release,psql);
+
+                  EXECUTE IMMEDIATE psql;
+                  COMMIT;
+
+                  --update from temp table to layer table
+                  psql := 'UPDATE ' ||  p_output_topology || '_FSL' || layerz(i).layer || 'V v '
+                       || 'SET v.sdogeometry = ('
+                       || 'SELECT z.new_geometry '
+                       || 'FROM ' || p_output_topology || '_OUT_Z9OUT z '
+                       || 'WHERE v.geo_id = z.geo_id) ';
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Move translated geometry from temp table to layer table',
+                                                          NULL,NULL,p_release,psql);
+
+                  EXECUTE IMMEDIATE psql;
+                  COMMIT;
+
+                  --verify that we have geoms in all
+                  psql := 'SELECT COUNT(*) FROM '
+                       || p_output_topology || '_FSL' || layerz(i).layer || 'V v '
+                       || 'WHERE v.sdogeometry IS NULL ';
+
+                  EXECUTE IMMEDIATE psql INTO kount;
+
+                  IF kount > 0
+                  THEN
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                            'Error: We have ' || kount || ' NULL sdogeometries in ' ||
+                                                            p_output_topology || '_FSL' || layerz(i).layer || 'V v ',
+                                                            NULL,NULL,p_release,psql);
+
+                     RAISE_APPLICATION_ERROR(-20001,'We have ' || kount || ' NULL sdogeometries in ' ||
+                                                     p_output_topology || '_FSL' || layerz(i).layer || 'V v ');
+
+                  ELSIF kount = 0
+                  THEN
+
+                     --clean out the work tables
+                     --so we can at least reuse them for the next layer
+                     psql := 'DELETE FROM ' || p_output_topology || '_OUT_Z9OUT';
+                     EXECUTE IMMEDIATE psql;
+                     COMMIT;
+
+                     psql := 'DELETE FROM ' || p_output_topology || '_OUT_2003';
+                     EXECUTE IMMEDIATE psql;
+                     COMMIT;
+
+                     psql := 'DELETE FROM ' || p_output_topology || '_OUT_AREA';
+                     EXECUTE IMMEDIATE psql;
+                     COMMIT;
+
+                     psql := 'DELETE FROM ' || p_output_topology || '_OUT_Z9TMP';
+                     EXECUTE IMMEDIATE psql;
+                     COMMIT;
+
+                  END IF;
+
+                  --seems polite to do this no matter what
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Index ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+
+                  GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_output_topology || '_FSL' || layerz(i).layer || 'V',
+                                                 'SDOGEOMETRY',
+                                                 1000082, --hard coded
+                                                 p_tolerance);
+
+
+               END IF;
+
+
+            ELSE
+
+               IF kount = 0
+               THEN
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'No records. Skipping calc ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+
+               ELSE
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                         'Restart. Skipping previously calculated ' || p_output_topology || '_FSL' || layerz(i).layer || 'V sdogeometry ');
+
+
+               END IF;
+
+            END IF;
+
+
+         END LOOP;
+
+      ELSIF p_sliver_restart_flag = 'Y'
+      AND p_prcs_slivers = 'Y'
+      THEN
+
+         --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+         --Coastal Sliver Restart ------------------------------------------------
+         --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+
+         --this is a restart solely for the purpose of processing slivers after interactive review
+         --SDO is in the mix, will have to manage it in the sub
+         --can NOT currently handle Z9 in this fashion
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                     'Calling coastal sliver restart with sdogeometry processing');
+
+         IF p_srid IS NOT NULL
+         THEN
+
+            BEGIN
+
+               sliver_output := GZ_TOPOFIX.GZ_COASTAL_SLIVERS(p_release,
+                                                              p_gen_project_id,
+                                                              p_output_topology,
+                                                              p_face_table,
+                                                              'OUTPUT',
+                                                              'N',
+                                                              p_sliver_width,
+                                                              p_segment_length,
+                                                              p_expendable_review,
+                                                              p_reshape_review,
+                                                              'Y', --Yes, maintain feature sdo
+                                                              p_tolerance,
+                                                              p_srid); --with the srid to use in sdo calculation
+
+            EXCEPTION
+            WHEN OTHERS
+            THEN
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                          'Coastal sliver processing bombed',
+                                                          p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+               output := '2| ' || ' Coastal sliver processing bombed ' || CHR(10) || output;
+
+            END;
+
+         ELSE
+
+            --make it obvious in case I or someone sets this up accidentally
+            RAISE_APPLICATION_ERROR(-20001, 'Cant process Z9 on post-sliver review restarts');
+
+         END IF;
+
+         IF sliver_output IS NOT NULL
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                       'Coastal sliver restart processing returned with an error message',
+                                                       p_error_msg => sliver_output);
+
+            output := '1| ' || sliver_output || CHR(10) || output;
+
+         ELSE
+
+           GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                       'Coastal sliver restart processing completed with no known errors');
+
+         END IF;
+
+      ELSE
+
+         RAISE_APPLICATION_ERROR(-20001, 'sliver_restart_flag is ' || p_sliver_restart_flag || ' and process slivers is '
+                                         || p_prcs_slivers || '. What gives?');
+      END IF;
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -9804,8 +10451,8 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                             'Complete for ' || p_output_topology,NULL,NULL,p_release);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                  'Complete for ' || p_output_topology,NULL,NULL,p_release);
 
       RETURN output;
 
@@ -9898,7 +10545,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
                                              'STARTING for ' || p_output_topology,NULL,NULL,p_release);
 
 
@@ -9921,7 +10568,7 @@ AS
          FOR i IN 1 .. layerz.COUNT
          LOOP
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
                                                 'Dropping work columns on ' || p_output_topology || '_FSL' || layerz(i).layer || 'V',
                                                  NULL,NULL,p_release);
 
@@ -9943,7 +10590,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
                                              'Complete for ' || p_output_topology,NULL,NULL,p_release);
 
       RETURN output;
@@ -10049,7 +10696,7 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
                                              '***RECORD COUNT FOR EACH LAYER***');
 
       --just in case this gets captured and someone prefers to look at the ticker tape
@@ -10067,14 +10714,14 @@ AS
          IF kount > 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
                                                    kount || ' -- ' ||  layers(i).layer);
 
             dbms_output.put_line('   ' || kount || ' -- ' ||  layers(i).layer);
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
                                                    'Warning: ' || kount || ' -- ' ||  layers(i).layer);
 
             dbms_output.put_line('   Warning: ' || kount || ' -- ' ||  layers(i).layer);
@@ -10084,7 +10731,7 @@ AS
 
       END LOOP;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_topology,'VALIDATE_OUTPUT',NULL,
                                              '***RECORD COUNT FOR EACH LAYER***');
 
       dbms_output.put_line('OUTPUT ' || p_topology || ': ***RECORD COUNT FOR EACH LAYER***');
@@ -10102,14 +10749,15 @@ AS
       p_single_layer       IN VARCHAR2,
       p_face_table         IN VARCHAR2,
       p_tile_kount         IN NUMBER DEFAULT 10,
-      p_tolerance          IN NUMBER DEFAULT .05
+      p_tolerance          IN NUMBER DEFAULT .05,
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2
    AS
 
 
       --Matt! 5/11/12
       --! Added overlap check 1/25/13
-      
+
       --Validate (and possibly fix) sdo for each layer
       --   If invalid add a QC col and populate
       --   Cant reuse existing topofix, it is face only
@@ -10136,7 +10784,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                              'STARTING for ' || p_output_topology,NULL,NULL,p_release);
 
 
@@ -10171,7 +10819,7 @@ AS
          THEN
 
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                                    'UH OH, ' || retval || ' bad sdo in ' || p_output_topology || '_FSL' || layerz(i).layer ||'V',
                                                    NULL,NULL,p_release);
 
@@ -10179,23 +10827,23 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                                    'All sdo in ' || p_output_topology || '_FSL' || layerz(i).layer || 'V is valid ',
                                                    NULL,NULL,p_release);
 
 
          END IF;
-         
-         
+
+
          --check for overlap
-         retval := GZ_UTILITIES.GZ_COUNT_FSL_OVERLAPS(p_output_topology,
+         retval := GZ_TOPO_UTIL.GZ_COUNT_FSL_OVERLAPS(p_output_topology,
                                                       p_output_topology || '_FSL' || layerz(i).layer || 'V',
                                                       'TOPOGEOM');
-         
+
          IF retval <> 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                                    'UH OH, ' || retval || ' spatial overlaps in ' || p_output_topology || '_FSL' || layerz(i).layer ||'V',
                                                    NULL,NULL,p_release);
 
@@ -10203,14 +10851,14 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                                    'All topo in ' || p_output_topology || '_FSL' || layerz(i).layer || 'V is non-overlapping ',
                                                    NULL,NULL,p_release);
 
 
          END IF;
-         
-         
+
+
       END LOOP;
 
 
@@ -10218,60 +10866,69 @@ AS
       --Topo validation
       ------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                              'Calling topo tune up on ' || p_output_topology,NULL,NULL,p_release);
 
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(p_output_topology);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(p_output_topology);
 
-
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
-                                             'Getting tiles to use in validating ' || p_output_topology,NULL,NULL,p_release);
-
-      --try to find us some tiles
-      tiles := GZ_OUTPUT.GET_OUTPUT_TILES(p_output_topology,
-                                          p_release,
-                                          p_gen_project_id,
-                                          p_tile_kount,
-                                          p_face_table);
-
-
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
-                                             'STARTING topo validation for ' || p_output_topology,NULL,NULL,p_release);
-
-      BEGIN
-
-         validstr := GZ_UTILITIES.VALIDATE_TOPOLOGY_TILE(p_output_topology,
-                                                         tiles,
-                                                         p_log_type => 'OUTPUT');
-
-      EXCEPTION
-      WHEN OTHERS
+      IF p_validate_topo = 'Y'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
-                                                'Boo: ' || p_output_topology || ' is not valid or validation threw an error');
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+                                                'Getting tiles to use in validating ' || p_output_topology,NULL,NULL,p_release);
 
-         --this is a FAIL but we'll continue
-         output := output || ' VALIDATE_TOPOLOGY_TILE threw ' || SQLERRM || ' |';
+         --try to find us some tiles
+         tiles := GZ_OUTPUT.GET_OUTPUT_TILES(p_output_topology,
+                                             p_release,
+                                             p_gen_project_id,
+                                             p_tile_kount,
+                                             p_face_table);
 
-      END;
 
-      IF validstr = 'TRUE'
-      THEN
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+                                                'STARTING topo validation for ' || p_output_topology,NULL,NULL,p_release);
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
-                                                'Sweet: ' || p_output_topology || ' is valid ');
+         BEGIN
+
+            validstr := GZ_TOPO_UTIL.VALIDATE_TOPOLOGY_TILE(p_output_topology,
+                                                            tiles,
+                                                            p_log_type => 'OUTPUT');
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+                                                   'Boo: ' || p_output_topology || ' is not valid or validation threw an error');
+
+            --this is a FAIL but we'll continue
+            output := output || ' VALIDATE_TOPOLOGY_TILE threw ' || SQLERRM || ' |';
+
+         END;
+
+         IF validstr = 'TRUE'
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+                                                   'Sweet: ' || p_output_topology || ' is valid ');
+
+         END IF;
+
+      ELSE
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+                                                     'Skipping topo validation since validate_topo is ' || p_validate_topo);
 
       END IF;
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
-                                             'Gathering stats on ' || p_output_topology,NULL,NULL,p_release);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+                                                  'Gathering stats on ' || p_output_topology,NULL,NULL,p_release);
 
       --also did this periodically and at the start of special handling
-      GZ_UTILITIES.GATHER_TOPO_STATS(p_output_topology);
-      
-      
+      GZ_TOPO_UTIL.GATHER_TOPO_STATS(p_output_topology);
+
+
       ------------------
       --Reports
       ------------------
@@ -10290,7 +10947,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                              'Complete for ' || p_output_topology,NULL,NULL,p_release);
 
       RETURN output;
@@ -10307,7 +10964,8 @@ AS
       p_output_topology    IN VARCHAR2,
       p_drop_work_tables   IN VARCHAR2,
       p_single_layer       IN VARCHAR2,
-      p_face_table           IN VARCHAR2
+      p_face_table         IN VARCHAR2,
+      p_fixes_retval       IN VARCHAR2
    ) RETURN VARCHAR2
    AS
 
@@ -10320,22 +10978,22 @@ AS
       IF p_drop_work_tables = 'Y'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
-                                               'Dropping work tables ');
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
+                                                     'Dropping work tables ');
 
          BEGIN
 
-            GZ_UTILITIES.DROP_MODULE_WORK_TABLES(p_output_topology,
-                                                 'OUT',  --accidentally named my only work table topo_layers_out_info instead of OUTPUT *
-                                                 'N');   --no drop tracking, how else we write?
-                                                         --* now also topo_layers_out_sup layers_out_bas + topo_layers_out_help
+            GZ_BUSINESS_UTILS.DROP_MODULE_WORK_TABLES(p_output_topology,
+                                                       'OUT',  --accidentally named my only work table topo_layers_out_info instead of OUTPUT *
+                                                       'N');   --no drop tracking, how else we write?
+                                                               --* now also topo_layers_out_sup layers_out_bas + topo_layers_out_help
 
 
          EXCEPTION
          WHEN OTHERS
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
                                                    'Error dropping work tables: ' || SQLERRM);
          END;
 
@@ -10345,8 +11003,8 @@ AS
             --only time we should have sequences is Z9, Sideys one sequence in gz_projection
             --but call this anyway
 
-            GZ_UTILITIES.DROP_MODULE_SEQUENCES(p_output_topology,
-                                               'OUT');
+            GZ_BUSINESS_UTILS.DROP_MODULE_SEQUENCES(p_output_topology,
+                                                    'OUT');
 
 
 
@@ -10354,14 +11012,14 @@ AS
          WHEN OTHERS
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
-                                                   'Error dropping sequences: ' || SQLERRM);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
+                                                        'Error dropping sequences: ' || SQLERRM);
          END;
 
       ELSE
 
-        GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
-                                               'NOT Dropping work tables ');
+        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
+                                                    'NOT Dropping work tables ');
 
 
       END IF;
@@ -10371,10 +11029,22 @@ AS
 
       --what else is tidy?
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
-                                             'WOOT: Returning success code 0');
+      IF p_fixes_retval IS NULL
+      THEN
 
-      RETURN '0';
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
+                                                     'WOOT: Returning success code 0');
+
+         RETURN '0';
+
+      ELSE
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
+                                                     'Complete but fail in output module due to fix/sliver failure ' || p_fixes_retval);
+
+         RETURN '1';
+
+      END IF;
 
    END TIDY_EXIT;
 
@@ -10383,18 +11053,28 @@ AS
    --Public---------------------------------------------------------------------------------
 
    FUNCTION GENERALIZATION_OUTPUT (
-      p_release            IN VARCHAR2,
-      p_gen_project_id     IN VARCHAR2,
-      p_source_schema      IN VARCHAR2,
-      p_source_topology    IN VARCHAR2,
-      p_output_topology    IN VARCHAR2,
-      p_modules            IN VARCHAR2 DEFAULT 'YYYYYYYYYY',
-      p_restart_flag       IN VARCHAR2 DEFAULT 'N',
-      p_single_layer       IN VARCHAR2 DEFAULT NULL,
-      p_tile_kount         IN NUMBER DEFAULT 10,
-      p_srid               IN NUMBER DEFAULT 8265,
-      p_tolerance          IN NUMBER DEFAULT .05,
-      p_drop_work_tables   IN VARCHAR2 DEFAULT 'Y'
+      p_release               IN VARCHAR2,
+      p_gen_project_id        IN VARCHAR2,
+      p_source_schema         IN VARCHAR2,
+      p_source_topology       IN VARCHAR2,
+      p_output_topology       IN VARCHAR2,
+      p_modules               IN VARCHAR2 DEFAULT 'YYYYYYYYYY',
+      p_restart_flag          IN VARCHAR2 DEFAULT 'N',
+      p_single_layer          IN VARCHAR2 DEFAULT NULL,
+      p_tile_kount            IN NUMBER DEFAULT 10,
+      p_prcs_slivers          IN VARCHAR2 DEFAULT 'N',
+      p_sliver_restart_flag   IN VARCHAR2 DEFAULT 'N',
+      p_sliver_width          IN NUMBER DEFAULT NULL,
+      p_segment_length        IN NUMBER DEFAULT NULL,
+      p_expendable_review     IN VARCHAR2 DEFAULT 'N',
+      p_reshape_review        IN VARCHAR2 DEFAULT 'Y',
+      p_srid                  IN NUMBER DEFAULT 8265,
+      p_tolerance             IN NUMBER DEFAULT .05,
+      p_drop_work_tables      IN VARCHAR2 DEFAULT 'Y',
+      p_validate_topo         IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge              IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge             IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa            IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2
    AS
 
@@ -10409,6 +11089,7 @@ AS
 
       psql                 VARCHAR2(4000);
       retval               VARCHAR2(4000) := '1';  --set to fail, must set to pass in each module
+      fixes_retval         VARCHAR2(4000);
       stack                VARCHAR2(4000);
       errm                 VARCHAR2(8000) := 'ERROR:'; --default for line 1 in log error message, if no SQLERRM
       layer_try            PLS_INTEGER := 0;
@@ -10420,6 +11101,7 @@ AS
       tile_kount           NUMBER;
       layer_start          TIMESTAMP;
       layer_end            TIMESTAMP;
+      topofix_qa           VARCHAR2(1);
 
 
    BEGIN
@@ -10453,6 +11135,23 @@ AS
 
       END IF;
 
+      IF p_topofix_qa IS NULL
+      OR p_topofix_qa = 'N'
+      THEN
+
+         topofix_qa := 'N';
+
+      ELSIF p_topofix_qa = 'Y'
+      THEN
+
+         topofix_qa := 'Y';
+
+      ELSE
+
+         RAISE_APPLICATION_ERROR(-20001,'Unknown topofix_qa value of ' || p_topofix_qa);
+
+      END IF;
+
       IF p_restart_flag = 'N'
       THEN
 
@@ -10471,12 +11170,17 @@ AS
                                           || SQLERRM || chr(10) || DBMS_UTILITY.format_error_backtrace);
          END;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
                                                 'Inputs are (' || p_release || ',' || p_gen_project_id || ','
                                                 || p_source_schema || ',' || p_source_topology || ','
                                                 || p_output_topology || ',' || p_modules || ',' || p_restart_flag || ','
-                                                || p_single_layer || ',' ||  p_srid || ',' || p_tolerance || ','
-                                                || drop_work_tables || ')');
+                                                || p_single_layer || ',' || ',' || p_tile_kount || ','
+                                                || p_prcs_slivers || ',' || p_sliver_restart_flag || ',' || p_sliver_width || ','
+                                                || p_segment_length || ',' || p_expendable_review || ',' || p_reshape_review || ','
+                                                ||  p_srid || ',' || p_tolerance || ','
+                                                || drop_work_tables || ',' || p_validate_topo || ','
+                                                || p_fix_edge || ',' || p_fix_2edge || ','
+                                                || p_topofix_qa || ')');
 
       END IF;
 
@@ -10528,7 +11232,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                    || 'VERIFY_INPUTS returned ' || substr(retval,1,3500),
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -10538,7 +11242,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VERIFY_INPUTS',NULL,
                                                    'Complete for ' || p_output_topology);
 
          END IF;
@@ -10599,7 +11303,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                    || 'SET_UP returned ' || retval,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -10609,7 +11313,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SET_UP',NULL,
                                                    'Complete for ' || p_output_topology);
 
          END IF;
@@ -10622,18 +11326,27 @@ AS
       --MODULES 3,4,5,6
       --------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
-                                             'Diverting into layer-based processing ');
+      IF substr(p_modules,3,1) = 'Y'
+      OR substr(p_modules,4,1) = 'Y'
+      OR substr(p_modules,5,1) = 'Y'
+      OR substr(p_modules,6,1) = 'Y'
+      THEN
 
 
-      --want a consistent order
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
+                                                'Diverting into layer-based processing ');
 
-      psql := 'SELECT a.layer '
-           || 'FROM ' || p_output_topology || '_layers_out_info a '
-           || 'WHERE a.module_status = :p1 '
-           || 'ORDER BY a.layer_sequence, a.layer ';
 
-      EXECUTE IMMEDIATE psql BULK COLLECT INTO layers_processing USING 2;
+         --want a consistent order
+
+         psql := 'SELECT a.layer '
+              || 'FROM ' || p_output_topology || '_layers_out_info a '
+              || 'WHERE a.module_status = :p1 '
+              || 'ORDER BY a.layer_sequence, a.layer ';
+
+         EXECUTE IMMEDIATE psql BULK COLLECT INTO layers_processing USING 2;
+
+      END IF;
 
 
       LOOP
@@ -10643,7 +11356,7 @@ AS
          IF layer_try > allowed_tries
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                    || 'Out of tries on try ' || layer_try,
                                                    NULL,NULL,NULL,NULL,NULL,NULL);
@@ -10654,7 +11367,7 @@ AS
 
             layer_try := layer_try + 1;
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
                                                    'Processing ' || layers_processing.COUNT || ' layers on try loop ' || layer_try );
 
 
@@ -10666,7 +11379,7 @@ AS
          FOR i IN 1 .. layers_processing.COUNT
          LOOP
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GENERALIZATION_OUTPUT',NULL,
                                                    'Processing layer ' || layers_processing(i) || ' through modules 3,4,5' );
 
             ---------------------------------------------------------------------------------------
@@ -10721,13 +11434,13 @@ AS
                   --its child layer is not built yet
                   skip_layer := 1;
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                          'Layer ' || layers_processing(i) || ' must be skipped until children are born ');
 
                ELSIF retval != '0'
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                          'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                          || 'CREATE_LAYER returned ' || retval,
                                                          NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -10737,7 +11450,7 @@ AS
 
                ELSE
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'CREATE_LAYER',NULL,
                                                          'Layer ' || layers_processing(i) || ' complete for ' || p_output_topology);
 
                   GZ_OUTPUT.SET_LAYER_INFO_MODULE(p_output_topology, 3, layers_processing(i));
@@ -10798,7 +11511,7 @@ AS
                IF retval != '0'
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
                                                          'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                          || 'BUILD_LAYER_TOPOGEOM returned ' || retval,
                                                          NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -10808,7 +11521,7 @@ AS
 
                ELSE
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'BUILD_LAYER_TOPOGEOM',NULL,
                                                          'Layer ' || layers_processing(i) || ' complete for ' || p_output_topology);
 
                   GZ_OUTPUT.SET_LAYER_INFO_MODULE(p_output_topology, 4, layers_processing(i));
@@ -10866,7 +11579,7 @@ AS
                IF retval != '0'
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
                                                          'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                          || 'POPULATE_LAYER_ATTRIBUTES returned ' || retval,
                                                          NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -10876,7 +11589,7 @@ AS
 
                ELSE
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_LAYER_ATTRIBUTES',NULL,
                                                          'Layer ' || layers_processing(i) || ' complete for ' || p_output_topology);
 
                   GZ_OUTPUT.SET_LAYER_INFO_MODULE(p_output_topology, 5, layers_processing(i));
@@ -10926,7 +11639,7 @@ AS
                IF retval != '0'
                THEN
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
                                                          'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                          || 'SPECIAL_HANDLING returned ' || retval,
                                                          NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -10935,7 +11648,7 @@ AS
 
                ELSE
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'SPECIAL_HANDLING',NULL,
                                                           'Layer ' || layers_processing(i) || ' complete for ' || p_output_topology);
 
                   GZ_OUTPUT.SET_LAYER_INFO_MODULE(p_output_topology, 6, layers_processing(i));
@@ -10955,10 +11668,10 @@ AS
             IF MOD(i,2) = 0
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GATHER TOPO STATS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'GATHER TOPO STATS',NULL,
                                                       'Layer ' || layers_processing(i) || ' (every other layer)');
 
-               GZ_UTILITIES.GATHER_TOPO_STATS(UPPER(p_output_topology));
+               GZ_TOPO_UTIL.GATHER_TOPO_STATS(UPPER(p_output_topology));
 
             END IF;
 
@@ -10968,7 +11681,7 @@ AS
             AND layer_end IS NOT NULL
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PERFORMANCE QUARRY QUERY',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PERFORMANCE QUARRY QUERY',NULL,
                                                       layers_processing(i), layer_start, layer_end);
 
             END IF;
@@ -10994,17 +11707,33 @@ AS
 
          BEGIN
 
-            --assume fail
-            retval := '1';
+            --assume worst case fail
+            retval := '2';
+
+             --Return values
+             --0   - success
+             --1|% - success with warnings, continue running to the end of output build
+             --      this includes any fix_edge, fix_face, or coastal_sliver processing
+             --      where something didnt get fixed as requested
+             --2|% - fail, stop processing
 
             retval := GZ_OUTPUT.POPULATE_MEASUREMENTS(p_release,
                                                       p_gen_project_id,
                                                       p_output_topology,
                                                       p_single_layer,
                                                       face_table,
+                                                      p_prcs_slivers,
+                                                      p_sliver_restart_flag,
+                                                      p_sliver_width,
+                                                      p_segment_length,
+                                                      p_expendable_review,
+                                                      p_reshape_review,
                                                       p_tolerance,
                                                       p_srid,
-                                                      p_restart_flag);
+                                                      p_restart_flag,
+                                                      p_fix_edge,
+                                                      p_fix_2edge,
+                                                      topofix_qa);
 
 
          EXCEPTION
@@ -11027,10 +11756,10 @@ AS
          END;
 
 
-         IF retval != '0'
+         IF retval LIKE '2%'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                    || 'POPULATE_MEASUREMENTS returned ' || retval,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -11039,10 +11768,28 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                    'Complete for ' || p_output_topology);
+            IF retval LIKE '0%'
+            THEN
 
-            GZ_OUTPUT.SET_LAYER_INFO_MODULE(p_output_topology, 7, p_single_layer);
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                           'Complete for ' || p_output_topology);
+
+            ELSIF retval LIKE '1%'
+            THEN
+
+               fixes_retval := retval;
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                           'Complete with non-fatal error ' || retval || ' for ' || p_output_topology);
+
+            END IF;
+
+            IF p_sliver_restart_flag <> 'Y' OR p_sliver_restart_flag IS NULL
+            THEN
+
+               GZ_OUTPUT.SET_LAYER_INFO_MODULE(p_output_topology, 7, p_single_layer);
+
+            END IF;
 
          END IF;
 
@@ -11088,7 +11835,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                    || 'PREPARE_FOR_SHAPES returned ' || retval,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -11097,7 +11844,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'PREPARE_FOR_SHAPES',NULL,
                                                     'Complete for ' || p_output_topology);
 
             GZ_OUTPUT.SET_LAYER_INFO_MODULE(p_output_topology, 8, p_single_layer);
@@ -11120,7 +11867,8 @@ AS
                                                 p_single_layer,
                                                 face_table,
                                                 tile_kount,
-                                                p_tolerance);
+                                                p_tolerance,
+                                                p_validate_topo);
 
 
          EXCEPTION
@@ -11146,7 +11894,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
                                                    || 'VALIDATE_OUTPUT returned ' || retval,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
@@ -11157,7 +11905,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'VALIDATE_OUTPUT',NULL,
                                                     'Complete for ' || p_output_topology);
 
 
@@ -11180,7 +11928,8 @@ AS
                                           p_output_topology,
                                           drop_work_tables,
                                           p_single_layer,
-                                          face_table);
+                                          face_table,
+                                          fixes_retval);
 
 
          EXCEPTION
@@ -11206,8 +11955,8 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
-                                                   'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology || '. '
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'TIDY_EXIT',NULL,
+                                                   'Complete but failing output processing for ' || p_output_topology || '. '
                                                    || 'TIDY_EXIT returned ' || retval,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || stack , 1, 4000) );
 
@@ -11235,7 +11984,6 @@ AS
       END IF;
 
 
-
       --Below is the generic unhandled exception area
       --usually a totally flubbed up input near the very beginning of the job
 
@@ -11257,7 +12005,7 @@ AS
          -- Word up to "good practice"
 
          errm := SQLERRM || DBMS_UTILITY.format_error_backtrace;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'EXCEPTION HANDLER',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('OUTPUT',p_output_topology,'EXCEPTION HANDLER',NULL,
                                                 'UNRECOVERABLE ERROR: OUTPUT caught this exception and has no clue ',
                                                  NULL,NULL,NULL,NULL,NULL,substr(errm, 1, 4000) );
 

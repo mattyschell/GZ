@@ -1,5 +1,4 @@
-create or replace
-PACKAGE BODY GZ_SUPER AS
+CREATE OR REPLACE PACKAGE BODY GZ_SUPER AS
 -- Updates:
 --    06/07/12    Tracking and parameter checking updates.
 --    01/24/2012  Minor change to SET_MANY_MBR to make m and no_to_do more even
@@ -10,11 +9,11 @@ PACKAGE BODY GZ_SUPER AS
 --                be on the wrong side of another edge - no matter how much
 --                the scale was reduced
 --    02/10/2011  Check for divisions and NOT SWAPPED edges caught in swap_edge
---    11/23/2010  Avoid Self intersections 
+--    11/23/2010  Avoid Self intersections
 --    10/20/2010 To avoid going on the wrong side of islands and to use
 --               other SRIDs besides 8265.
 --     9/14/2010 To avoid going on the wrong side of islands
---     8/27/2010 To avoid "An island of face nn has an edge coincident with 
+--     8/27/2010 To avoid "An island of face nn has an edge coincident with
 --                   outer boundary" we add the 2nd and next to last vertices
 --                   to figure 8 polygons.
 --     8/16/2010 To drop Topomap if last run died. Also to name Edge Table
@@ -23,33 +22,99 @@ PACKAGE BODY GZ_SUPER AS
 -- that are unaffected by stretching the surface - so called topological
 -- relationships. So if we reshape an edge by stretching the region around it,
 -- the relationships with other edges must not change. So intersecting itself or
--- other edges must be avoided by modifying the scale where necessary for parts 
--- of the edge being generalized. If you imagine a river edge with two banks on 
--- either side, you can foresee that generalization of the river edge requires 
+-- other edges must be avoided by modifying the scale where necessary for parts
+-- of the edge being generalized. If you imagine a river edge with two banks on
+-- either side, you can foresee that generalization of the river edge requires
 -- care to avoid the banks. To accomplish  this, the procedure Simplify requires
 -- a work table (Edges_toprocess) which has a nearby edge list for each edge and
--- a new or current geometry which acts as state variable to describe the current 
--- shape of each edge and thus the state of the topology.  It will make this table 
--- automatically if it has not been already made by calling Run_Make_Edge_Table. 
+-- a new or current geometry which acts as state variable to describe the current
+-- shape of each edge and thus the state of the topology.  It will make this table
+-- automatically if it has not been already made by calling Run_Make_Edge_Table.
 --
 -- Besides updating the topology with the new geometries, Simplify writes 2 status
 -- tables: Edges_done and Bad_edges. The 1st table is queried to avoid processing
--- an edge twice. Since this table has the entity (state) listed it is convenient 
--- to monitor progress. Bad_edges has edge_ids and the status messages for edges 
+-- an edge twice. Since this table has the entity (state) listed it is convenient
+-- to monitor progress. Bad_edges has edge_ids and the status messages for edges
 -- that could not be inserted into the topology.
 --
--- Assumptions: Code assumes you will run from within the schema. This only 
+-- Assumptions: Code assumes you will run from within the schema. This only
 -- affects the call to Index_exists.
 
--- So the entry points are: 
+-- So the entry points are:
 
 --SQL>  exec simplify('10','Z610LS3','Z610LS3','ZONE',500000.,1.,'ACS10_SL040','edges_toprocess','Z610LS3EDGES_TOSKIP','edges_done','bad_edges','state_edge_table','STATEFP','Z610LS3_EDGE_ATT','Z610LS3_CLIP_FACE');
 -- In this usage statement all INPUTS are capitalized and all work and tracking tables are in lower case. These lower case table names will be prefixed with the run flag, 'Z610LS3' in this case.
 
 -- This call  processes Delaware using ZONE at 1:500,000 scale using the topology 'Z610LS3' and the same run_flag:
 
+FUNCTION VALIDATE_TOPOLOGY_WITH_TILES(v_topology VARCHAR2,face VARCHAR2,vstate VARCHAR2) return VARCHAR2 AS
 
-PROCEDURE SIMPLIFY (pstate VARCHAR2,pTopology VARCHAR2, run_flag VARCHAR2 default NULL,pmethod VARCHAR2 default 'ZONE',ptarget_scale NUMBER DEFAULT 500000., pnice NUMBER default 1., 
+    result        VARCHAR2(1000);
+    error_msg      VARCHAR2(4000);
+    v_row_count    PLS_INTEGER;
+    v_tile_guess   PLS_INTEGER;
+    sql_stmt       VARCHAR2(4000);
+
+    --Matt! as of 12/31/13 no longer called
+
+
+BEGIN
+
+  BEGIN
+       -- old call to validation can run into a memory error if the topology is
+       -- large.
+       -- sql_stmt := 'select  sdo_topo_map.validate_topology('''||v_topology||''',''N'') from dual';
+       -- EXECUTE IMMEDIATE sql_stmt into result;
+
+       -- estimate topology size
+
+       v_row_count := 0;
+       sql_stmt := 'select count(*) from '||v_topology||'_EDGE$';
+       EXECUTE IMMEDIATE sql_stmt into v_row_count;
+
+       result := 'FALSE';
+
+       if v_row_count > 50000
+       THEN
+          -- we guess this is a large topology that will need to be tiled
+          v_tile_guess := 20;
+       ELSIF v_row_count > 10000
+       THEN
+          -- we guess this is a medium sized topology
+          v_tile_guess := 10;
+       ELSE
+          -- this topology can probably be handled without tiling
+          v_tile_guess := 1;
+
+       END IF;
+
+       -- run validation...
+
+       result := GZ_TOPO_UTIL.GZ_VALIDATE_TOPOLOGY(v_topology,face,'SDOGEOMETRY', p_log_type => 'LS', p_tile_target => v_tile_guess);
+
+
+           EXCEPTION
+        WHEN OTHERS  then
+
+         error_msg := 'Fail on Validate Topology:Line_Simplify:'||
+                       'For entity' || vstate|| ' Validate Topology Failed '||sqlerrm;
+
+         dbms_output.put_line(sqlerrm);
+
+         GZ_TOPOFIX.Track_App_Error(error_msg,v_topology,'LS');
+
+        END;
+
+
+
+    RETURN result;
+--------------------------------------------------------------------------------
+
+
+END VALIDATE_TOPOLOGY_WITH_TILES;
+--
+
+PROCEDURE SIMPLIFY (pstate VARCHAR2,pTopology VARCHAR2, run_flag VARCHAR2 default NULL,pmethod VARCHAR2 default 'ZONE',ptarget_scale NUMBER DEFAULT 500000., pnice NUMBER default 1.,
 pEntity_Table VARCHAR2 default 'ACS09_SL040',pedges_table VARCHAR2 default 'EDGES_TOPROCESS',  pskip_edges_table VARCHAR2 default NULL, pDone_edges_table VARCHAR2 default 'EDGES_DONE',pBad_Table VARCHAR2 default 'BAD_EDGES',pState_Edge_Table VARCHAR2 default 'STATE_EDGE_TABLE',pEntityfp VARCHAR2 default 'STATEFP',pEdge_attribute_table VARCHAR2 default 'EDGE',pclip_face_table VARCHAR2 default 'FACE',drop_work_tables VARCHAR2 default 'TRUE') AS
 
 /*
@@ -58,12 +123,12 @@ pEntity_Table VARCHAR2 default 'ACS09_SL040',pedges_table VARCHAR2 default 'EDGE
 --Author: Sidey Timmins
 --Creation Date: 07/09/2010
 
---Usage: 
+--Usage:
      1) exec simplify('01','Z601SP3','AA','ZONE',500000,1.,'ACS09_SL040',
                  'EDGES_TOPROCESS',NULL,'EDGES_DONE','BAD_EDGES','STATE_EDGE_TABLE','STATEFP','EDGE_ATT','CLIP_FACE');
 --   2) exec Simplify(NULL,'MT','AA','ZONE',500000.);
 --   exec GZCPB_8.GZ_SUPER.simplify('06','Z606SP','Z606SP','ZONE',500000.,1.,'ACS11_SL040', 'EDGES_TOPROCESS','Z606SPEDGES_TOSKIP','edges_done','bad_edges','state_edge_table','STATEFP','Z606SP_EDGE_ATT','Z606SP_CLIP_FACE');
-  
+
   -- This procedure has 2 required parameters:
   --
   -- INPUT
@@ -77,7 +142,7 @@ pEntity_Table VARCHAR2 default 'ACS09_SL040',pedges_table VARCHAR2 default 'EDGE
   --  target_scale      - the scale ratio, typically 500000, 5000000 or 20000000.
   --  nice              - a parameter (default 1.) to pass to the Zone generalizer
   --                     or a threshold in meters to pass to the DP generalizer.
-  --  pUSStates         - an input table of 52 US states with statefp and sdogeoemtry 
+  --  pUSStates         - an input table of 52 US states with statefp and sdogeoemtry
   --                      columns (default 'ACS09_SL040')
   --  pEdges_Table      - a work table made once listing the edges to process
   --                      (default 'EDGES_TO_PROCESS').
@@ -86,13 +151,13 @@ pEntity_Table VARCHAR2 default 'ACS09_SL040',pedges_table VARCHAR2 default 'EDGE
   --  pDone_edges_table  - a work progress table used by the program default 'EDGES_DONE'
   --  pState_Edge_Table  - a work table used by the program default 'STATE_EDGE_INPUT'
   --  pEntityfp          - either 'STATEFP' or 'COUNTYFP'
- 
+
 --
 -- Purpose: Simplifies and edits the topology for an entity or entities (usually States)
-                          
+
 -- Reference: An original method devised by the author.
 -- Calls: simplify_region, Table_exists
--- 
+--
 ********************************************************************************
 */
 sql_stmt                        VARCHAR2(4000);
@@ -111,7 +176,7 @@ quad_yLL                        NUMBER;
 quad_xUR                        NUMBER;
 quad_yUR                        NUMBER;
 temp                            NUMBER;
-delta                           NUMBER := 0.001;  --used to be 0.001 
+delta                           NUMBER := 0.001;  --used to be 0.001
 dec_digits                      NUMBER :=6; -- rounds shape points (not nodes) using this
 
 status                          VARCHAR2(4000);
@@ -135,7 +200,7 @@ progress                        PLS_INTEGER :=0;
 no_done                         PLS_INTEGER;
 tile                            PLS_INTEGER := 0;
 
-method                         VARCHAR2(4) := UPPER(NVL(pmethod,'ZONE')); 
+method                         VARCHAR2(4) := UPPER(NVL(pmethod,'ZONE'));
 entityfp                        VARCHAR2(8) := UPPER(pentityfp);
 found_entityfp                  VARCHAR2(8);
 result                         VARCHAR2(2000);
@@ -151,27 +216,58 @@ done                            PLS_INTEGER := 0;
 the_time     timestamp;
 
     Procedure Track_App(msg VARCHAR2) as
-    
+
     begin
       GZ_TOPOFIX.Track_App(msg,Topology,'LS');
     end;
-    
+
     Procedure Track_App_Error(error_msg VARCHAR2) as
-    
+
     begin
       GZ_TOPOFIX.Track_App_Error(error_msg,Topology,'LS');
     end;
-    
+
     Procedure Set_Overall_MBR as
       begin
-        sql_stmt := 'SELECT  sdo_geom.sdo_mbr(sdo_geom.sdo_buffer(sdo_aggr_mbr(sdogeometry), 500, .05)) 
-                     FROM '||US_State_Table||' a WHERE a.'|| Entityfp ||'= :1';
-        Execute Immediate sql_stmt into mbr_geom using vstate;
+      
+        IF GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(US_State_Table)
+        THEN
+           
+           --original code using pretty much all the time Z<x>99IN_FSL040V
+           
+           sql_stmt := 'SELECT  sdo_geom.sdo_mbr(sdo_geom.sdo_buffer(sdo_aggr_mbr(sdogeometry), 500, .05))
+                        FROM '||US_State_Table||' a WHERE a.'|| Entityfp ||'= :1';
+           Execute Immediate sql_stmt into mbr_geom using vstate;          
+        
+        END IF;
+        
+        IF mbr_geom IS NULL
+        OR NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(US_State_Table)
+        THEN
+        
+           --Matt! 1/24/14
+           --After getting an unhelpful reference to uninitialized collection for not having the state table
+           --or the state table with the required states in it
+           --on the 50th such time I added this
+           --note that I have no idea why 500 meters is the buffer, or why a buffer at all.  Twilight zone to me.
+        
+           sql_stmt := 'SELECT SDO_GEOM.SDO_MBR(SDO_GEOM.SDO_BUFFER(SDO_AGGR_MBR(e.geometry), :p1, :p2)) '
+                    || 'FROM ' || pTopology || '_edge$ e '
+                    || 'WHERE '
+                    || 'e.left_face_id = :p3 OR e.right_face_id = :p4 ';
+                    
+           EXECUTE IMMEDIATE sql_stmt INTO mbr_geom USING 500,
+                                                          .05,
+                                                          -1,
+                                                          -1;
+           
+        END IF;
+        
         xLL := mbr_geom.sdo_ordinates(1);
         yLL := mbr_geom.sdo_ordinates(2);
         xUR := mbr_geom.sdo_ordinates(3);
         yUR := mbr_geom.sdo_ordinates(4);
-  
+
         if xUR < xLL then   -- Check 180 degree daeline.
           temp := xUR;
           xUR := xLL;
@@ -188,15 +284,15 @@ BEGIN
 -- method is 'ZoNe' create the tracking work table if necessary.
 
    if pmethod = 'ZoNe' and NOT TABLE_Exists(Track_name) then
-   
-     GZ_Utilities.CREATE_GEN_XTEND_TRACKING_LOG(USER,Track_name);
-     
+
+     GZ_business_utils.CREATE_GEN_XTEND_TRACKING_LOG(USER,Track_name);
+
    elsif NOT TABLE_Exists(Track_name) then
-   
+
      dbms_output.put_line('FATAL Table ERROR: Line_Simplify: Tracking table does not exist');
      RAISE_APPLICATION_ERROR(-20001,'Tracking table:'||Track_name||': does not exist');
    end if;
- 
+
 
 -- Begin by printing the parameters !!
 
@@ -208,27 +304,27 @@ BEGIN
               ', 5) nice='||nice||
    ', and tables 1) Entity_table='|| pEntity_Table||
               ', 2) temporary output Edges_table='||edges_table||
-              ', 3) input Skip_edges_table (may be NULL)='||pSkip_Edges_table||     
+              ', 3) input Skip_edges_table (may be NULL)='||pSkip_Edges_table||
               ', 4) temporary output Done_edges_table='||Done_table||
               ', 5) deprecated parameter='||pBad_Table||
               ', 6) State_Edge_Table='||State_Edge_Table||
               ', 7) input Edge_Attribute_Table='||pEdge_attribute_table||
               ', 8) input Clip_face_table='||pclip_face_table||
    ', and parameter to drop the work tables='|| drop_work_tables;
-    
+
    GZ_TOPOFIX.Track_App(SUBSTR(msg,1,455),Topology,'LS');
 
-   if pEntityFp is NULL or pstate is NULL or Topology is NULL or run_flag is NULL or target_scale is NULL or nice is NULL then 
+   if pEntityFp is NULL or pstate is NULL or Topology is NULL or run_flag is NULL or target_scale is NULL or nice is NULL then
       Track_App_Error(':FATAL Parameter ERROR:Line_Simplify:'||
                       'NULL Input parameter to SUPER, '||
-                      'Entity:'||pEntityFp||': is:'||pstate||':scale:' ||target_scale || ':nice:' || nice);      
-   end if;        
+                      'Entity:'||pEntityFp||': is:'||pstate||':scale:' ||target_scale || ':nice:' || nice);
+   end if;
 
-   if target_scale <=1 or nice <=0. then 
+   if target_scale <=1 or nice <=0. then
       Track_App_Error(':FATAL Parameter ERROR:Line_Simplify:'||
-                      'BAD Input value to SUPER, scale:' ||target_scale || ':nice:' || nice);     
-   end if; 
-   
+                      'BAD Input value to SUPER, scale:' ||target_scale || ':nice:' || nice);
+   end if;
+
 
 --  Check all the tables
 
@@ -238,70 +334,70 @@ BEGIN
       Track_App_Error(':FATAL Table ERROR:Line_Simplify:'||
                       'Clip face Table ('||pclip_face_table||') does not exist/may not be NULL');
    end if;
-  
+
 
 -- Simplify map process many entities (usually states)
-  
+
    if pstate = 0  then
      sql_stmt := 'SELECT distinct '|| Entityfp ||' FROM '||US_State_Table||' order by ' || Entityfp;
-     EXECUTE IMMEDIATE sql_stmt BULK COLLECT INTO array_state;  
+     EXECUTE IMMEDIATE sql_stmt BULK COLLECT INTO array_state;
    else
-   
+
   -- or just a single entity
      array_state.extend(1);
      array_state(1) := pstate;
    end if;
 
- 
+
    sdo_topo_map.set_max_memory_size (2147483648);
---------------------------------------------------------------------------------  
--- This is a big loop but usually just does just 1 iteration 
+--------------------------------------------------------------------------------
+-- This is a big loop but usually just does just 1 iteration
 
    FOR c in 1..array_state.COUNT LOOP -- Loop over states or other entities
       vstate := array_state(c);
 
       EXECUTE IMMEDIATE 'SELECT count(*),sum(vertices) from '||Edges_table||
-                          ' WHERE STATE=:1'  
+                          ' WHERE STATE=:1'
         into edges_todo,sum_vertices using vstate;
 
       Track_App(':Processing Entity:Line_Simplify:Beginning entity ' || vstate || ' which has ' || edges_todo || ' edges');
-      
+
       Set_Overall_MBR;
 
       Track_App(':Set MBR:Line_Simplify:For this entity ' || vstate ||
                 ' using this MBR, LL:'|| XLL || ' : ' || yLL||' UR: '|| XUR || ' : ' || yUR);
 
---------------------------------------------------------------------------------        
+--------------------------------------------------------------------------------
 -- Loop over either the whole state or parts thereof using automatically generated
 -- quads. Done is a flag: 0 = not done, 1=done and -1 = not done and subdivision necessary.
 --
-  
+
       WHILE  DONE <> 1 LOOP
 
--- We have to reset these each time for the program to load the correct quad 
+-- We have to reset these each time for the program to load the correct quad
         quad_xLL := xLL;
         quad_yLL := yLL;
         quad_xUR := xUR;
         quad_yUR := yUR;
-        
+
 -- Create and Load a topomap
 -- There is a complication. We need to ensure we get the aggregate MBR of all the edges that are
 -- in a topomap.
 
-        done := LOAD_TOPO_MAP_BY_QUAD(cache_name,vstate,Topology,quad_xLL,quad_yLL,quad_xUR,quad_yUR,tile,delta,pskip_Table, Done_table,Edges_Table); 
-       
---        the_time := current_timestamp; 
+        done := LOAD_TOPO_MAP_BY_QUAD(cache_name,vstate,Topology,quad_xLL,quad_yLL,quad_xUR,quad_yUR,tile,delta,pskip_Table, Done_table,Edges_Table);
+
+--        the_time := current_timestamp;
         no_done := simplify_region(v_topology,cache_name,target_scale,nice,vstate,quad_xLL,quad_yLL,quad_xUR,quad_yUR,tolerance,Bad_Table,
-                        pskip_Table, Done_table,Edges_Table,method,dec_digits); 
---        dbms_output.put_line('Elapsed time : ' || (current_timestamp - the_time));               
+                        pskip_Table, Done_table,Edges_Table,method,dec_digits);
+--        dbms_output.put_line('Elapsed time : ' || (current_timestamp - the_time));
 --dbms_output.put_line('ready to commit');
-        -- Commit TOPO map  
-        
-       
+        -- Commit TOPO map
+
+
         BEGIN
            Track_App(':Simplify Region Complete:Line_Simplify:'||
                      no_done||' edges simplified for entity ' || vstate);
-   
+
            sdo_TOPO_MAP.COMMIT_TOPO_MAP();
            Track_App(':Commit TopoMap:Line_Simplify:'||
                      'Topology commited for entity ' || vstate);
@@ -315,7 +411,7 @@ BEGIN
                 dbms_output.put_line(SUBSTR(sqlerrm,1,200));
              END IF;
         END;
- 
+
         sdo_TOPO_MAP.CLEAR_TOPO_MAP(cache_name);
         sdo_TOPO_MAP.DROP_TOPO_MAP(cache_name);
       END LOOP;
@@ -323,50 +419,52 @@ BEGIN
     END LOOP; -- end of entities loop
 
 --------------------------------------------------------------------------------
-    
--- Now validate   
 
-    sql_stmt := 'select  sdo_topo_map.validate_topology('''||v_topology||''',''N'') from dual';
-    EXECUTE IMMEDIATE sql_stmt into result;
-    
-    
-    If result = 'TRUE' then
-      Track_App(':Success Validate TopoMap:Line_Simplify:'||
-                'Final Topology validated for entity ' || vstate);
-     
-    Else
-       Track_App_Error('Fail on Validate TopoMap:Line_Simplify:'||
-                       'For entity' || vstate|| ' Validate Topology Failed '||result);
-    End if;
+
+    --Matt! 12/31/13
+    --Commented this because
+    --1. There's a topo validation in the GZ_LINESIM wrapper 2 seconds after this spot
+    --2. The topology is implicitly validated on commit 2 seconds before this spot
+
+    -- Now validate using Mathews Tile Validator
+
+    --result := VALIDATE_TOPOLOGY_WITH_TILES(v_topology,face,vstate);
+
+
+    --If result = 'TRUE' then
+      --Track_App(':Success Validate TopoMap:Line_Simplify:'||
+      --          'Final Topology validated for entity ' || vstate);
+    --End if;
 --------------------------------------------------------------------------------
 -- And print completion messages
 
     msg := ':Finish:Line_Simplify:Completed. For entity ' || vstate;
-                
+
     sql_stmt := 'SELECT SUM(sdo_util.getnumvertices(geometry))/' ||
                        'SUM(sdo_util.getnumvertices(new_geometry)) from '|| Edges_Table;
     execute immediate sql_stmt into ratio;
-    
+
     msg := msg ||'. Input/output generalization ratio '  || ROUND(ratio,3);
-    
+
     if ratio <= 2. then
         msg := msg ||' suggests that the input data was already generalized to the target scale';
     end if;
     Track_App(msg);
---------------------------------------------------------------------------------    
+--------------------------------------------------------------------------------
 --  CHECK_ALL_VERTICES(Edges_table,'GEOMETRY',Edges_table,'NEW_GEOMETRY',Report_table);
 --  EXCEPTION
 --   WHEN OTHERS THEN
---   Generate_Error_log(SQLERRM,DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);  
+--   Generate_Error_log(SQLERRM,DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
 END SIMPLIFY;
 --
+
 FUNCTION LOAD_TOPO_MAP_BY_QUAD(cache_name VARCHAR2,vstate VARCHAR2,Topology VARCHAR2,
                    pxLL IN OUT NOCOPY NUMBER,pyLL IN OUT NOCOPY NUMBER,
                    pxUR IN OUT NOCOPY NUMBER,pyUR IN OUT NOCOPY NUMBER,tile IN OUT NOCOPY PLS_INTEGER,delta NUMBER,
                    pskip_Table     VARCHAR2 default NULL,
                    pDone_Table     VARCHAR2 default 'EDGES_DONE',
                    pEdges_Table    VARCHAR2 default 'EDGES_TOPROCESS') RETURN PLS_INTEGER AS
-  
+
   tiles     MDSYS.SDO_LIST_TYPE;
   MBR       MDSYS.SDO_ORDINATE_ARRAY;
   current_tile  PLS_INTEGER := tile;
@@ -383,37 +481,37 @@ FUNCTION LOAD_TOPO_MAP_BY_QUAD(cache_name VARCHAR2,vstate VARCHAR2,Topology VARC
   done      PLS_INTEGER :=-1;
   loops     PLS_INTEGER := 0;
   subdivide BOOLEAN := FALSE;
-     
+
 BEGIN
-  
+
 -- manipulate the current_tile number to get the next tile and its MBR
 
    WHILE done = -1 and loops < 20 LOOP
      loops := loops + 1;
-     
+
      BEGIN
       sdo_TOPO_MAP.CREATE_TOPO_MAP(Topology, cache_name, topo_entity_count,topo_entity_count,topo_entity_count);
          EXCEPTION
          WHEN OTHERS THEN
-         
+
             IF SQLCODE = -29532
             AND Instr(sqlerrm,' a TopoMap by the same name already exists') != 0
             THEN
                sdo_TOPO_MAP.DROP_TOPO_MAP(cache_name);
-               sdo_TOPO_MAP.CREATE_TOPO_MAP(Topology, cache_name, topo_entity_count,topo_entity_count,topo_entity_count); 
+               sdo_TOPO_MAP.CREATE_TOPO_MAP(Topology, cache_name, topo_entity_count,topo_entity_count,topo_entity_count);
             END IF;
      END;
-          
+
 -- Have to reset the extent for each invocation
      xLL      := pxLL;
      yLL      := pyLL;
      xUR      := pxUR;
      yUR      := pyUR;
      tiles := quad_tree(xLL,yLL,xUR,yUR,tile,subdivide);
-     
+
 -- Caller Forces subdivision of a large state (just for testing).
 
-     if tile < 0 then  
+     if tile < 0 then
         tile :=0;
         xLL      := pxLL;
         yLL      := pyLL;
@@ -423,7 +521,7 @@ BEGIN
         tiles := quad_tree(xLL,yLL,xUR,yUR,tile,subdivide);
         subdivide := FALSE;
       end if;
-      
+
 
       tile := tiles(2);
       error_msg := ':QUAD Tree:Line_Simplify:Topology loaded for entity ' || vstate ||' tile ' || tiles(1) || ' with MBR, LL:'|| xLL || ' : ' || yLL||' UR: '|| xUR || ' : ' || yUR;
@@ -431,12 +529,12 @@ BEGIN
       done := 0;
 
 -- We have to get the aggregate MBR we want to use in sync with the Topomap MBR
-  
+
       MBR := BUILD_MBR(Topology,vstate,xLL,yLL,xUR,yUR,0.05,pskip_Table,pDone_Table,pEdges_Table);
 
 -- Get the aggregate of the quadtree desired rectangle and the MBR of the
 -- edges that may interact with this rectangle
-      
+
       for ii in 1..4 loop
         if ii < 3 then
 --        Fix the 180 degree dateline
@@ -452,9 +550,9 @@ BEGIN
           if ii=4 and yUR > MBR(4) then MBR(4) := yUR; end if;
         end if;
       end loop;
-      
-      
-      BEGIN 
+
+
+      BEGIN
           progress :=0;
 -- Note we don't pass these deltas to simplify_region
           sdo_TOPO_MAP.LOAD_TOPO_MAP(cache_name,MBR(1),MBR(2),MBR(3),MBR(4), 'TRUE');
@@ -462,7 +560,7 @@ BEGIN
           error_msg := ':Load TopoMap:Line_Simplify:Topology loaded for entity ' || vstate ||' tile ' || tiles(1) || ' with MBR, LL:'|| MBR(1) || ' : ' || MBR(2)||' UR: '|| MBR(3) || ' : ' || MBR(4);
           GZ_TOPOFIX.Track_App(error_msg,Topology,'LS');
           subdivide := FALSE;
--- At present don't validate on input   
+-- At present don't validate on input
 --          sql_stmt := 'select  sdo_topo_map.validate_topology('''||v_topology||''',''N'') from dual';
 --          EXECUTE IMMEDIATE sql_stmt into result;
           progress :=2;
@@ -492,11 +590,11 @@ BEGIN
 --ii 19 quad now 13 X 104 y 32 xUR 108 yUR 34 next 13
 --ii 20 quad now 14 X 100 y 32 xUR 104 yUR 34 next 1
 
-   
-        EXCEPTION 
+
+        EXCEPTION
         WHEN OTHERS  then
           sdo_TOPO_MAP.DROP_TOPO_MAP(cache_name);
-          
+
           IF UPPER(SQLERRM) LIKE '%MEMORY%' THEN
              done := -1;
              error_msg := ':Load TopoMap:Line_Simplify:Topology load fail for entity ' || vstate ||' quad ' || tiles(1) || ' with MBR, LL:'|| XLL || ' : ' || yLL||' UR: '|| XUR || ' : ' || yUR;
@@ -510,20 +608,20 @@ BEGIN
           elsif progress = 1 then
             error_msg := 'FATAL ERROR:Line_Simplify: Problem Validating Topology:' || sqlerrm;
           end if;
-          
+
           GZ_TOPOFIX.Track_App_Error(error_msg,Topology,'LS');
           END IF;
         END;
 
- 
+
     END LOOP;
-    
+
 -- Have to return the extent to process from the topomap
-    pxLL      := xLL; 
-    pyLL      := yLL; 
-    pxUR      := xUR; 
-    pyUR      := yUR; 
-    
+    pxLL      := xLL;
+    pyLL      := yLL;
+    pxUR      := xUR;
+    pyUR      := yUR;
+
     if tile = 1 then
       done := 1;
     end if;
@@ -532,7 +630,7 @@ BEGIN
 END;
 --
 Function get_x_or_y(ptile NUMBER,pLLxy NUMBER,pURxy NUMBER,get_x BOOLEAN,delta IN OUT NOCOPY NUMBER) return number as
-  
+
 -- From the quad tree til number construnct either an x or a y
     xy        number  := pLLxy;
     tile      number  := ptile;
@@ -547,7 +645,7 @@ Function get_x_or_y(ptile NUMBER,pLLxy NUMBER,pURxy NUMBER,get_x BOOLEAN,delta I
         divisor := divisor * 10.;          -- 10,100
         levels := levels+1;               -- 2,3
      End loop;
-  
+
      For ii in 2..levels loop             -- divisor is now 100
         halfxy := halfxy*0.5;
         tile := MOD(tile,divisor);           -- Change say 143 to 43, and then to 3
@@ -566,23 +664,23 @@ Function get_x_or_y(ptile NUMBER,pLLxy NUMBER,pURxy NUMBER,get_x BOOLEAN,delta I
 Function quad_tree(xLL IN OUT NOCOPY NUMBER,yLL IN OUT NOCOPY NUMBER,
                     xUR IN OUT NOCOPY NUMBER,yUR IN OUT NOCOPY NUMBER,ptile PLS_INTEGER,subdivide BOOLEAN) RETURN MDSYS.SDO_LIST_TYPE AS
 
- 
+
 --          ___________               _______________
---         |           |             |       |       | 
+--         |           |             |       |       |
 --         |           |             |  14   |  13   |     Y := TRUNC(# / 3)
---         |     1     |             |_______|_______| 
+--         |     1     |             |_______|_______|
 --         |           |             |       |       |     X := MOD(#,2)
---         |           |             |  12   |  11   |     
+--         |           |             |  12   |  11   |
 --         |___________|             |______ |_______|
 --
 --
 --          ___________               _______________
---         |           |             |144|143|134|133| 
---         |           |             |---|---|---|---|   
+--         |           |             |144|143|134|133|
+--         |           |             |---|---|---|---|
 --         |     1     |             |142|141|132|131|
 --         |           |             --------|-------|
---         |           |             |       |       |    
---         |           |             |  12   |  11   |     
+--         |           |             |       |       |
+--         |           |             |  12   |  11   |
 --         |___________|             |______ |_______|
 --
 -- Just recursively set an extent using a current tile number. Thus:
@@ -598,7 +696,7 @@ Function quad_tree(xLL IN OUT NOCOPY NUMBER,yLL IN OUT NOCOPY NUMBER,
   deltay         NUMBER;
   last_digit     PLS_INTEGER;
   Begin
- 
+
     If current_tile is NULL then
       current_tile :=0;
     End if;
@@ -614,7 +712,7 @@ Function quad_tree(xLL IN OUT NOCOPY NUMBER,yLL IN OUT NOCOPY NUMBER,
         current_tile := (current_tile-1)*10 + 1;
      end if;
 
--- Using the current tile we have to subdivide     
+-- Using the current tile we have to subdivide
      xLL := get_x_or_y(current_tile,xLL,xUR,TRUE,deltax);
      xUR := xLL+deltax;
      yLL := get_x_or_y(current_tile,yLL,yUR,FALSE,deltay);
@@ -628,7 +726,7 @@ Function quad_tree(xLL IN OUT NOCOPY NUMBER,yLL IN OUT NOCOPY NUMBER,
        tile_to_pass := TRUNC(tile_to_pass/10);
        last_digit := MOD(tile_to_pass,10);
      End Loop;
- 
+
 -- When we return a current tile of 1 we are done
   RETURN MDSYS.SDO_LIST_TYPE(current_tile,tile_to_pass);
   End quad_tree;
@@ -636,7 +734,7 @@ Function quad_tree(xLL IN OUT NOCOPY NUMBER,yLL IN OUT NOCOPY NUMBER,
 PROCEDURE CREATE_GZ_SUPER_DONE(
       p_schema         VARCHAR2 DEFAULT NULL,
       p_table_name     VARCHAR2) AS
-      
+
   BEGIN
       Create_GZ_SUPER_Table(p_schema,p_table_name,'DONE');
   END CREATE_GZ_SUPER_DONE;
@@ -644,7 +742,7 @@ PROCEDURE CREATE_GZ_SUPER_DONE(
 PROCEDURE CREATE_GZ_SUPER_STATE(
       p_schema         VARCHAR2 DEFAULT NULL,
       p_table_name     VARCHAR2) AS
-      
+
   BEGIN
       Create_GZ_SUPER_Table(p_schema,p_table_name,'STATE');
   END CREATE_GZ_SUPER_STATE;
@@ -652,11 +750,11 @@ PROCEDURE CREATE_GZ_SUPER_STATE(
 PROCEDURE CREATE_GZ_SUPER_EDGES(
       p_schema         VARCHAR2 DEFAULT NULL,
       p_table_name     VARCHAR2) AS
-      
+
   BEGIN
       Create_GZ_SUPER_Table(p_schema,p_table_name,'EDGES');
   END CREATE_GZ_SUPER_EDGES;
- 
+
 --
 PROCEDURE CREATE_GZ_SUPER_TABLE(p_schema IN VARCHAR2 DEFAULT NULL, p_table_name IN VARCHAR2,Table_Abbrev VARCHAR2)
    AS
@@ -665,9 +763,9 @@ PROCEDURE CREATE_GZ_SUPER_TABLE(p_schema IN VARCHAR2 DEFAULT NULL, p_table_name 
 
       psql          VARCHAR2(4000);
       v_schema      VARCHAR2(4000);
-      
-   BEGIN      
-     
+
+   BEGIN
+
       dbms_output.put_line('Tabbrev ' || Table_Abbrev );
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -688,8 +786,8 @@ PROCEDURE CREATE_GZ_SUPER_TABLE(p_schema IN VARCHAR2 DEFAULT NULL, p_table_name 
       END IF;
 
       GZ_WORKFLOW.CREATE_TABLE(v_schema,
-                               p_table_name,                    
-                               'GZ_TYPES.GZ_SUPER_'||Table_Abbrev,   
+                               p_table_name,
+                               'GZ_TYPES.GZ_SUPER_'||Table_Abbrev,
                                'Y');                     --always drop.  Why else are we here?
 
       --Add constraints
@@ -698,17 +796,17 @@ PROCEDURE CREATE_GZ_SUPER_TABLE(p_schema IN VARCHAR2 DEFAULT NULL, p_table_name 
 --              || 'ADD ('
 --              || '   CONSTRAINT ' || p_table_name || 'PKC '
 --              || '      PRIMARY KEY(RELEASE, LAYER) '
---              || ')';   
+--              || ')';
 
 
-      --Add triggers    
-                     
+      --Add triggers
+
       --some day would be nice to check that SOURCE layers are in gz_layers_in
 
       --Add indexes. None
 
       --Manage privvies
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_business_utils.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -729,7 +827,7 @@ PROCEDURE CHECK_TABLES(pstate VARCHAR2,run_flag VARCHAR2,pEntityFP VARCHAR2,Topo
    p                 PLS_INTEGER;
 
     Procedure Track_App_Error(error_msg VARCHAR2) as
-    
+
     begin
       GZ_TOPOFIX.Track_App_Error(error_msg,Topology,'LS');
     end;
@@ -738,13 +836,13 @@ BEGIN
 -- Check the entityFp matches the clip_face table
 
    if pstate is not NULL and pstate <> 0 then
-     
+
       ok := Column_exists(pEntityFP,pclip_face_table);
-      
+
       If NOT ok then
         Track_App_Error(':FATAL ERROR:Line_Simplify:'||
                         'Entity -'||pEntityFP||'- was not found in the face attribute table ('||pclip_face_table||')');
- 
+
       Else
       sql_stmt := 'SELECT ' || pEntityFP || ' from ' || pclip_face_table || ' WHERE rownum < 2';
       EXECUTE IMMEDIATE sql_stmt into found_entityfp;
@@ -759,18 +857,18 @@ BEGIN
    p := INSTR(pSkip_table,'(');
    if pSkip_Table is NOT NULL then
       p := INSTR(pSkip_table,'(');
-      if p = 0 and Table_Exists(Skip_table) = FALSE then    
+      if p = 0 and Table_Exists(Skip_table) = FALSE then
         pSkip_Table := NULL;
       elsif p <> 1 then
         pSkip_table := Skip_table;
       end if;
   end if;
- 
+
     if Table_Exists(pEntity_table) = FALSE then
       Track_App_Error(':FATAL_ERROR: Line_Simplify:'||
                       'Entity Table ('||pEntity_Table||') does not exist/may not be NULL');
    end if;
-  
+
    if Table_Exists(pEdge_attribute_table) = FALSE then
       Track_App_Error(':FATAL ERROR:Line_Simplify:'||
                       'Edge attribute Table ('||pEdge_attribute_table||') does not exist/may not be NULL');
@@ -788,16 +886,16 @@ BEGIN
         CREATE_GZ_SUPER_EDGES(NULL,pEdges_table);
 
       Run_Make_Edge_Table(Topology,run_flag,pEdge_attribute_Table,pclip_face_table,pEdges_Table,pState_Edge_table,pEntityfp);
-      
-   elsif pEdges_Table is NULL then 
+
+   elsif pEdges_Table is NULL then
        Track_app_Error(':FATAL ERROR:Line_Simplify:'||
                        'The parameter Edges_Table ('||pEdges_table||') may not be NULL');
    end if;
-    
+
 
    CREATE_GZ_SUPER_DONE(NULL,pDone_table);
 
-  
+
 
 END CHECK_TABLES;
 --
@@ -813,8 +911,8 @@ FUNCTION FAST_DISTANCE( x1 IN OUT NOCOPY NUMBER, y1 IN OUT NOCOPY NUMBER,
 --         Karney's results from his excellent code.
 --Usage:
   -- Call this function from inside a PL/SQL program.
-  
-  --   REQUIRED Parameter: 
+
+  --   REQUIRED Parameter:
   --        INPUT
   --             x1,y1:  vertex coordinates in degrees (or meters)
   --             x2,y2:  2nd vertex coordinates in degrees (or meters)
@@ -822,10 +920,10 @@ FUNCTION FAST_DISTANCE( x1 IN OUT NOCOPY NUMBER, y1 IN OUT NOCOPY NUMBER,
   --
 --Purpose:   -- Calculates the distance between 2 points accurately. Input may
 --              be projected in meters or geodetic coordinates. For the latter,
---              Fast_distance returns the great circle distance between 2 points 
+--              Fast_distance returns the great circle distance between 2 points
 --              quickly and accurately.
---              The great circle approximation is twenty times the speed of 
---              sdo_geom.sdo_length and good to less than a few mm of error at 
+--              The great circle approximation is twenty times the speed of
+--              sdo_geom.sdo_length and good to less than a few mm of error at
 --              0.1 degrees difference in the coordinates.
 --              The Vincenty code (used for dx or dy > 0.1 degrees)
 --              is good to 0.1 mm to halfway round the ellipsoid!
@@ -841,15 +939,15 @@ FUNCTION FAST_DISTANCE( x1 IN OUT NOCOPY NUMBER, y1 IN OUT NOCOPY NUMBER,
 --              Charles Karney:         http://geographiclib.sourceforge.net/
 --Dependencies: fast_vincenty_gcd
 ********************************************************************************
-*/    
+*/
   geom      MDSYS.SDO_GEOMETRY;
   sql_stmt  VARCHAR2(4000);
-  deg2rad   CONSTANT NUMBER   :=0.0174532925199432957692369076848861271344;  -- pi/180.  
+  deg2rad   CONSTANT NUMBER   :=0.0174532925199432957692369076848861271344;  -- pi/180.
   gcd        NUMBER := 0.;
    b         NUMBER;
    t         NUMBER;
 
--- Jack Ganssle Cosine coefficients good to 12 digits 
+-- Jack Ganssle Cosine coefficients good to 12 digits
 --   cc1       NUMBER :=  0.999999953464;
 --   cc2       NUMBER := -0.4999999053455;
 --   cc3       NUMBER :=  0.0416635846769;
@@ -901,7 +999,7 @@ FUNCTION FAST_DISTANCE( x1 IN OUT NOCOPY NUMBER, y1 IN OUT NOCOPY NUMBER,
    dist_factor NUMBER := 111319.490793274;
    sindelta    NUMBER;
    bad         NUMBER;
-   
+
 BEGIN
 
 -- Handle case when data is projected.
@@ -914,10 +1012,10 @@ BEGIN
          RETURN length;
       end if;
 
--- Handle large angles (> 0.1 degrees)      
+-- Handle large angles (> 0.1 degrees)
       dx := x2-x1;
       dy := y2-y1;
-      
+
       if (abs(dx) +  abs(dy) > 0.1) then
         gcd := fast_vincenty_gcd(x1,y1,x2,y2);
         RETURN gcd;
@@ -933,8 +1031,8 @@ BEGIN
 -- SQL> select sin(.0015) a from dual;
 --      .00149999943750006328124661
 -- SQL> select 0.0015 - 0.0015*0.0015*0.0015/6 a from dual;
---      .00149999943750000000000000     
-  
+--      .00149999943750000000000000
+
 --       siny :=  yy*(yy2*(yy2*(yy2*(yy2 *(-2.39E-08 * x2 + 2.7526E-06) - 1.98409E-04) + 8.3333315E-03)
 --           -1.666666664E-01) + 1.0);
        yy3 := yy*yy2;
@@ -958,7 +1056,7 @@ BEGIN
         siny := -siny;
       end if;
       siny2 := siny*cosdy + cosyy*sindelta;      -- small angle approximation for formula above
- 
+
 
 
    if y < 34.5 then
@@ -1015,7 +1113,7 @@ BEGIN
       c1 := 0.99998940805689;
       c2 := 0.00337382242390;
 --      t := 63.;
-   else  
+   else
 --      p := 11;  -- 66.5 .. 90 degrees
       c1 := 0.99998688314480;
       c2 :=0.00337683963728;
@@ -1044,15 +1142,15 @@ BEGIN
          dx :=0.0;
       end if;
       gcd := sqrt(dy*dy + dx*dx*cosy*cosy2) * dist_factor;
-   else 
+   else
       if abs(dy) < 1.E-20 then
          dy := 0.0;
       end if;
-      gcd := sqrt(dy*dy + dx*dx*cosy*cosy) * dist_factor; 
+      gcd := sqrt(dy*dy + dx*dx*cosy*cosy) * dist_factor;
    end if;
 
    RETURN gcd;
-  
+
 END FAST_DISTANCE;
 --
 PROCEDURE COPY_GEOM_COORDINATES(XYORD IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,pstart PLS_INTEGER, Iend PLS_INTEGER,toXYORD IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,next IN OUT NOCOPY PLS_INTEGER) AS
@@ -1075,9 +1173,9 @@ BEGIN
        if next > toXYOrd.count then
            toXYOrd.extend(100);
        end if;
-       toXYORD(next) := XYOrd(ii);       
+       toXYORD(next) := XYOrd(ii);
      End loop;
-    
+
 END;
 --
 FUNCTION ASSEMBLE_EDGE(Status IN OUT NOCOPY VARCHAR2, Edge_id NUMBER,start_node NUMBER,end_node NUMBER,Segments IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,pscale NUMBER,nice NUMBER,nearby_edges MDSYS.SDO_LIST_TYPE,orig_geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,
@@ -1085,9 +1183,9 @@ FUNCTION ASSEMBLE_EDGE(Status IN OUT NOCOPY VARCHAR2, Edge_id NUMBER,start_node 
 
 -- Assemble pieces of an edge at different scales together into a single
 -- linestring that doesn't break topology.
--- 
+--
 -- Get a list of triplets: a) new segments that fail
---                         b) old corresponding start segment, 
+--                         b) old corresponding start segment,
 --                         c) old corresponding end segment
 -- assemble an edge from new generalized portions at different scales.
 --
@@ -1160,10 +1258,10 @@ FUNCTION ASSEMBLE_EDGE(Status IN OUT NOCOPY VARCHAR2, Edge_id NUMBER,start_node 
   once          BOOLEAN := TRUE;
   error_msg     VARCHAR2(1000);
   time1         date;
-  no_of_coords  PLS_INTEGER;  
-  
+  no_of_coords  PLS_INTEGER;
+
 BEGIN
-   
+
    status  := 'TRUE';
    XYOrd.extend(100);
    OrigXYord := Orig_geometry.sdo_ordinates;
@@ -1177,10 +1275,10 @@ BEGIN
       new_count := 4;
       last_count := 4;   -- last coordinate count
       gseg := Segments(loops+1);  -- get the generalized segment that is the problem
-      last_hi := hi_v;            
+      last_hi := hi_v;
       lo_v := Segments(loops+2);  -- the low vertex or segment in the original data
                                   -- that corresponds to the generalized segment
---                              are 
+--                              are
 --                          ____________
 --             these       /             \    the original ungeneralized segments
 --                       /                 \
@@ -1195,19 +1293,19 @@ BEGIN
 --      dbms_output.put_line('loops ' || loops || ' NEXT ' || next || ' gseg ' || gseg ||  ' lo ' || lo_v || 'last hi ' || last_hi || ' hi_v ' || hi_v || ' scale ' || scale || ' last ' || last || ' bad_id ' || bad_id);
 
       IF lo_v >= last_hi THEN
-      
--- Copy and append the generalized coordinates before the first intersection 
+
+-- Copy and append the generalized coordinates before the first intersection
 -- into the outbuf buffer. Note we may just copy a vertex.
 
         istart := last+1;
         iend := gseg*2;
-        if iend > istart  then  
-          copy_Geom_coordinates(GenXYord,istart,iend,XYord,next);           
---         dbms_output.put_line('copying a portion from ' || istart || ' to ' || iend || ' gen ' || genxyord.count || ' next ' || next);           
+        if iend > istart  then
+          copy_Geom_coordinates(GenXYord,istart,iend,XYord,next);
+--         dbms_output.put_line('copying a portion from ' || istart || ' to ' || iend || ' gen ' || genxyord.count || ' next ' || next);
           ifin := 2*lo_v;
           ibeg := ifin + 1;
         end if;
-        
+
         last := iend+2;
 
 -- Now generalize a portion that breaks topology by intersecting (itself or another edge).
@@ -1230,13 +1328,13 @@ BEGIN
 --        sql_stmt := 'INSERT into points values(:1,:2)';
 --        execute immediate sql_stmt using lo_v*100,part_geometry;
 --        commit;
-        
+
         scale := pscale;
         loop_counter := 0;
         last_count := 4; --new_count:= partXYORD.count;
         edgelen := GZ_UTIL_ZONE.accurate_length(partXYOrd);
-        total_near :=0;              
---    dbms_output.put_line('entering outer loop'|| new_count || ' ISEGZ ' || isegments.count);    
+        total_near :=0;
+--    dbms_output.put_line('entering outer loop'|| new_count || ' ISEGZ ' || isegments.count);
         WHILE (loop_counter = 0 or ISegments.count > 0 or self_segs.count > 0)  LOOP
 --dbms_output.put_line('OUTER loop: scale now is ' || scale || ' part ccount ' || new_count || 'total self ' || total_self);
 --dbms_output.put_line('iseg count ' || isegments.count || ' self ' || self_segs.count);
@@ -1244,29 +1342,29 @@ BEGIN
           While loop_counter < last_loop Loop
 
               loop_counter := loop_counter + 1;
---        Keep reducing the scale including the 1st time because 
+--        Keep reducing the scale including the 1st time because
 --        Assemble edge was called because the target scale failed.
 --              if once or loop_counter <> 1 then  -- not sure about this
               get_scale(threshold,scale,target_scale,edgelen);
 --              once := FALSE;
 --              end if;
 --dbms_output.put_line('scale now is ' || scale || ' next ' || next || ' target was ' || target_scale|| ' loop ' || loop_counter ||  ' LL ' || last_loop);
-              
+
 
 
 
               if loop_counter < last_loop then
 
                 if UPPER(method)='DP' then
-                
+
                    new_geometry := sdo_util.simplify(part_geometry,threshold,tolerance);
                 else
 
                    new_geometry := GZ_UTIL_ZONE.line_simplify(part_geometry,scale,nice,minimum_len,edgelen,edge_id,-1.,Topology,target_scale);
                 end if;
-         
+
                 newXYord := new_geometry.sdo_ordinates;
- 
+
                 new_count := newXYOrd.count;
 
 --                dbms_output.put_line('NEW_count ' || new_count|| ' last ' || last_count);
@@ -1278,7 +1376,7 @@ BEGIN
                 last_count := new_count;
               else
 --                dbms_output.put_line('set new geom to original data for ' || edge_id || ' ' || scale || ' ' || loop_counter);
--- use original data if it fails at lowest scale 
+-- use original data if it fails at lowest scale
                 new_geometry := part_geometry;
                 newXYord := new_geometry.sdo_ordinates;
 
@@ -1299,7 +1397,7 @@ BEGIN
 -- Try and fix a difficult situation when this part of the edge is essentially
 -- straight and we need either the 2nd or 2nd to last vertex.
 --
---               + Under very high magnification (*50 or more) , trying to generalize 
+--               + Under very high magnification (*50 or more) , trying to generalize
 --               |  this vertical segment, a straight line is expected
 --               |                            but the arrowed vertex is needed
 --               | +-----------------+        to miss the corner.
@@ -1309,7 +1407,7 @@ BEGIN
 
 -- try adding vertex 2 first
 /*
-          if isegments.count > 0 and new_count =4 and PartXYord.count > 4 and once then  
+          if isegments.count > 0 and new_count =4 and PartXYord.count > 4 and once then
              newXYord.extend(2);
              newXYOrd(6) := NewXyord(4);
              newXYOrd(5) := NewXyord(3);
@@ -1352,13 +1450,13 @@ BEGIN
 --             DBMS_OUTPUT.PUT_LINE('ccopying from 3 ' || istart || ' iend ' || iend || ' pos ' || pos);
              copy_Geom_coordinates(newXYord,istart,iend,checkXYord,pos);
 --             temp := checkXYOrd.count-pos;
---             checkXYord.trim(temp);  
+--             checkXYord.trim(temp);
 
 --             check_geometry := MDSYS.SDO_GEOMETRY(2002,SRID,NULL,MDSYS.SDO_ELEM_INFO_ARRAY(1,2,1),checkXYOrd);
 --  sql_stmt := 'INSERT into points values(:1,:2,:3)';
 --        execute immediate sql_stmt using 1,check_geometry,'before';
 --        commit;
---             checkXYord.extend(temp); 
+--             checkXYord.extend(temp);
 --   DBMS_OUTPUT.PUT_LINE('pos is ' || pos || ' new count ' || checkXYord.count);
 
 -- Copy and append remaining generalized coordinates
@@ -1369,13 +1467,13 @@ BEGIN
              pos_save := pos;
              copy_Geom_coordinates(GenXYord,istart,iend,checkXYord,pos);
              temp := checkXYOrd.count-pos;
-             checkXYord.trim(temp);  
+             checkXYord.trim(temp);
   --           for jp in 1..TRUNC(checkXYOrd.count/2) loop
-  --              dbms_output.put_line('x ' || round(checkxyord(jp*2-1),7)||','|| round(checkxyord(jp*2),7)||',');             
+  --              dbms_output.put_line('x ' || round(checkxyord(jp*2-1),7)||','|| round(checkxyord(jp*2),7)||',');
   --           end loop;
              check_geometry := MDSYS.SDO_GEOMETRY(2002,SRID,NULL,MDSYS.SDO_ELEM_INFO_ARRAY(1,2,1),checkXYOrd);
              self_segs := check_for_self_intersect(check_Geometry);
---             dbms_output.put_line('after check_for_self_intersect ' || self_segs.count ||' scale now is ' || scale); 
+--             dbms_output.put_line('after check_for_self_intersect ' || self_segs.count ||' scale now is ' || scale);
 
 -- Now if the segments that we just created are not in this list we have succeeded.
 -- They begin at gseg1 := TRUNC(next/2);
@@ -1400,22 +1498,22 @@ BEGIN
                    total_self := total_self+1;
                 end if;
              end if;
-             checkXYord.extend(temp); 
+             checkXYord.extend(temp);
 
---          DBMS_OUTPUT.PUT_LINE('Segments ' || ISegments.count ||  ' self seg count ' || self_segs.count || ' loop counter ' || loop_counter); 
+--          DBMS_OUTPUT.PUT_LINE('Segments ' || ISegments.count ||  ' self seg count ' || self_segs.count || ' loop counter ' || loop_counter);
 
 -- If we fail completely,(even no generalization doesn't work) then a prior edge
 -- must have been generalized incorrectly.
 --dbms_output.put_line('>>>>Loop counter ' || loop_counter || ' LAST ' || last_loop || ' iseg ' || isegments.count || ' self ' || self_segs.count);
           if loop_counter = last_loop then
              if ISegments.count > 0 then
-               error_msg := 'WARNING'||edge_id ||':Line Simplify:Failed with no generalization intersects edge ' || Isegments(4);             
+               error_msg := 'WARNING'||edge_id ||':Line Simplify:Failed with no generalization intersects edge ' || Isegments(4);
                GZ_TOPOFIX.Track_App(error_msg,Topology,'LS');
- 
+
 --               RAISE_APPLICATION_ERROR(-20001,'BAD');
                RETURN NULL;
              end if;
-        
+
           end if;
 
           if (Isegments.count = 0 and self_segs.count =0) or loop_counter = last_loop  then
@@ -1425,8 +1523,8 @@ BEGIN
              istart := 3;
              iend := newXYOrd.count;
              ifin := 2*hi_v;
-             ibeg := ifin + 1;          
-             copy_Geom_coordinates(newXYord,istart,iend,XYord,next); 
+             ibeg := ifin + 1;
+             copy_Geom_coordinates(newXYord,istart,iend,XYord,next);
 --                DBMS_OUTPUT.PUT_LINE('Copying from 3 ' || istart || ' iend ' || iend || ' next ' || next);
 --             temp := xyord.count -next;
 --             xyord.trim(temp);
@@ -1436,15 +1534,15 @@ BEGIN
 --        commit;
 --             xyord.extend(temp);
 --                DBMS_OUTPUT.PUT_LINE('now next ' || next || ' loops ' || loops || ' seg count ' || segments.count||' last ' || last || ' gen ' || genXyOrd.count);
--- Copy and append remaining coordinates already generalized at target scale               
+-- Copy and append remaining coordinates already generalized at target scale
                if loops = Segments.count then
                   if XYord(next-1) <> origXYord(n-1) or XYord(next) <> origXYord(n) then
                   istart := last+1;
-                  iend := genXYOrd.count;               
-                  copy_Geom_coordinates(genXYord,istart,iend,XYord,next); 
+                  iend := genXYOrd.count;
+                  copy_Geom_coordinates(genXYord,istart,iend,XYord,next);
 --                  DBMS_OUTPUT.PUT_LINE('Copying from istart ' || istart || ' iend ' || iend || ' next ' || next);
 
-                  end if;                 
+                  end if;
                  done := TRUE;
                end if;
 
@@ -1452,13 +1550,13 @@ BEGIN
                exit;
 
             end if;
-            
+
             exit when  loop_counter = last_loop;
-            
+
 -- we are having trouble with a self intersection problem so ask to be
 -- called again with a smaller scale
 --               if NOT done and (total_self > 4 or (loop_counter = last_loop-1 ) or total_near > 10) then
---                   error_msg := '>>>>>Id: '||edge_id ||' Returning early from ASSEMBLE_EDGE for a smaller scale<<<';                 
+--                   error_msg := '>>>>>Id: '||edge_id ||' Returning early from ASSEMBLE_EDGE for a smaller scale<<<';
 --                  GZ_TOPOFIX.Track_App(error_msg,Topology,'LS');
 --                  RETURN 0;
 --               end if;
@@ -1469,7 +1567,7 @@ BEGIN
         exit when done;
       END IF;
    END LOOP;
-   
+
 --   dbms_output.put_line('exited from outer loop'|| next);
 -- make the generalized geometry;
    XYOrd.trim(XYord.count-next);
@@ -1487,7 +1585,7 @@ BEGIN
 END ASSEMBLE_EDGE;
 --
 FUNCTION CENTROID(XYs IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,Xc IN OUT NUMBER,Yc IN OUT NUMBER,SRID NUMBER)
-                       
+
 RETURN NUMBER AS
 /*
 ********************************************************************************
@@ -1495,7 +1593,7 @@ RETURN NUMBER AS
 --Author: Sidey Timmins
 --Creation Date: 8/04/2008
 --Updated:   11/08/2012 with code from GZ_QA.Centroid
---           10/21/2010 To accomodate SRID <> 8265 
+--           10/21/2010 To accomodate SRID <> 8265
 --           8/31/2010 To calculate approximate area in square meters.
 --Usage:
   -- Call this function from inside another PL/SQL program.  This program
@@ -1503,22 +1601,22 @@ RETURN NUMBER AS
   --
   --   REQUIRED Parameters:
   --      INPUT
- 
-  --      XYs          - Array of X,Y coordinates 
+
+  --      XYs          - Array of X,Y coordinates
   --      SRID         - The Spatial reference ID 8265
   --      OUTPUT
   --       Xc           - Centroid X
   --       Yc           - Centroid Y
 --
--- Purpose: Find a centroid of a single closed polygon and return the area of 
+-- Purpose: Find a centroid of a single closed polygon and return the area of
 --         the polygon.
-                          
+
 -- Reference: DH Maling, "Measurements from Maps"
 ----            http://en.wikipedia.org/wiki/Centroid
 ********************************************************************************
 */
    deg2rad     CONSTANT NUMBER    :=0.0174532925199432957692369076848861271344;
-   iend        PLS_INTEGER := XYs.count-2; 
+   iend        PLS_INTEGER := XYs.count-2;
    Area        NUMBER :=0.0;
 
    nm          PLS_INTEGER := TRUNC(iend/2) ;
@@ -1530,19 +1628,19 @@ RETURN NUMBER AS
    siny        NUMBER;
    factor      NUMBER;
    to_meters   NUMBER := 12347654400.0;
-   
+
 BEGIN
- 
+
 --        Centroid is +
---                       vertices  
+--                       vertices
 --                n-1 ____________
 --                    |           |
 --                    |           |
 --                    |     +     |
 --                    |           |
 --                    |___________|
---                   1=n          2 
--- 
+--                   1=n          2
+--
 
     for i in 1..nm loop
 
@@ -1551,35 +1649,35 @@ BEGIN
 -- delta is impervious to repeated ordinates
       delta := (XYs(iend-1)*XYs(ii+1) - XYs(ii)*XYs(iend));
       Xc := Xc + (XYs(iend-1)   + XYs(ii)) * delta;
-      
+
       Yc := Yc + (XYs(iend) + XYs(ii+1)) * delta;
       ii := ii+2;
       iend := ii-1;
     end loop;
- 
+
   area := area * 0.5;
-  
+
   if Area > 0. then
     Xc := Xc/(6.*Area);
     Yc := Yc/(6.*Area);
   end if;
-  
+
   if SRID = 8265.0 then
     y := ABS(Xys(2)+Xys(Xys.count))* 0.5 ;
     yy := y *deg2rad;
 
     siny := GZ_UTIL_ZONE.sincos(yy,cosy);
-  
+
 -- This empirical factor was found by comparing the results with Oracle's area
 -- function SDO_GEOM.SDO_AREA. Results are amazing - 4 to 6 digits.
-      
+
     factor := 0.9968658 + 0.0134185* siny*siny + 0.0095E-6*y*y -0.6E-7*(y-40) - 1.e-5*sin(5*(y-18)*deg2rad);
 
-    area := factor * to_meters * cosy*area; 
+    area := factor * to_meters * cosy*area;
 --    dbms_output.put_line('NEW area ' || area );
   end if;
   RETURN area;
-  
+
 END CENTROID;
 --
 FUNCTION CHECK_POLYLR(geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,nearby_geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,new_geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY)
@@ -1600,7 +1698,7 @@ RETURN MDSYS.SDO_LIST_TYPE AS
 BEGIN
 -- Check the more complicated old geometry first
    LR_original := Check_Clock_Wiseness(geometry,nearby_geometry,iseg_old,test_point,allow_loops);
-   
+
 -- If (and only if) the detailed MBR does not overlap the MBR of the loop,
 -- we ignore the test.
    If LR_original is NOT NULL THEN
@@ -1631,16 +1729,16 @@ FUNCTION CHECK_CLOCK_WISENESS(geom1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY,polygeom IN
 --          the old and new geometries.
 --          09/27/2010 To use a segment from the polygon and nearest points from
 --          the old and new geometries.
---          09/20/2010 to handle collinear case of test point and horizontal 
+--          09/20/2010 to handle collinear case of test point and horizontal
 --          or vertical line segment
 
 -- Method: If we assert we are on the coastline and we are observing zig-zagging
 -- ships sailing North, then if they never cross-over their previous paths,
 -- on their closest approach they are going North. Furthermore, if we choose
 -- a segment on the coastline (going in any direction) then the closest point
--- on one ship's path has a particular clockwise relationship wrt this segment. 
+-- on one ship's path has a particular clockwise relationship wrt this segment.
 -- The simplified version of this path must have the same clockwise relationship.
--- 
+--
 --
   piBy2     CONSTANT NUMBER  := 1.5707963267948966192313216916397514421;
   rad2deg   CONSTANT NUMBER   := 57.29577951308232087679815481410517033235;
@@ -1652,10 +1750,10 @@ FUNCTION CHECK_CLOCK_WISENESS(geom1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY,polygeom IN
   SRID         NUMBER := geom1.sdo_srid;
   xtest        NUMBER := PolyXys(test_point);
   ytest        NUMBER := PolyXys(test_point+1);
- 
+
   angle        NUMBER;
   angle2       NUMBER;
- 
+
   x0           NUMBER;
   y0           NUMBER;
   x1           NUMBER;
@@ -1681,8 +1779,8 @@ FUNCTION CHECK_CLOCK_WISENESS(geom1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY,polygeom IN
   distance_found NUMBER;
   dist           NUMBER;
   best_distance  NUMBER := 1.E10;
- 
-  
+
+
   angle_check  NUMBER;
   best_point   PLS_INTEGER := test_point;
   best_seg     PLS_INTEGER :=1;
@@ -1700,7 +1798,7 @@ FUNCTION CHECK_CLOCK_WISENESS(geom1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY,polygeom IN
   ok           BOOLEAN;
   geom         mdsys.sdo_geometry;
   sql_stmt     VARCHAR2(4000);
-    
+
 BEGIN
 
 --  the_time := current_timestamp;
@@ -1724,10 +1822,10 @@ BEGIN
   SET_MANY_MBR(XYs,Info_Array,MBR,xLL,yLL,xUR,yUR);
 
 -- Return only if the detailed MBR doesn not overlap the loop MBR
-  
+
   if ok_to_loop > 1 and (xUR < xLL2 or xLL> xUR2 or yUR < yLL2 or yLL > yUR2) then
 --     dbms_output.put_line('returning NULL '|| xuR || ' ' || xLl2);
-     RETURN NULL; --Its outside the MBR so ignore the test 
+     RETURN NULL; --Its outside the MBR so ignore the test
   end if;
 -- Check if the line is closed.
   if Xys(1) = Xys(XYs.count-1) and Xys(2) = Xys(Xys.count) then
@@ -1736,17 +1834,17 @@ BEGIN
 
 
 
-  iseg := 0;  
+  iseg := 0;
 
   if MOD(try,2) =0 then
     try := try+1;
   end if;
-  if try >= PolyXys.count-1 then  
+  if try >= PolyXys.count-1 then
      try := -1;
   end if;
-  
---  For the original geometry, loop over the polygon coordinates and search for 
---  the closest distance to the polygon. Save best_point on the polygon. 
+
+--  For the original geometry, loop over the polygon coordinates and search for
+--  the closest distance to the polygon. Save best_point on the polygon.
 
 --    dbms_output.put_line('TRY ' || try || ' poly ' || polyxys.count);
     While try < PolyXys.count-4 and ok_to_loop > 0 loop
@@ -1807,12 +1905,12 @@ BEGIN
       end if;
       ok_to_loop := ok_to_loop -1;
    End Loop;
--- Now the vertex that we have belongs to 2 segments  
-  
-   if allow_loops <> 1 then 
+-- Now the vertex that we have belongs to 2 segments
+
+   if allow_loops <> 1 then
       test_point := best_point;
    end if;
- 
+
 -- Find the closest segment to the test point, WITH the angle closest to
 -- 90 degrees.  try better than 75 degrees, 60, 45, 30,15
 
@@ -1823,7 +1921,7 @@ BEGIN
 
 --    dbms_output.put_line('BEST SEG  ' || iseg || ' BEST TP ' || best_point || ' best seg ' || best_seg);
 --    if iseg > 1 then
-     -- Don't know if this is what causes eof on communication channel  
+     -- Don't know if this is what causes eof on communication channel
 --      x0 := ROUND(Xys(iseg*2-3),round_it);
 --      y0 := ROUND(Xys(iseg*2-2),round_it);
 --      before_seg := iseg-1;
@@ -1842,18 +1940,18 @@ BEGIN
      x2 := ROUND(Xys(iseg*2+1),round_it);
      y2 := ROUND(Xys(iseg*2+2),round_it);
 --      dbms_output.put_line('before loop iseg ' || iseg || ' test_pt ' || test_point);
-     
+
 -- We try points behind and points ahead, finding the 1st one closest to the
 -- test point.
 /*
      IF allow_loops <> 1 THEN
-     
+
         no_to_try := TRUNC(PolyXys.count/8);
         try := test_point+2;
- 
+
      For jj in 1..no_to_try*2 Loop
-       if jj <= no_to_try then 
-         try := try -2; 
+       if jj <= no_to_try then
+         try := try -2;
          if try <=0 then
            try := PolyXys.count-3;
          end if;
@@ -1869,7 +1967,7 @@ BEGIN
 --      dbms_output.put_line('xtest ' || xtest || ' ytest ' || ytest);
 --      dbms_output.put_line('x1 ' || x1 || ' y1 ' || y1);
 --      dbms_output.put_line('x2 ' || x2 || ' y2 ' || y2);
-      
+
       dist := Perpendicular(xtest,ytest,x1,y1,x2,y2,xnear,ynear,FALSE, TRUE);
       if dist < 1.E10 then
          angle :=0.;
@@ -1880,16 +1978,16 @@ BEGIN
 
 -- 1)               |                   2)          |
 --                  ^  segment picked    or         v
---                  |                               | 
+--                  |                               |
 --          ---------                                -------------
 --
 --                 + (xtest,ytest)                 + (xtest,ytest)
-   
- 
--- Make some bearings and measure the angle that the segment subtends at the 
+
+
+-- Make some bearings and measure the angle that the segment subtends at the
 -- test point. We really want the test point more or less perpendicular to
 -- the segment. End on is not good since an "L" shaped edge can be generalized
--- in different ways so that a point that is 
+-- in different ways so that a point that is
 
 --              +                                +
 --              |                                 \
@@ -1900,7 +1998,7 @@ BEGIN
 --
 --                        + test point to the right        + same test point now to left
 
--- So if the test point is more perpendicular 
+-- So if the test point is more perpendicular
 
 --              +                                +
 --              |                                 \
@@ -1912,17 +2010,17 @@ BEGIN
 --                 + test point to the right        + same test point still to the right
 
 
-  if fast_distance(xtest,ytest,x1,y1) < fast_distance(xtest,ytest,x2,y2) then  
+  if fast_distance(xtest,ytest,x1,y1) < fast_distance(xtest,ytest,x2,y2) then
     angle := ABS(90.-GZ_QA.angle(xtest,ytest,x1,y1,x2,y2)*rad2deg);
   else
     angle := ABS(90.-GZ_QA.angle(xtest,ytest,x2,y2,x1,y1)*rad2deg);
   end if;
 
- 
+
  -- We use a segment number that is really a vertex number, since another
  -- segment shares that vertex.
- 
-  if fast_distance(xtest,ytest,x0,y0) < fast_distance(xtest,ytest,x1,y1) then  
+
+  if fast_distance(xtest,ytest,x0,y0) < fast_distance(xtest,ytest,x1,y1) then
     angle2 := ABS(90.-GZ_QA.angle(xtest,ytest,x0,y0,x1,y1)*rad2deg);
   else
     angle2 := ABS(90.-GZ_QA.angle(xtest,ytest,x1,y1,x0,y0)*rad2deg);
@@ -1942,11 +2040,11 @@ BEGIN
   END IF;
   exit when angle < angle_check;
   */
- -- End Loop; 
-  
+ -- End Loop;
+
   xtest := ROUND(PolyXys(test_point),round_it);
-  ytest := ROUND(PolyXys(test_point+1),round_it); 
- 
+  ytest := ROUND(PolyXys(test_point+1),round_it);
+
   --  dbms_output.put_line('ok to loop ' || (1E6 - ok_to_loop));
 -- Now we hold the polygon point constant and try different nearest
 -- test segments on the old and new geometries
@@ -1962,19 +2060,19 @@ BEGIN
 -- on the line.
 
    While loops < 3 and is_left = 0.0 Loop
-   
+
    loops := loops + 1;
 --   dbms_output.put_line('>>> in loop 5 ' || loops);
    if (x1 = x2 and xtest = x1) or (y1 = y2 and ytest = y1) or (loops >1  and Is_left = 0.0) then
-   
+
 -- Move the edge segment,
- 
+
         iseg := iseg + 1;
 --        dbms_output.put_line('ISEG now ' || iseg || ' xys ' || xys.count);
         if iseg*2 > Xys.count then
--- for closed we can go round the loop 
+-- for closed we can go round the loop
            if closed then
-             iseg := 2; 
+             iseg := 2;
 --             dbms_output.put_line('closed now ' || iseg );
            else
 -- for not closed we try the segment before best if we reach the end of the line
@@ -1998,7 +2096,7 @@ BEGIN
 --     dbms_output.put_line('x11 ' || x1 || ' y1 ' || y1);
 --     dbms_output.put_line('x22 ' || x2 || ' y2 ' || y2);
 
-    
+
 -- Finally formulate a crossproduct. Must be careful since A X B <> B X A.
 
 -- Returns > 0  for point p2 left of line p0 to p1
@@ -2007,19 +2105,19 @@ BEGIN
 --dbms_output.put_line('test point on poly ' || test_point || ' iseg ' || iseg);
 
      Is_left := (x2-x1)* (ytest-y1) - (xtest-x1)*(y2-y1);  -- crossproduct
-        
+
  --  Is_left := (xtest-x1)*(y2-y1) -(x2-x1)* (ytest-y1) ;  -- crossproduct
 
 --   dbms_output.put_line('is left ' || is_left || ' test pt ' || test_point || ' iseg ' || iseg);
 
    End Loop;
-   
+
 --  dbms_output.put_line('After check clock Elapsed time : ' || (current_timestamp - the_time));
   RETURN Is_left;
-  
+
 END CHECK_CLOCK_WISENESS;
 --
-FUNCTION CHECK_FOR_SELF_INTERSECT(Geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,dec_digits NUMBER default 7,thousand NUMBER default 100000.) RETURN MDSYS.SDO_LIST_TYPE AS 
+FUNCTION CHECK_FOR_SELF_INTERSECT(Geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,dec_digits NUMBER default 7,thousand NUMBER default 100000.) RETURN MDSYS.SDO_LIST_TYPE AS
 /*
 ********************************************************************************
 --Program Name: Check_for_Self_Intersect
@@ -2036,17 +2134,17 @@ FUNCTION CHECK_FOR_SELF_INTERSECT(Geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,dec_
   --      geometry      - A geometry to check
 
   --      dec_digits    - decimal digits to round to. Some of the geometries have
-  --                       trailing zeroes. Oracle cannot multiply these numbers 
+  --                       trailing zeroes. Oracle cannot multiply these numbers
   --                       and it just disconnects!
 --
 -- Purpose: Self intersection means segment n intersects segment n+m where m
 --          is greater than 1. Returns an array of intersecting segments or an empty array.
-                          
--- Method: Checks each pair of segments using Cartesian geometry. But does not 
+
+-- Method: Checks each pair of segments using Cartesian geometry. But does not
 --         make unnecessaary checks when the MBR of a group of segments does
 --         overlap the current segment being considered.
 -- Calls: line_intersect
--- 
+--
 ********************************************************************************
 */
     Geom           MDSYS.SDO_GEOMETRY;
@@ -2057,15 +2155,15 @@ FUNCTION CHECK_FOR_SELF_INTERSECT(Geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,dec_
     xLL            NUMBER;
     yLL            NUMBER;
     xUR            NUMBER;
-    yUR            NUMBER; 
+    yUR            NUMBER;
     axLL           NUMBER;
     ayLL           NUMBER;
     axUR           NUMBER;
-    ayUR           NUMBER; 
+    ayUR           NUMBER;
     bxLL           NUMBER;
     byLL           NUMBER;
     bxUR           NUMBER;
-    byUR           NUMBER; 
+    byUR           NUMBER;
     xi             NUMBER;
     yi             NUMBER;
     x1             NUMBER;
@@ -2112,19 +2210,19 @@ FUNCTION CHECK_FOR_SELF_INTERSECT(Geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,dec_
 
 BEGIN
 
-  
+
   XYOrd := Geometry.sdo_ordinates;
   n := TRUNC(XYOrd.count/2);
- 
+
   if n < 3 then
     RETURN segments;
   end if;
 
--- Checking for self interesection is costly and not necessary everywhere  
+-- Checking for self interesection is costly and not necessary everywhere
   iend :=n;
   segments.extend(10);
 
- 
+
 -- We want to set up checking segment i with segment i+2
 -- Note that segment 2 touches 1 and can never intersect 1.
 --                            3
@@ -2147,16 +2245,16 @@ BEGIN
 --               1
 
   if XYOrd(1) = XYord(XyOrd.count-1) and XYOrd(2) = XyOrd(XyOrd.count) then
-    closed := TRUE;  
-  end if;                   
+    closed := TRUE;
+  end if;
 -- For a normal edge not closed.
 --                             3
---           (x3,y3)    +-------------+ (x4,y4)            
---                    /                              
---          1        /  2                          
---    +------------+                               
---   (x1,y1)       (x2,y2)                                           
---                                                         
+--           (x3,y3)    +-------------+ (x4,y4)
+--                    /
+--          1        /  2
+--    +------------+
+--   (x1,y1)       (x2,y2)
+--
     x2 := ROUND(XYord(1),dec_digits);     -- these are all off by 1 as we are going to do
     y2 := ROUND(XyOrd(2),dec_digits);     --  1 = 2,  2 = 3, 3 = 4
     x3 := ROUND(XYord(3),dec_digits);
@@ -2166,7 +2264,7 @@ BEGIN
 --  end if;               -- to be compared with segment 3 which ends at vertex 4
 --  dbms_output.put_line('calling set many from checkfor self');
   SET_MANY_MBR(XYord,Info_Array,MBR,xLL,yLL,xUR,yUR);
- 
+
   m := MBR(5);
   seg := 0;
   aend_seg := n-3;
@@ -2186,8 +2284,8 @@ BEGIN
    end loop;
    */
 --  dbms_output.put_line('m is ' || m || ' MBR ' || mbr.count);
-           
--- We have divided the edge into sections using Set_many_MBR           
+
+-- We have divided the edge into sections using Set_many_MBR
 -- In order to check if any 2 segments intersect it is necessary to
 -- check if segment ii interesects segment ii+2. But this is not necessary if
 -- the MBR for segments (ii+2) to say (ii+p) don't overlap (x1,y1) to (x2,y2)
@@ -2202,7 +2300,7 @@ BEGIN
 --    dbms_output.put_line('seg is ' ||seg);
 
     x2 := ROUND(XYord(seg*2+1),dec_digits); --seg 1 for example begins at coordinates 3 and 4
-    y2 := ROUND(XYord(seg*2+2),dec_digits); 
+    y2 := ROUND(XYord(seg*2+2),dec_digits);
 --    execute immediate 'insert into xys values(:1,:2,:3,:4,:5) ' using x1,y1,x2,y2,ii;
 --    commit;
     dist12 := (x2-x1)*(x2-x1) + (y2-y1)*(y2-y1);
@@ -2221,7 +2319,7 @@ BEGIN
     end if;
     ib := ia-1;
     ii := seg+1;
-    
+
     bend := 0;
 
     While ii < bend_seg Loop
@@ -2250,7 +2348,7 @@ BEGIN
 --          dbms_output.put_line('Ii ' || ii  || ' bstart ' || bstart || ' bend ' || bend);
 --          end if;
           exit when ii > bend_seg;
-          
+
         else                               -- check the MBRs
           bxLL := MBR(bk+1);
           byLL := MBR(bk+2);
@@ -2280,7 +2378,7 @@ BEGIN
 
           x3 := x4;
           y3 := y4;
- 
+
           jj := ii*2;
 --          if jj >= Xyord.count then
 --          dbms_output.put_line('ii ' || ii || ' Xyord ' || xyord.count);
@@ -2289,7 +2387,7 @@ BEGIN
             y4 := ROUND(XYord(jj),dec_digits);
  -- If the 2 sets overlap then we compare each pair of segments in the set
 -- dbms_output.put_line('ii ' ||  ' iilast ' || iilast || ' bend ' || bend);
-      IF overlap THEN   
+      IF overlap THEN
 -- Make a test point
               xt := x3*t + (1.-t)*x4;
               yt := y3*t + (1.-t)*y4;
@@ -2312,11 +2410,11 @@ BEGIN
 --         end if;
                 if s >= 0. and s < 1. then
 
--- Off course a loop intersects itself and we are not interested in 
--- intersections between consecutive segments 
+-- Off course a loop intersects itself and we are not interested in
+-- intersections between consecutive segments
                    if (closed = TRUE and s = 0.0 and ii = n and seg = 1) or
                                         (s = 0.0 and ii=seg) then
-                       NULL;         
+                       NULL;
                    else
                        next := next +1;
                        if next >= segments.count then
@@ -2336,11 +2434,11 @@ BEGIN
                    end if;
                 end if;
               End if;
-             
+
       End If;
-    End Loop;   
+    End Loop;
   End Loop;
- 
+
 --  dbms_output.put_line('leafing self');
   If next = 0 then
     segments.trim(segments.count);
@@ -2349,7 +2447,7 @@ BEGIN
     segments.trim(segments.count-next);
     RETURN segments;
   end if;
-  
+
 END CHECK_FOR_SELF_INTERSECT;
 --
 FUNCTION CHECK_MATCHING_XYS(tested IN OUT NOCOPY PLS_INTEGER,XyOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_Array,origXyOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_Array) RETURN PLS_INTEGER AS
@@ -2362,7 +2460,7 @@ FUNCTION CHECK_MATCHING_XYS(tested IN OUT NOCOPY PLS_INTEGER,XyOrd IN OUT NOCOPY
 BEGIN
 
 -- Find the number of consecutive matches between the current (XYOrd) edge and
--- the original (origXYOrd) edge testing from coordinate 1 on the 1st edge to XYOrd.count 
+-- the original (origXYOrd) edge testing from coordinate 1 on the 1st edge to XYOrd.count
 -- and comparing with coordinate start2 to coordinate end2 on the 2nd edge.
 --
 --   We also return tested which is the range from 1 to where the 1st edge matches
@@ -2378,13 +2476,13 @@ BEGIN
 -- We always have the start and end vertices match somewhere but we want the
 -- number of consecutive matches.
 
--- Now test each element of the current XyOrdinate array    
+-- Now test each element of the current XyOrdinate array
 
 
    WHILE jj <= end_loop Loop
          jj := jj + 2;   --- 1,3,5,7,.. n-1 where n = origXYord.count
          If jj-start_loop+1 < XyOrd.count then
-            If XyOrd(jj-start_loop+1) <> origXyOrd(jj) or 
+            If XyOrd(jj-start_loop+1) <> origXyOrd(jj) or
                XyOrd(jj-start_loop+2) <> origXyOrd(jj+1) then
                  exit;
             Else
@@ -2394,7 +2492,7 @@ BEGIN
     End Loop;
 
     tested := end_loop-start_loop +2;
-    
+
    RETURN kount;
 
 END CHECK_MATCHING_XYS;
@@ -2416,7 +2514,7 @@ FUNCTION COMPARE_EDGE_COORDINATES (XYs_Gen IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRA
   --      XYs         - Array of ungeneralized ordinates to search
    --      OUTPUT
   --      match_count -- returned length of matches array
-  
+
 --
 -- Purpose: Returns the matches between different vertex pairs in 2 different
 --          coordinate arrays
@@ -2427,10 +2525,10 @@ FUNCTION COMPARE_EDGE_COORDINATES (XYs_Gen IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRA
 -- 7           9
 -- 11          13
 --
--- Method: Exhaustive search for each Xy vertex pair from a derived (generalized) 
+-- Method: Exhaustive search for each Xy vertex pair from a derived (generalized)
 --         geometry from a source (ungeneralized geometry);
 --
--- Called by: 
+-- Called by:
 -- Dependencies: None
 ********************************************************************************
 */
@@ -2457,9 +2555,9 @@ BEGIN
      matches(2) := 1;
      new_section := 1;
      last := 1;
-  -- We always check the generalized (with fewer vertices) against the 
+  -- We always check the generalized (with fewer vertices) against the
   -- ungeneralized edge (with more vertices).
-     FOR ii in 2..n-1 LOOP 
+     FOR ii in 2..n-1 LOOP
         j := j + 2;
         x := ROUND(Xys_gen(j),decim_digits);
         y := ROUND(Xys_gen(j+1),decim_digits);
@@ -2483,7 +2581,7 @@ BEGIN
                  matches(match*2-1) := -j;  -- mark continuing with a negative
                end if;
                klast := k;
-            else            
+            else
                  matches(match*2) := k;
                  last := match*2-1;
                 new_section := 1;
@@ -2512,7 +2610,7 @@ BEGIN
       matches(match*2) := xys.count-1;
       match_count := match*2;
   RETURN matches;
- 
+
 END COMPARE_EDGE_COORDINATES;
 --
 FUNCTION EDGE_SIMPLIFY(Topology VARCHAR2,Edge_id NUMBER,geometry  MDSYS.SDO_GEOMETRY,
@@ -2520,24 +2618,24 @@ pscale NUMBER default 500000.,nice NUMBER default 1.,tolerance NUMBER default 0.
 
    orig_geometry  MDSYS.SDO_GEOMETRY := geometry;
    new_geom    MDSYS.SDO_GEOMETRY;
-   
+
    Edge_table  VARCHAR2(100) := UPPER(Topology) || UPPER(Edges_Table);
    Status      VARCHAR2(4000);
    sql_stmt    VARCHAR2(4000);
    elength     NUMBER;
    uniq        NUMBER;
    scale       NUMBER :=pscale;
-   
+
 -- Just a SQL callable function that returns the geometry that SUPER will make.
 
 
 BEGIN
-   
+
 --   dbms_output.put_line(edge_table);
    sql_stmt := 'SELECT MT_LENGTH,UNIQ FROM '||Edge_Table ||' WHERE EDGE_ID =:1';
 --   dbms_output.put_line(sql_stmt);
    execute immediate sql_stmt into elength,uniq using Edge_id;
-   
+
    new_geom := EDGE_SIMPLIFY(Status,Edge_id,orig_geometry,elength,uniq,scale,nice,tolerance,dec_digits,method,Edge_Table,Topology);
 --   dbms_output.put_line('Status was ' || status);
    RETURN new_geom;
@@ -2551,7 +2649,7 @@ pscale IN OUT NOCOPY NUMBER,nice NUMBER,tolerance NUMBER,dec_digits PLS_INTEGER 
 --Program Name: Edge_Simplify
 --Author: Sidey Timmins
 --Creation Date: 05/26/2010
---Updates: 8/27/2010 To avoid "An island of face nn has an edge coincident with 
+--Updates: 8/27/2010 To avoid "An island of face nn has an edge coincident with
 --                   outer boundary" we add the 2nd and next to last vertices
 --                   to figure 8 polygons.
 --Usage:
@@ -2560,17 +2658,17 @@ pscale IN OUT NOCOPY NUMBER,nice NUMBER,tolerance NUMBER,dec_digits PLS_INTEGER 
   --
   --   REQUIRED Parameters:
   --      INPUT
- 
+
   --      Status       - A returned status
   --      Edge_id      - edge_id of the edge
-  --      geometry     - A geometry to simplify  
+  --      geometry     - A geometry to simplify
   --      elength      - edge length in meters
   --      uniq         - uniq>=100 means the edge has a companion that completes a loop,
-  --                     0 mean no, 2 or 8 means closed loops. 
+  --                     0 mean no, 2 or 8 means closed loops.
   --      scale        - Target scale for generalization
   --                     On output, the actual effective scale used =
   --                     sum of (coordinate_count(i)* scale_used(i))/ total_coordinate_count
-  --      nice         - For ZONE a modifier to scale usually 1. Smaller numbers  
+  --      nice         - For ZONE a modifier to scale usually 1. Smaller numbers
   --                     are "nicer" and give more generalization, bigger numbers
   --                     are not so nice. Allowable range 0.25 to 2.
   --                     For DP  (Douglas-Peuker), the threshold in meters.
@@ -2578,15 +2676,15 @@ pscale IN OUT NOCOPY NUMBER,nice NUMBER,tolerance NUMBER,dec_digits PLS_INTEGER 
   --      dec_digits   - Rounds all coordinates except the end points to this
   --                     precision.
   --      method       - Either 'DP' or 'ZONE'
-  --      Edges_table  - A specially prepared work table previously made by 
+  --      Edges_table  - A specially prepared work table previously made by
   --                     Make_edge_table
-  
-  --      OUTPUT  
+
+  --      OUTPUT
 --                        A generalized geometry is returned
--- Purpose: Simplifies an edge and checks for self intersections or with other 
+-- Purpose: Simplifies an edge and checks for self intersections or with other
 --          edges.
-                          
--- Reference: 
+
+-- Reference:
 -- Calls: GZ_UTIL_ZONE.line_simplify, GZ_UTIL_ZONE.reverse_ordinates,
 --        check_for_self_intersect
 -- SDO_GEOM.SDO_INTERSECTION
@@ -2601,10 +2699,10 @@ pscale IN OUT NOCOPY NUMBER,nice NUMBER,tolerance NUMBER,dec_digits PLS_INTEGER 
    new_geometry      MDSYS.SDO_GEOMETRY;
    nearby_geometry   MDSYS.SDO_GEOMETRY;
    poly_geometry     MDSYS.SDO_GEOMETRY;
- 
+
    better_geometry   MDSYS.SDO_GEOMETRY;
    intersections     MDSYS.SDO_LIST_TYPE;
-   xyord             mdsys.sdo_ordinate_array; 
+   xyord             mdsys.sdo_ordinate_array;
    origxyord         mdsys.sdo_ordinate_array := orig_geometry.sdo_ordinates;
    partxyord         mdsys.sdo_ordinate_array := mdsys.sdo_ordinate_array();
    badXYOrd          mdsys.sdo_ordinate_array := mdsys.sdo_ordinate_array();
@@ -2613,13 +2711,13 @@ pscale IN OUT NOCOPY NUMBER,nice NUMBER,tolerance NUMBER,dec_digits PLS_INTEGER 
    new_Xys           mdsys.sdo_ordinate_array;
    old_Xys           mdsys.sdo_ordinate_array;
    segments          MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
-   
+
    isegments         MDSYS.SDO_LIST_TYPE;
    nearby_edges      MDSYS.SDO_LIST_TYPE;
    self_segs         MDSYS.SDO_LIST_TYPE;
    id_list           MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
-   
-   
+
+
    area1             NUMBER;
    area2             NUMBER;
    threshold         NUMBER := nice;
@@ -2673,21 +2771,21 @@ pscale IN OUT NOCOPY NUMBER,nice NUMBER,tolerance NUMBER,dec_digits PLS_INTEGER 
    is_a_connection   VARCHAR2(5);
    error_msg         VARCHAR2(1000);
    time1         date;
-   
+
 BEGIN
 --   dbms_output.put_line('pscale is ' || pscale);
    Status := 'TRUE';
-   
+
    m := origXYord.count;
 -- If the edge has 2 vertices (4 coordinates it cannot be generalized)
 -- About 6% (63348 out of 1.01 million) have just 2 vertices.
 
-   if m <= 4 then   
+   if m <= 4 then
      RETURN orig_geometry;
    end if;
-   
 
-   sql_stmt1 := 'Select new_geometry from ' || Edges_Table|| ' where edge_id=:1'; 
+
+   sql_stmt1 := 'Select new_geometry from ' || Edges_Table|| ' where edge_id=:1';
 
 -- For polygons, it would be nice if the ordinates were in counter clockwise order.
 -- However, some loops are doughnut holes so better to leave the order unchanged
@@ -2705,7 +2803,7 @@ BEGIN
    Loop
 
       loop_counter := loop_counter + 1;
-      
+
 --    Keep reducing the scale
 --    The sequence of scale depend upon the target scale and are "nice"
 
@@ -2715,20 +2813,20 @@ BEGIN
 --      dbms_output.put_line('>>>' || loop_counter || ' <<<<<<<<<<<<<<<<<<<<<<<<');
 --      dbms_output.put_line('>>>scale now is ' || scale || ' loop_counter ' || loop_counter);
 
-   
+
       if UPPER(method) = 'DP' then --    Generalize the line either by Douglas-Peuker
          new_geometry := sdo_util.simplify(orig_geometry,threshold,tolerance);
       else  -- or by ZONE
          new_geometry := GZ_UTIL_ZONE.line_simplify(orig_geometry,scale,nice,0.0,elength,edge_id,-1.,Topology,target_scale);
       end if;
-      
+
 -- Ensure that there are not any vertices too close;
-   
-     
+
+
      if (closed = TRUE and nlast >= 8) or (closed = FALSE and nlast >=4) then
        ok := REMOVE_CLOSE_XYS(new_geometry);
      end if;
-     
+
      XyOrd := new_geometry.sdo_ordinates;
      if closed = TRUE then
        area_after :=  Centroid(Xyord,xc,yc,SRID);
@@ -2737,7 +2835,7 @@ BEGIN
        end if;
      end if;
      n := XYord.count;
-     
+
 -- Disallow Removing close xys on last loop if there have been problems
 
      if loop_counter = last_loop-1 and ((closed = TRUE and nlast >= 8) or (closed = FALSE and nlast >=4)) then
@@ -2745,7 +2843,7 @@ BEGIN
      else
         nlast := 0;
      end if;
-     
+
      exit when (closed = TRUE and n >= 8) or (closed = FALSE and n >=4) or loop_counter >= last_loop;
    End loop;
 
@@ -2761,7 +2859,7 @@ BEGIN
 
 
    IF m > 4 THEN
-        
+
 -- If the edge has another companion that makes a loop (uniq >=100) then
 -- we have to be careful not to generalize it to a straight line because that will
 -- break topology.
@@ -2774,14 +2872,14 @@ BEGIN
 
       if closed = TRUE then
 --   dbms_output.put_line(' its closed ');
- 
+
 -- Just for figure 8 polygons
          if uniq = 8 or uniq = 2 then
 --         dbms_output.put_line(' calling FIX_FIGURE8 ');
            FIX_FIGURE8(origXYord,XYord,dec_digits);
            new_geometry.sdo_ordinates := Xyord;
          end if;
-         
+
          poly_Geometry := new_geometry;
          poly_Geometry.sdo_gtype :=2003;
          poly_Geometry.sdo_elem_info := MDSYS.sdo_elem_info_array(1,1003,1);
@@ -2789,7 +2887,7 @@ BEGIN
 --   use an Oracle function to check to see if the loop self intersects
          geom_is_valid := SDO_GEOM.Validate_Geometry_with_context(poly_Geometry,0.05);
 --dbms_output.put_line('geom is valid ::: ' || substr(geom_is_valid,1,100));
-         if (INSTR(geom_is_valid, '13367 [Element') != 0) then                 
+         if (INSTR(geom_is_valid, '13367 [Element') != 0) then
                  polyXys := poly_geometry.sdo_ordinates;
                  GZ_UTIL_ZONE.reverse_ordinates(PolyXys);
                  poly_geometry.sdo_ordinates := PolyXys;
@@ -2798,12 +2896,12 @@ BEGIN
          end if;
 
       else
---   dbms_output.put_line('not closed');   
+--   dbms_output.put_line('not closed');
 --   Use a function to check to see if the line self intersects
 --dbms_output.put_line('checking for self intersection');
-   
+
          self_segs := check_for_self_intersect(new_Geometry,thousand);
-  
+
          if self_segs.count > 0 then
          seg2 := MOD(self_segs(1),thousand);
          seg1 := TRUNC((self_segs(1)-seg2)/thousand);
@@ -2818,7 +2916,7 @@ BEGIN
         new_Geometry.sdo_elem_info := MDSYS.sdo_elem_info_array(1,2,1);
        end if;
 
-      sql_stmt := 'Select start_node_id,end_node_id,nearby_edges,new_geometry from ' || Edges_Table|| ' where edge_id=:1'; 
+      sql_stmt := 'Select start_node_id,end_node_id,nearby_edges,new_geometry from ' || Edges_Table|| ' where edge_id=:1';
       Execute immediate sql_stmt into start_node,end_node,nearby_edges,nearby_geometry using edge_id;
 
 -- Now see if there are any nearby edges which may interfere with the new
@@ -2829,14 +2927,14 @@ BEGIN
         nearby_edges := MDSYS.SDO_LIST_TYPE();
 --        dbms_output.put_line('no nearby edges');
       ELSE
- 
+
         For jj in 1..nearby_edges.count loop
           nearby_edge_id := ABS(nearby_edges(jj));
 --dbms_output.put_line('checking ' || nearby_edge_id);
           Execute immediate sql_stmt1 into nearby_geometry using nearby_edge_id;
 -- Oracle will include end on (node) intersections which we don't want
              intersections := FIND_INTERSECTION_SEGMENT(new_geometry,nearby_geometry);
---          intersections := SDO_GEOM.SDO_INTERSECTION(new_geometry,nearby_geometry,tolerance); 
+--          intersections := SDO_GEOM.SDO_INTERSECTION(new_geometry,nearby_geometry,tolerance);
 
           if intersections.count > 0 then -- is NOT NULL then
 --          dbms_output.put_line('intersections is not null');
@@ -2844,7 +2942,7 @@ BEGIN
             exit;
           end if;
         End Loop;
-      END IF; 
+      END IF;
 
 -- Check nodestar is good.
 -- A is to the right of edge B before generalization.
@@ -2858,7 +2956,7 @@ BEGIN
 --          |  |   |
 --          |  /   |
 --          +______
-    
+
      if XYOrd.count = 4 then
           is_a_connection := Is_Connected(edge_id,start_node,end_node,nearby_edges,Edges_Table,id_list);
 --          dbms_output.put_line('ffor id : ' || edge_id || ' is a connection ' || is_a_connection);
@@ -2874,14 +2972,14 @@ BEGIN
   -- We have a nodestar situation. Make straight line into a bent one.
   -- We can have a very straight line that creates a needle triangle and it
   -- is not clear that we are maintaining the clockwiseness
-  
+
             if area2*area1 <= 0. or round(area1,3) = 0. or round(area2,3)=0. then
               done := FALSE;
               new_geometry := Robust_line_gen(orig_geometry,3);
               XYord :=new_geometry.sdo_ordinates;
             end if;
           end if;
-      end if; 
+      end if;
 
       IF done = TRUE THEN
 --      dbms_output.put_line('CHECKING SELF intersect' );
@@ -2890,7 +2988,7 @@ BEGIN
           done := FALSE;
         end if;
       END IF;
--- Are we done? (no nearby edges or no intersections).   
+-- Are we done? (no nearby edges or no intersections).
       IF done = TRUE THEN
        dbms_output.put_line('done is true');
          NULL;
@@ -2906,19 +3004,19 @@ BEGIN
 -- For each nearby edge, get its current geometry and test the new generalized
 -- geometry to see it it intersects anywhere except on the ends (nodes).
 
-                  
+
         While done = FALSE and loops < 8 and new_geometry is not NULL LOOP
            loops := loops + 1;
            done := TRUE;
 
-           
+
            loop_end := nearby_edges.count+1;
-           
+
            For jj in 1..loop_end loop
-            
+
             XYOrd := new_geometry.sdo_ordinates;
 --          if edge_id = 970204 then
-          
+
 --           end if;
              if jj < loop_end then
                nearby_edge_id := nearby_edges(jj);
@@ -2931,32 +3029,32 @@ BEGIN
                ystart := NearbyOrd(2);
                xend   := NearbyOrd(NearbyOrd.count-1);
                yend := NearbyOrd(NearbyOrd.count);
-               
-               segments := FIND_INTERSECTION_SEGMENT(new_geometry,nearby_geometry); 
+
+               segments := FIND_INTERSECTION_SEGMENT(new_geometry,nearby_geometry);
 
 --              dbms_output.put_line ('Checking ' || nearby_edge_id || ' Seg count ' || segments.count);
-              
+
 -- For nearby loops we have to check we stay on the same side of them.
 -- but don't if the current geometry is a closed loop !!
 --               if origXYord(1) = origXYord(m-1) and origXYord(2) = origXYord(m) then
 --                  NULL;
-             
+
                if segments.count = 0 and -- ((nearbyOrd.count <> 4 and XYord.count = 4) or
                  (xstart = xend and ystart = yend and
                  (xstart <> origXYord(1) or ystart <> origXYord(2)) and
                  (xstart <> origXYord(m-1) or ystart <> origXYord(m))) then
-                 
+
 --               dbms_output.put_line('calling polyLR from edge_simplify ' || new_geometry.sdo_ordinates.count || ' orig ' || orig_geometry.sdo_ordinates.count);
 
                  segments := CHECK_POLYLR(orig_geometry,nearby_geometry,new_geometry);
-                             
+
 --               dbms_output.put_line ('checking polyLR ' || nearby_edge_id || ' seg count ' || segments.count  );
                end if;
 
 
              elsif loops >= 1 and loops < 8 then
-              
-               
+
+
                Segments.trim(Segments.count);
 
 --  dbms_output.put_line ('Calling self intersect check'); -- || polyxys.count); -- || ' x ' || polyxys(1) || '  xend ' || polyxys(polyxys.count-1));
@@ -2968,8 +3066,8 @@ BEGIN
                if self_segs.count > 0  then
 --               dbms_output.put_line ('self segs ' || self_segs(1) || ' ' || self_segs(2));
                  isegments:= Process_self_segs(self_segs,OrigXyord,XYord);
---   this is just a flag, information is in isegments               
-                 Segments.extend(1);  
+--   this is just a flag, information is in isegments
+                 Segments.extend(1);
              end if;
              else
                 segments.trim(segments.count);
@@ -2986,7 +3084,7 @@ BEGIN
 --       dbms_output.put_line('pp ' || isegments(pp));
 --    end loop;
 -- Ignore a bad result from GET_SPLIT_VERTICES
-                 if isegments.count > 0 and isegments(3) =0 then            
+                 if isegments.count > 0 and isegments(3) =0 then
                    isegments :=MDSYS.SDO_LIST_TYPE();
                  end if;
  --                 dbms_output.put_line ('AFTER get_split ' || isegments.count);
@@ -2999,16 +3097,16 @@ BEGIN
 -- dbms_output.put_line ('>>>> BACK FROM assemble');
 -- A problem with too many self intersections has occurred so redo the whole edge.
 -- Example, a very sharp "V" exists (segments 2 and 3) with segment 2 hitting
--- a nearby but when we attempt to reshape segment 2 into 2 or more pieces 
--- a self intersection will occur since segment 3 crosses the original crescent 
+-- a nearby but when we attempt to reshape segment 2 into 2 or more pieces
+-- a self intersection will occur since segment 3 crosses the original crescent
 -- shaped segments that segment 2 has to generalize.
 
 --        segment 3     \           .  original dotted
 --                       \      .    /
 --                         \  .     /  segment 2
 --                          .\     /
---                           . \  /  
---                             .\/     
+--                           . \  /
+--                             .\/
 --                               .
 
 -- Assemble is supposed to be building a bent line so if it returns a segment
@@ -3017,8 +3115,8 @@ BEGIN
                     if new_co_count <= 4 then
 --dbms_output.put_line('new_co_count was ' || new_co_count ||' scale ' || scale);
                        get_scale(threshold,scale,target_scale,elength);
- 
-             --    Generalize the line either by Douglas-Peuker   
+
+             --    Generalize the line either by Douglas-Peuker
                       if UPPER(method) = 'DP' then
                          new_geometry := sdo_util.simplify(orig_geometry,threshold,tolerance);
                       else  -- or by ZONE
@@ -3033,48 +3131,48 @@ BEGIN
                  end if;
                end if;
              end if;
-             
+
            end Loop;
 
            exit when done or loop_counter > 1;
         END LOOP;
 
- 
+
 
       END IF;
    END IF;
-   
-   
+
+
    if new_geometry is not null then
 --       dbms_output.put_line('its good');
-  
--- Don't round the start and end node !!   
+
+-- Don't round the start and end node !!
      if dec_digits <> 0 then
        xyOrd := new_geometry.sdo_ordinates;
        xyOrd(1) := origxyOrd(1);
-       xyOrd(2) := origXYord(2);       
+       xyOrd(2) := origXYord(2);
        n := XYord.count;
        xyOrd(n-1) := origxyOrd(origXYOrd.count-1);
        xyOrd(n) := origXYord(origXYOrd.count);
        for ii in 3..n-2 Loop
          Xyord(ii) := ROUND(Xyord(ii),dec_digits);
        end loop;
-       
+
        new_geometry.sdo_ordinates := XYord;
- 
+
      end if;
-     
--- Return the new Geometry 
- 
+
+-- Return the new Geometry
+
      RETURN new_geometry;
   else
 
--- Return the original Geometry     
+-- Return the original Geometry
 
      RETURN orig_geometry;
-     
+
   end if;
-  
+
   RETURN NULL;
 
 END EDGE_SIMPLIFY;
@@ -3110,14 +3208,14 @@ BEGIN
              xyOrd.extend(2);
              inc :=-2;
            end if;
-           
+
            Xyord(3) := origXyOrd(3);
            Xyord(4) := origXyOrd(4);
            for jj in istart..iend loop
              Xyord(jj) := PolyXys(jj+inc);
            end loop;
 --           dbms_output.put_line('case 1');
--- case 4 same, store both vertices (3 is already there)       
+-- case 4 same, store both vertices (3 is already there)
            if ROUND(polyXys(n-3),dec_digits) = ROUND(origXyOrd(m-3),dec_digits) and
               ROUND(polyXys(n-2),dec_digits) = ROUND(origXyOrd(m-2),dec_digits) then
                NULL;
@@ -3130,7 +3228,7 @@ BEGIN
            Xyord(xyOrd.count)   := origXyOrd(m);
            Xyord(xyOrd.count-3) := origXyOrd(m-3);
            Xyord(xyOrd.count-2) := origXyOrd(m-2);
- 
+
 END;
 --
 Function estimate_area(x0 number,y0 number,x1 number,y1 number,x2 number,y2 number
@@ -3138,7 +3236,7 @@ Function estimate_area(x0 number,y0 number,x1 number,y1 number,x2 number,y2 numb
    sinyc number;
    cosyc number;
    sin5yc number;
-   factor number;           
+   factor number;
    approx_convert number := 1.000001;  --1.0000006;
 begin
    return estimate_area(x0,y0,x1,y1,x2,y2,sinyc,cosyc,sin5yc,factor);
@@ -3148,18 +3246,18 @@ Function estimate_area(x0 number,y0 number,x1 number,y1 number,x2 number,y2 numb
                             sinyc in out nocopy number,cosyc in out nocopy number,sin5yc in out nocopy number,factor in out nocopy number) return number as
 
 -- Estimate the area of a triangle good to 5 or even 6 digits for angular
--- differences between coordinates of 0.002 degrees or less. 
--- This function is expected to be called many times for evaluating the 
+-- differences between coordinates of 0.002 degrees or less.
+-- This function is expected to be called many times for evaluating the
 -- significance of each vertex by measuring the triangular
 -- area of the current point and its 2 adjacent neighbors.
 
  deg2rad   CONSTANT NUMBER   :=0.0174532925199432957692369076848861271344;  -- pi/180.
-  
+
      estimated_area    number;                -- 111120 is 60 * nautical mile
      to_meters         NUMBER := 6173827200.; -- = 0.5*111120*111120
      yc                NUMBER;
      Begin
- 
+
 -- These factors are expected to be very slowly varying and need only be
 -- calculated once for small polygons.
 
@@ -3168,20 +3266,20 @@ Function estimate_area(x0 number,y0 number,x1 number,y1 number,x2 number,y2 numb
         cosyc := cos(yc*deg2rad);
         sinyc := sin(yc*deg2rad);
         sin5yc := sin(5.*(yc-18.)*deg2rad);
-        
+
 -- This factor is generally optimized from the equator to latitude 50.
 
         factor := 0.9968658 + 0.0134185* sinyc*sinyc + 0.0095E-6*yc*yc -0.6E-7*(yc-40) - 1.e-5*sin5yc;
- 
+
       end if;
-    
- 
+
+
       estimated_area := factor * to_meters * cosyc*(x0*y1 - y0*x1 + x1*y2 - y1*x2 + x2*y0 - y2*x0);
 
     return estimated_area;
     end;
 --
-FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN MDSYS.SDO_GEOMETRY AS 
+FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN MDSYS.SDO_GEOMETRY AS
 
 -- A short robust? approach to choosing best VIPs.
 --
@@ -3189,7 +3287,7 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
 -- for an unclosed edge.
 
    deg2rad     CONSTANT NUMBER   :=0.0174532925199432957692369076848861271344;  -- pi/180.
-   rad2deg     CONSTANT NUMBER   := 57.29577951308232087679815481410517033235;  
+   rad2deg     CONSTANT NUMBER   := 57.29577951308232087679815481410517033235;
    New_geom    MDSYS.SDO_Geometry;
    Xys         MDSYS.SDO_ORDINATE_ARRAY := geom.sdo_ordinates;
    New_Xys     MDSYS.SDO_ORDINATE_ARRAY := geom.sdo_ordinates;
@@ -3215,14 +3313,14 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
    sinyc       number;
    sin5yc      number;
    factor      number;
- 
+
    sum_area    number :=0.0;
    million     number := 1000000.;
    add_one     pls_integer :=0;
    cutoff_area number := cut;
    cutoff      pls_integer :=2;
    cutoff_start pls_integer := 2;
-   n           pls_integer; 
+   n           pls_integer;
    next        pls_integer :=1;
    istart      pls_integer :=1;
    loops       pls_integer;
@@ -3233,22 +3331,22 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
    cutoff_save pls_integer;
    intersects_itself number :=1.;
    closed      boolean := FALSE;
-   
+
    procedure Build_an_edge(Bad_list mdsys.sdo_list_type) as
-   
+
 -- Build an edge from a sorted area array and a sorted id array
      cutoff_to_use  pls_integer := cutoff;
      place          pls_integer;
      diff           number;
-     least_diff     number := 1000000.; 
+     least_diff     number := 1000000.;
      ij             pls_integer;
      ok             boolean;
-     
+
    begin
-   
+
    cutoff_to_use := cutoff_to_use+bad_list.count;
 
--- Typical list of vertices (ids) and areas. Note how the vertices are out of 
+-- Typical list of vertices (ids) and areas. Note how the vertices are out of
 -- order so to build a meaningful edge, we must go in vertex order.
 
 --    Areas          Ids
@@ -3259,11 +3357,11 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
 --Area 10431.369117 Id 29
 --Area 9185.977502  Id 28
 --Area 4713.557327  Id 42
---Area 4208.339749  Id 33 
+--Area 4208.339749  Id 33
 -- ...
 
 -- we need to keep track of the "bad" vertices so we can ignore one or more.
--- Bad are marked negative. Caller must keep track of 
+-- Bad are marked negative. Caller must keep track of
       for ii in 1..Orders.count loop
         Orders(ii) :=ii;
       end loop;
@@ -3277,11 +3375,11 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
 --  dbms_output.put_line('Vtx ' || sort_ids(ii) || ' A ' || round(sort_areas(ii),5));
 --end loop;
 
-      -- Always get start of edge or loop 
+      -- Always get start of edge or loop
       New_Xys(1) := Xys(1);
       New_Xys(2) := Xys(2);
       next :=2;
-      for ii in 2..cutoff_to_use loop 
+      for ii in 2..cutoff_to_use loop
           ok := TRUE;
           for jj in 1..bad_list.count loop
             if Sort_ids(ii) = bad_list(jj) then
@@ -3297,28 +3395,28 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
              new_xys(next-1) := xys(ij*2-1);
              new_xys(next) := xys(ij*2);
 --              dbms_output.put_line('CHOOSIing ' || round(xys(ij*2-1),7) ||','|| round(xys(ij*2),7));
-      
+
           else
            ij := Sort_Ids(ii);
 --             dbms_output.put_line('excluding ' || ij  ||' ' ||round(xys(ij*2-1),7) ||','|| round(xys(ij*2),7));
           end if;
- 
+
       end loop;
 
-  -- Always get end of edge or loop    
+  -- Always get end of edge or loop
       next := next+2;
       new_xys(next-1) := Xys(n*2-1);
       new_xys(next) := Xys(n*2);
-      
+
    end;
-   
+
    function find_intersections(check_angle number default 3.) RETURN NUMBER AS
- 
+
  -- Exhaustive combinatorial search of every segment intersecting any
  -- other segment.That is, 1 with 3, 1 with 4,.., 2 with 4, 2 with 5 ..
  -- Just returns the first intersection it finds.
- -- 
-      m        pls_integer := TRUNC(next/2); 
+ --
+      m        pls_integer := TRUNC(next/2);
       x11      number;
       y11      number;
    begin
@@ -3338,25 +3436,25 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
         y1 := New_Xys(ii*2);
         x3 := New_Xys(ii*2+1);
         y3 := New_Xys(ii*2+2);
- 
+
                -- or a skinny angle st the subject vertex that is just as bad
-               
+
         if  GZ_QA.angle(x0,y0,x1,y1,x3,y3)*rad2deg < check_angle then
 --            dbms_output.put_line('Found ' || ii );
 --            dbms_output.put_line('x0 ' || round(x0,7) || ','||round(y0,7) ||' x2 ' || round(x2,7) ||','||round(y2,7));
 --            dbms_output.put_line('x2 ' || round(x2,7) || ','||round(y2,7) ||' x3 ' || round(x3,7) ||','||round(y3,7));
             -- return end vertices of line segment
             return (ii+1)*million + ii;
-        end if; 
-        
+        end if;
+
         for jj in ii+2..m loop
- 
+
             x2 := x3;
             y2 := y3;
             x3 := New_Xys(jj*2-1);
             y3 := New_Xys(jj*2);
 --            dbms_output.put_line('checking ' || (ii-1) || ' with ' || (jj-1) || ' angle ' || round( GZ_QA.angle(x11,y11,x2,y2,x3,y3)*rad2deg,3));
-   
+
             -- check for an intersection between line segments
 
             if simple_intersect(x0,y0,x1,y1,x2,y2,x3,y3) then
@@ -3366,22 +3464,22 @@ FUNCTION ROBUST_LINE_GEN( geom MDSYS.SDO_GEOMETRY,cut NUMBER default 5) RETURN M
                -- return end vertices of line segment
                return ii*million + jj;
             end if;
-            
-        end loop;     
+
+        end loop;
       end loop;
       return 0.;
    end;
-   
+
 
 BEGIN
- 
+
 -- We always keep the first and last vertices
 
     n := TRUNC(xys.count/2);
 --    Angles.extend(n);
 --    Xys := remove_obtuse_angles(170.,Xys);
 --    n := TRUNC(xys.count/2);
-    
+
     if Xys(1) = Xys(Xys.count-1) and Xys(2) = Xys(Xys.count) then
       closed  := TRUE;
       nv :=  n-1;
@@ -3419,7 +3517,7 @@ BEGIN
         areas(ii) := ABS(estimate_area(x0,y0,x1,y1,x2,y2,sinyc,cosyc,sin5yc,factor))*sin(angles(ii));
         sum_area := sum_area + areas(ii);
       end if;
---dbms_output.put_line('ii ' || ii || 'Area ' || round(areas(ii),6) || ' sin ' || round(sin(angles(ii)),8)); 
+--dbms_output.put_line('ii ' || ii || 'Area ' || round(areas(ii),6) || ' sin ' || round(sin(angles(ii)),8));
 --  dbms_output.put_line('ii ' || ii ||' x0 ' || x0||','||y0 || ',' || x1||','||y1 || ',' || x2 ||','||y2);
     End Loop;
 --    dbms_output.put_line('sum Area ' || round(sum_area,6));
@@ -3431,11 +3529,11 @@ BEGIN
     end if;
 --    dbms_output.put_line('sum Area ' || round(cutoff_area,6) || ' nv ' || nv);
     gz_qa.shellsort2(areas,ids,1,no_to_do,'DESC');
-    
+
 --    for ii in 1..20 loop
 --      dbms_output.put_line('Area ' || round(areas(ii),6) || ' Id ' || ids(ii));
 --    end loop;
--- User just wants 1 extra vertex    
+-- User just wants 1 extra vertex
     if cut <=0.0 then
       if closed then
 -- When the user specified cutoff is zero, circulate the original geometry
@@ -3453,7 +3551,7 @@ BEGIN
       end if;
     elsif cut >=1 then
        cutoff := cut-1;
-        
+
          for ii in 1..cut loop
          if closed and ids(ii) = 1 then
             cutoff := cutoff+1;
@@ -3480,7 +3578,7 @@ BEGIN
       end loop;
     end if;
 --     for ii in 1..areas.count loop
---      dbms_output.put_line('area ' || round(areas(ii),6) || ' id ' || ids(ii)|| ' sin ' || round((angles(ids(ii)))/deg2rad,4));        
+--      dbms_output.put_line('area ' || round(areas(ii),6) || ' id ' || ids(ii)|| ' sin ' || round((angles(ids(ii)))/deg2rad,4));
 --      end loop;
 -- Ensure we get at least a triangle
     if closed then   -- we have 2 vertices, 1 distinct
@@ -3497,13 +3595,13 @@ BEGIN
 
     Orders.extend(ids.count);
     Sort_areas.extend(ids.count);
-    cutoff_save := cutoff;    
+    cutoff_save := cutoff;
     New_xys.extend(Xys.count);
-    
+
     WHILE cutoff <= n and intersects_itself <> 0.0 LOOP
- 
+
       Build_an_edge(bad_list);
- 
+
 -- Some loops can be problematic and so we want to try fewer coordinates
 -- before we have to use more.
 
@@ -3513,15 +3611,15 @@ BEGIN
 --        if cutoff <= cutoff_start then
 --           cutoff := cutoff_save;
 --        end if;
-        
+
 --      end if;
       intersects_itself := find_intersections;
 
--- Deal with any intersections      
+-- Deal with any intersections
 -- Loops or near loops can be problematic so if we just added a point we may
 -- need to skip that one.
       loops :=0;
-     
+
       while loops < 2 and  intersects_itself <> 0 and cutoff >= cutoff_start loop
         loops := loops +1;
 
@@ -3537,10 +3635,10 @@ BEGIN
         end if;
 
         if Sort_Areas(bad2) < Sort_Areas(bad) then
-        bad := bad2; 
+        bad := bad2;
 --        dbms_output.put_line('bbad ' || bad || ' bad2 ' || bad2);
         end if;
-        -- If its already in the list, ignore 2nd occurrence          
+        -- If its already in the list, ignore 2nd occurrence
         for ii in 1..bad_list.count loop
            if bad = bad_list(ii) then
               bad :=0;
@@ -3556,7 +3654,7 @@ BEGIN
         Build_an_edge(bad_list);
         intersects_itself := find_intersections;
 --        dbms_output.put_line('i itself ' || intersects_itself || ' next was ' || next);
- 
+
       end loop;
       cutoff := cutoff+1;
 
@@ -3565,9 +3663,9 @@ BEGIN
 --    dbms_output.put_line('FINAL ' ||new_xys.counT);
     new_geom := geom;
     new_geom.sdo_ordinates := new_xys;
- 
+
   RETURN new_geom;
-  
+
 END Robust_Line_Gen;
 --
 FUNCTION Fast_Vincenty_gcd(x1 NUMBER,y1 NUMBER,x2 NUMBER,y2 NUMBER,units VARCHAR2 DEFAULT 'm') RETURN NUMBER DETERMINISTIC AS
@@ -3590,14 +3688,14 @@ FUNCTION Fast_Vincenty_gcd(x1 NUMBER,y1 NUMBER,x2 NUMBER,y2 NUMBER,units VARCHAR
  #                     - 'm' : meters (default)
  #                     - 'ft': feet (US)
  # Purpose:
- #    Calculates Great circle distance (shortest line on the ellipsoid - a model 
+ #    Calculates Great circle distance (shortest line on the ellipsoid - a model
  #    of the earth - a sphere with flattening at the poles) very accurately. The
- #    line is between 2 points in geodetic coordinates (degrees). The trace of 
+ #    line is between 2 points in geodetic coordinates (degrees). The trace of
  #    this line on the elipsoid is called a geodesic. Uses GRS 80 ellipsoid.
  #
  #    This function exceeds the Oracle sdo_length accuracy (
  #    set length = sdo_geom.sdo_length(geometry,0.5,'unit=meter') and matches to
- #    3 decimal digits (or more) the superlative accuracy of Charles Karney's code in the 
+ #    3 decimal digits (or more) the superlative accuracy of Charles Karney's code in the
  #    Geodesic package for great circles up to half way round the world!
  #    It (like Oracle) does not work for antipodal and near antipodal points.
  #    This function is about 1.5 faster than sdo_length.
@@ -3615,7 +3713,7 @@ FUNCTION Fast_Vincenty_gcd(x1 NUMBER,y1 NUMBER,x2 NUMBER,y2 NUMBER,units VARCHAR
  #    GZ_UTIL_ZONE.fast_atan2
  #
  # Limits: This function does not work correctly for antipodal points and points
- #         within about 0.6 degrees longitude of antipodicity. 
+ #         within about 0.6 degrees longitude of antipodicity.
  #         Use geodesic.inverse instead.
  #
  # Modification History:
@@ -3685,16 +3783,16 @@ BEGIN
  tantheta1 := b_over_a*tan(y1 * deg2rad) ;     -- theta is latitude
  tantheta2 := b_over_a*tan(y2 * deg2rad) ;
 
- L := (x2 - x1) * deg2rad ; -- Difference in longitude  
+ L := (x2 - x1) * deg2rad ; -- Difference in longitude
  temp :=b_over_a;
 -- differences are in .01 mm over a 111000 meter distance using fast_atan2
  u1 := GZ_UTIL_ZONE.fast_atan2(Tantheta1,1.) ;
  u2 := GZ_UTIL_ZONE.fast_atan2(Tantheta2,1.) ;
- 
+
 
  sinU1 := GZ_UTIL_ZONE.sincos(u1,cosU1) ;
  sinU2 := GZ_UTIL_ZONE.sincos(u2,cosU2) ;
- 
+
 
  sinU1CosU2 := sinU1 * cosU2;
  sinU2CosU1 := sinU2 * cosU1;
@@ -3708,9 +3806,9 @@ BEGIN
 
  --   itercount := itercount + 1;
  -- Calculate the sine from the Taylor series (truncated) for small sines
- -- The Vincenty method is not limited by either the sine/cosine or atan2 
- -- values calculated below. 
- 
+ -- The Vincenty method is not limited by either the sine/cosine or atan2
+ -- values calculated below.
+
     if abs(lambda) < .04 then   -- good to 2 degrees  -> this .04 constant
       lambda2 := lambda*lambda;
       lambda3 := lambda2*lambda;
@@ -3719,7 +3817,7 @@ BEGIN
     else
       sinLambda := GZ_UTIL_ZONE.sincos(lambda,cosLambda) ;
     end if;
-      
+
 
 -- Note: exponentiation is not as accurate.
     sinSigma := Sqrt((cosU2 * sinLambda) * (cosU2 * sinLambda) +
@@ -3775,9 +3873,9 @@ BEGIN
 --  End If ;
 
   uSq  := cosSqAlpha * e2 ;
- 
+
   temp := (4096. + uSq * (-768. + uSq * (320. - 175. * uSq)))  ;
-  aa   := 1. + uSq * temp * 0.00006103515625; 
+  aa   := 1. + uSq * temp * 0.00006103515625;
   BB   := uSq * 0.0009765625  * (256. + uSq * (-128. + uSq * (74. - 47. * uSq))) ;
   deltaSigma := BB * sinSigma * (cos2sigmaM + BB *0.25 * (cosSigma *
                 (cos22 -1.) - BB / 6. * cos2sigmaM *
@@ -3795,13 +3893,13 @@ BEGIN
    END IF ;
 
    RETURN ROUND(gcd,6);
-   
+
 END fast_vincenty_gcd;
 --
 FUNCTION FIND_COORDINATE_WITHIN_EDGE(x NUMBER,y NUMBER,XYOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_Array,tt IN OUT NOCOPY NUMBER,ptolerance NUMBER default 0.05)  RETURN NUMBER AS
 
 -- Locate a pair of coordinates (either vertex within the edge or a new point near
--- or on the edge) within an edge and return the particular segment that it 
+-- or on the edge) within an edge and return the particular segment that it
 -- falls within.
 
 --        * (x,y)  falls within 1 to 2
@@ -3824,12 +3922,12 @@ FUNCTION FIND_COORDINATE_WITHIN_EDGE(x NUMBER,y NUMBER,XYOrd IN OUT NOCOPY MDSYS
   --      (x,y)       - A point to find
   --      XYOrd       - Array of ordinates to search
   --      tt          - Position found as a fraction (line parameter)
-  --      ptolerance  - Oracle tolerance to pass to SDO_INTERSECTION. 
+  --      ptolerance  - Oracle tolerance to pass to SDO_INTERSECTION.
   --      OUTPUT
-  
+
 --
 -- Purpose: Returns the segment that a particular (x,y) pair fall within.
-                          
+
 -- Called by: Find_Intersection_Segment
 -- Dependencies: None
 ********************************************************************************
@@ -3856,7 +3954,7 @@ deg2rad   CONSTANT NUMBER   :=0.0174532925199432957692369076848861271344;  -- pi
     ytolerance        NUMBER;
     m                 PLS_INTEGER;
 BEGIN
-  
+
   x1 := XYOrd(1);
   y1 := XYOrd(2);
   tt := 0.0;
@@ -3867,21 +3965,21 @@ BEGIN
      found := n;
      n :=0;
      tt := 1.0;
-  end if; 
+  end if;
 
 -- Convert 0.05 meters to degrees
- 
+
    if delta is NULL then
      delta := ptolerance/(111319.490793274*cos(y1*deg2rad));
    end if;
-  
+
    m := n;
    if MOD(m,2) = 0 then
      m := m + 1;
    end if;
    xhalf := XYOrd(m);
    xdiff := abs(xhalf-x1);
---   ytolerance := 0.00005; --.0011; 
+--   ytolerance := 0.00005; --.0011;
    ytolerance := 0.0000004;
 --   dbms_output.put_line('ytol ' || ytolerance);
    eps := 0.0011;
@@ -3909,7 +4007,7 @@ BEGIN
          xLL := xLL-delta;
          xUR := x1+delta;
        end if;
-     
+
        if y1 < y0 then
          yLL := y1-eps;
          yUR := y0+eps;
@@ -3966,20 +4064,20 @@ BEGIN
           end if;
           end if;
         end if;
-        
+
        end if;
      END IF;
   End Loop;
-  
+
   RETURN found;
 
 END FIND_COORDINATE_WITHIN_EDGE;
 --
-FUNCTION FIND_INTERSECTION_SEGMENT(geometry1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY, 
+FUNCTION FIND_INTERSECTION_SEGMENT(geometry1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY,
                                    geometry2 IN OUT NOCOPY MDSYS.SDO_GEOMETRY
                                   ) RETURN MDSYS.SDO_LIST_TYPE AS
 --******************************************************************************
--- Using 2 geometries, determine the segment in line string1 that intersects 
+-- Using 2 geometries, determine the segment in line string1 that intersects
 -- line string2.
 -- Can be used to check if a generalized geometry intersects a nearby geometry.
 -- Note that any shared node (the start and end of geometry1) are not reported.
@@ -3990,19 +4088,19 @@ FUNCTION FIND_INTERSECTION_SEGMENT(geometry1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY,
 --Creation Date: 05/20/2010
 --Update: July 2010 to use Cartesian space per Dan Geringer info about how
 -- Topomaps work.
---        09/01/2010 Handle 2 identical segments. 
+--        09/01/2010 Handle 2 identical segments.
 --Usage:
   -- Call this function from inside another PL/SQL program.  This program
   -- has 3 required parameters:
   --
   --   REQUIRED Parameters:
-  --      INPUT 
+  --      INPUT
   --      geometry1     - A subject geometry
   --      geometry2     - A 2nd geometry
-  
+
 --
 -- Purpose: In Cartesian space, returns an array of intersecting segments.
-                          
+
 -- Dependencies: GZ_UTIL_ZONE.accurate_gcd, find_coordinate_within_edge
 --   SDO_GEOM.SDO_INTERSECTION, SDO_LRS.convert_to_lrs_geom,SDO_LRS.FIND_MEASURE
 ********************************************************************************
@@ -4043,7 +4141,7 @@ BEGIN
     IF geometry1 is NULL then
       RETURN Segments;
     END IF;
- 
+
     XYOrd := geometry1.sdo_ordinates;
 --     bad := check_for_dups(XYord);
 --      if bad <> 0 then
@@ -4084,7 +4182,7 @@ BEGIN
 -- commit;
     gtype := intersections.sdo_gtype;
 --    dbms_output.put_line('GTYPE: ' || gtype);
- 
+
     if gtype = 2001. or gtype=2002. or gtype = 2005. or gtype = 2004. then
        m := TRUNC(intersections.sdo_ordinates.count/2);
 --       dbms_output.put_line('MM ' || m || ' gtype ' || gtype);
@@ -4112,7 +4210,7 @@ BEGIN
            exit;
          end if;
       elsif (ROUND(x,7) = ROUND(x2,7) and ROUND(y,7) = ROUND(y2,7)) then
-      
+
           if ii = 1 and gtype=2002. and n=2 and ROUND(intersections.sdo_ordinates(3),7) = ROUND(x1,7) and ROUND(intersections.sdo_ordinates(4),7) = ROUND(y1,7) then
            segments(1) := 1;
            kount := 1;
@@ -4121,7 +4219,7 @@ BEGIN
          end if;
 --       dbms_output.put_line('x1y1 ' || ii || ' x1 ' || x1 || ' y ' || y1);
 --       dbms_output.put_line('x2y2 ' || ii || ' x2' || x2 || ' y ' || y2);
-      elsif gtype <> 2002 and ((ROUND(x,7) = ROUND(x1,7) and ROUND(y,7) = ROUND(y1,7)) or (ROUND(x,7) = ROUND(x2,7) and ROUND(y,7) = ROUND(y2,7))) then 
+      elsif gtype <> 2002 and ((ROUND(x,7) = ROUND(x1,7) and ROUND(y,7) = ROUND(y1,7)) or (ROUND(x,7) = ROUND(x2,7) and ROUND(y,7) = ROUND(y2,7))) then
 --       dbms_output.put_line('at round 7 null');
           NULL;
       else
@@ -4129,7 +4227,7 @@ BEGIN
 --        dbms_output.put_line('seg ' || seg || ' n ' || n || ' tt ' || round(tt,10) || ' dist ' || distance);
         if distance > 1.E-6 then
 --       if x1 <> x or y1 <> y then
--- This is a cartesian approximation       
+-- This is a cartesian approximation
        Seg := find_coordinate_within_edge(x,y,XYOrd,tt);
 --       dbms_output.put_line('seg ' || seg || ' n ' || n || ' tt ' || round(tt,10) || ' dist ' || round(distance,8));
 --       if (tt = 0.0 and seg = 1.0) or (tt = 1.0 and seg = n) then
@@ -4158,7 +4256,7 @@ BEGIN
          if x1 = x and y1 = y then
            exit;
          elsif x2 = x and y2 = y then
-         
+
            seg := seg + 1;  -- enforce that intersection at end => n
             dbms_output.put_line('SEG now two ' ||seg);
            exit;
@@ -4172,7 +4270,7 @@ BEGIN
           exit when measure >= 0. and measure < 1.;
 
           if measure = 1. then
-           
+
             seg := seg + 1;
             exit;
           end if;
@@ -4191,15 +4289,15 @@ BEGIN
        end loop;
     end if;
 
- 
+
     Segments.trim(Segments.count-kount);
- 
+
 --dbms_output.put_line('returning ' || kount || ' seg ' || segments.count);
   RETURN Segments;
 
 END FIND_INTERSECTION_SEGMENT;
 --
-FUNCTION FIND_MATCHING_SEGMENT(seg PLS_INTEGER, XYOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,GenXYOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,epsilon NUMBER default 1.E-6) RETURN PLS_INTEGER AS 
+FUNCTION FIND_MATCHING_SEGMENT(seg PLS_INTEGER, XYOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,GenXYOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,epsilon NUMBER default 1.E-6) RETURN PLS_INTEGER AS
 
 /*
 ********************************************************************************
@@ -4216,10 +4314,10 @@ FUNCTION FIND_MATCHING_SEGMENT(seg PLS_INTEGER, XYOrd IN OUT NOCOPY MDSYS.SDO_OR
   --      seg         - A segment in GenXyord to find
   --      XYOrd       - Array of ungeneralized ordinates to search
   --      GenXYOrd    - Array of generalized ordinates that corresponds to Xyord
-  --      epsilon     - a small difference in degrees to measure equality  
+  --      epsilon     - a small difference in degrees to measure equality
 --                      between the point to find and the nearest ordinate.
 
--- Purpose: Searches for a segment in the ungeneralized ordinates and returns 
+-- Purpose: Searches for a segment in the ungeneralized ordinates and returns
 --          corresponding generalized segment number.
 
 -- Dependencies: None
@@ -4231,9 +4329,9 @@ FUNCTION FIND_MATCHING_SEGMENT(seg PLS_INTEGER, XYOrd IN OUT NOCOPY MDSYS.SDO_OR
   x            NUMBER;
   y            NUMBER;
   genseg       PLS_INTEGER;
-  
+
 BEGIN
-  
+
   For jj in 1..TRUNC(GenXYOrd.count/2)-1 loop
       ii := ii + 2;               -- ii is odd
       x := GenXYord(ii);
@@ -4249,11 +4347,11 @@ BEGIN
       end if;
   End Loop;
 
-  RETURN 0; 
-   
+  RETURN 0;
+
 END FIND_MATCHING_SEGMENT;
 --
-FUNCTION FIND_MATCHING_XY(x NUMBER,y NUMBER, XYOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,epsilon NUMBER default 1.E-6,istart PLS_INTEGER default 1) RETURN PLS_INTEGER AS 
+FUNCTION FIND_MATCHING_XY(x NUMBER,y NUMBER, XYOrd IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,epsilon NUMBER default 1.E-6,istart PLS_INTEGER default 1) RETURN PLS_INTEGER AS
 
 /*
 ********************************************************************************
@@ -4269,7 +4367,7 @@ FUNCTION FIND_MATCHING_XY(x NUMBER,y NUMBER, XYOrd IN OUT NOCOPY MDSYS.SDO_ORDIN
   --      INPUT
   --      (x,y)       - A pair of ordinates (point) to find
   --      XYOrd       - Array of ordinates to search
-  --      epsilon     - a small difference in degrees to measure equality  
+  --      epsilon     - a small difference in degrees to measure equality
 --                      between the point to find and the nearest ordinate.
 
 -- Purpose: Searches for an (x,y) pair and returns matching vertex number
@@ -4279,7 +4377,7 @@ FUNCTION FIND_MATCHING_XY(x NUMBER,y NUMBER, XYOrd IN OUT NOCOPY MDSYS.SDO_ORDIN
 */
   found        PLS_INTEGER := 0;
   ii           PLS_INTEGER := istart*2-3;
-  
+
 BEGIN
 
 --  dbms_output.put_line('XX ' ||x || ' YY' ||y);
@@ -4294,13 +4392,13 @@ BEGIN
       end if;
   End Loop;
 
-  RETURN found; 
-   
+  RETURN found;
+
 END FIND_MATCHING_XY;
 --
 FUNCTION Find_Segment(X NUMBER,Y NUMBER,PolyMBR IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,XYS IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,SRID NUMBER,distance_found IN OUT NOCOPY NUMBER,epsilon NUMBER default 0.0) RETURN PLS_INTEGER Deterministic As
 
--- Search Xys to find whether a point is in the vicinity of a particular segment 
+-- Search Xys to find whether a point is in the vicinity of a particular segment
 -- and return the segment number. The point may be just within the MBR of the
 -- segment or on it.
 
@@ -4325,7 +4423,7 @@ FUNCTION Find_Segment(X NUMBER,Y NUMBER,PolyMBR IN OUT NOCOPY MDSYS.SDO_LIST_TYP
    angleb             NUMBER :=0.0;
    angle              NUMBER;
    check_distance     NUMBER;
- 
+
    xtest              NUMBER := X;
    ytest              NUMBER := Y;
    dist               NUMBER;
@@ -4345,7 +4443,7 @@ FUNCTION Find_Segment(X NUMBER,Y NUMBER,PolyMBR IN OUT NOCOPY MDSYS.SDO_LIST_TYP
    got_perpendicular  BOOLEAN;
 BEGIN
 
- 
+
   if SRID is NULL or SRID <> 8265. then
     meters := FALSE;
   end if;
@@ -4362,7 +4460,7 @@ BEGIN
        if (Y < yLL or Y > yUR) OR (X < xLL or X > xUR) then
           NULL;
        else
---  Check to locate the point within the range of this MBR                   
+--  Check to locate the point within the range of this MBR
          istart := polyMBR(kk+5);
          iend := polyMBR(kk+6);
          xlast := XYs(istart);
@@ -4395,8 +4493,8 @@ BEGIN
          End Loop;
        end if;
       End Loop;
-      
-   ELSE    
+
+   ELSE
 
 
       Distances.extend(m);
@@ -4422,7 +4520,7 @@ BEGIN
         end if;
         Distances(k) := Dist + k * rmult;  -- encode k in the distances
       end loop;                            -- so we sort only 1 array but know k
-      
+
       shellsort(Distances);
       mloops := 4;
       if Distances.count >= 3 then
@@ -4444,7 +4542,7 @@ BEGIN
         kk := kk*6;
 
 --  Check to locate the point within the range of this MBR
- 
+
          istart := polyMBR(kk+5);
          if istart+2 > iend then
             istart := istart-2;
@@ -4472,7 +4570,7 @@ BEGIN
 -- Work out perpendicular distance from point to line -> (xtest,ytest) to the
 -- near point (xnear,ynear).
 -- If Point does not project onto line then measure distance from (xtest,ytest) to (x1,y1)
-         
+
             dist := Perpendicular(xtest,ytest,x1,y1,x2,y2,xnear,ynear,FALSE, meters);
             got_perpendicular := TRUE;
             if dist = big then
@@ -4486,7 +4584,7 @@ BEGIN
 
 --dbms_output.put_line('dist ' || round(dist,6) || ' I ' || i || ' seg ' || trunc((i-1)/2) || ' last  ' || round(last_dist,3));
             if dist <= last_dist then
-            
+
 -- We need to ensure we get the segment on the subject edge thatis most parallel to
 -- the segment on the loop.
 
@@ -4496,10 +4594,10 @@ BEGIN
              angle := ABS(90.-GZ_QA.angle(xtest,ytest,x1,y1,x2,y2)*rad2deg);
 --             dbms_output.put_line('angleb ' || round(angleb,6) || ' angle ' || round(angle,6) || ' seg ' || seg || ' ii ' || i);
              if got_perpendicular = FALSE and angleb < angle and i > 3 then
-               seg := TRUNC((i-1)/2) -1;               
+               seg := TRUNC((i-1)/2) -1;
              else
                seg := TRUNC((i-1)/2);
-             end if;    
+             end if;
                last_dist := dist;
 --               if seg = 23 then
 --                   dbms_output.put_line('angleb ' || round(angleb,6) || ' angle ' || round(angle,6) || ' seg ' || seg || ' ii ' || i);
@@ -4518,8 +4616,8 @@ BEGIN
 --      dbms_output.put_line('returning seg ' || seg);
       RETURN seg;
       END IF;
-  RETURN 0;   
-    
+  RETURN 0;
+
 END FIND_SEGMENT;
 --
 FUNCTION Find_Distances(x IN OUT NOCOPY NUMBER,y IN OUT NOCOPY NUMBER,XYS IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,short_distance  IN OUT NOCOPY NUMBER,exclude BOOLEAN default FALSE,pstart PLS_INTEGER default 1,pnvert_outer PLS_INTEGER default 0,forwards BOOLEAN default TRUE) RETURN NUMBER IS
@@ -4531,16 +4629,16 @@ FUNCTION Find_Distances(x IN OUT NOCOPY NUMBER,y IN OUT NOCOPY NUMBER,XYS IN OUT
 --Usage:
   -- Call this function from inside another PL/SQL program.  There are 5 parameters:
   --
-  --   REQUIRED Parameters: 
+  --   REQUIRED Parameters:
   --            x,y:  x,y coordinates of the reference point
   --            Xys: coordinates of the lake geometry to measure to
-  --            exclude: When exclude is TRUE, exclude the first and last point 
+  --            exclude: When exclude is TRUE, exclude the first and last point
   --               since they are the entrance and exit of the art path.
   --            pstart: vertex to start in XY (defaults to 1)
   --            nvert_outer: vertex to end or the # vertices in the outer ring
   --
---Purpose:      Finds distances and their order (from close to far) from a  
---              reference point x,y to each vertex of (another) geometries Xys. 
+--Purpose:      Finds distances and their order (from close to far) from a
+--              reference point x,y to each vertex of (another) geometries Xys.
 --              Returns the vertices ordered by increasing distance.
 -- Method:      Determines the distance to each vertex and then sorts.
 -- Dependencies: distance_fcn
@@ -4551,8 +4649,8 @@ FUNCTION Find_Distances(x IN OUT NOCOPY NUMBER,y IN OUT NOCOPY NUMBER,XYS IN OUT
    big            NUMBER := 1E10;
    xtest          NUMBER;
    ytest          NUMBER;
-   istart         PLS_INTEGER := pstart*2-1;    
-   n              PLS_INTEGER := pnvert_outer; 
+   istart         PLS_INTEGER := pstart*2-1;
+   n              PLS_INTEGER := pnvert_outer;
    n2             PLS_INTEGER;
    jj             PLS_INTEGER;
    ii             PLS_INTEGER;
@@ -4571,7 +4669,7 @@ BEGIN
       gc_distances(1) := big;
       gc_distances(n) := big;
     end if;
-    
+
     ii := istart-2;
     While ii <> n2 loop
       ii := ii+2;
@@ -4581,13 +4679,13 @@ BEGIN
          xtest := Xys(ii);
          ytest := Xys(ii+1);
          jj := TRUNC((ii+1)/2) -pstart + 1;
--- Use this empirical function to get a very accurate approximation to 
+-- Use this empirical function to get a very accurate approximation to
 -- the great circle distance.
          gc_distances(jj) := fast_distance(x,y,xtest,ytest);
          Vertex_order(jj) := jj -1 + pstart;
       End if;
     End Loop;
-    
+
 -- Now sort from near to far
     Stablesort2(gc_distances,Vertex_order,1,Vertex_order.count,forwards);
 --     if vertex_order.count < 100 then
@@ -4597,49 +4695,49 @@ BEGIN
 --    end if;
     short_distance := GC_distances(1);
     Return Vertex_order(1);
-     
+
 END Find_Distances;
 --
 PROCEDURE STABLESORT2( Arr         IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
                        Order_array   IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
-                       InLB          PLS_INTEGER default 1, 
+                       InLB          PLS_INTEGER default 1,
                        InUB          PLS_INTEGER default 0,
-                       forwards      BOOLEAN default TRUE) 
+                       forwards      BOOLEAN default TRUE)
  AS
 /*******************************************************************************
 --Program Name: stablesort2
 --Author: Sidey Timmins
 --Creation Date: 01/04/2007
 --Updated:  12/01/2010 To be more efficient when the order_Array has duplicates.
---Usage: 
+--Usage:
   -- Call this program from inside another PL/SQL program.  This program
   -- has 2 required parameters:
   --
   --   REQUIRED Parameters:
  --          Arr             - Input number Array to sort. Sort is ascending.
-  
+
  --          Order_array     - Companion Array to be also sorted (usually
  --                            contains 1.. Arr.count. This array can be used
  --                            to sort other arrays:
- 
+
  --                       FOR i IN 1..N LOOP
  --                          Order_array(i) := i;
  --                       END LOOP;
- 
+
  --                       shellsort2(Data_Array,Order_array,1,n);
- 
+
  --                       FOR i IN 1..N LOOP
  --                          Sorted_Array2(i) := Array2(Order_array(i));
  --                       END LOOP;
- 
+
  --          LB              - lower bound of Arr to sort, defaults to 1
  --          UB              - upper bound of Arr to sort, defaults to Arr.count
--- 
---Purpose: 
+--
+--Purpose:
   -- Sorts 2 arrays and is stable when the order array has unique ascending values.
   -- Example
   --          input  arrays                          sorted output
-  --    unsorted Nodes   Order_Array        Node                  Order_Array   
+  --    unsorted Nodes   Order_Array        Node                  Order_Array
 --     216000003385025             1         8185025                   3
 --     216000008785025             2         8185025                   4
 --             8185025             3         8385025                   5
@@ -4672,21 +4770,21 @@ PROCEDURE STABLESORT2( Arr         IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
   last             NUMBER;
   n                PLS_INTEGER;
 
-  BEGIN 
+  BEGIN
 
   IF UB = 0 THEN
     UB := Arr.count;
   END IF;
- 
+
   n := UB - LB +1;
   IF (n <= 1) THEN
     RETURN;
-  END IF; 
- 
- -- compute largest increment: h 
-  
+  END IF;
+
+ -- compute largest increment: h
+
    h := 1;
- 
+
    IF (n >= 14) THEN
 -- Successive values of h are 1, 4, 14, 40, 121,..
 -- see references to understand this loop
@@ -4696,7 +4794,7 @@ PROCEDURE STABLESORT2( Arr         IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
      END LOOP;
  -- After this line, have the largest increment <= n
      h := trunc(h / 3);
-  
+
    END IF;
 
    IF forwards = TRUE THEN
@@ -4728,7 +4826,7 @@ PROCEDURE STABLESORT2( Arr         IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
    ELSE
 
 -- Sort the order array backwards (decreasing)
- 
+
     While h > 0  LOOP
 
 -- Sort by insertion in increments of h
@@ -4750,7 +4848,7 @@ PROCEDURE STABLESORT2( Arr         IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
      h := trunc(h / 3);
     End Loop;
    END IF;
- 
+
 End Stablesort2;
 --
 PROCEDURE GET_SCALE(threshold IN OUT NOCOPY NUMBER,scale IN OUT NOCOPY NUMBER,target_scale NUMBER,Length NUMBER) AS
@@ -4760,7 +4858,7 @@ iround       PLS_INTEGER;
 BEGIN
 -- Keep reducing the scale, starting with 10% and then getting a larger percentage
 -- The sequence of scales are 4.5M,4M,3.5M,3M,2.5M,2M,1.5M,1M,500K,250K,100K,50K,...none!
- 
+
                if threshold > 1000. then
                  threshold := threshold - 100.;
                elsif threshold > 500. then
@@ -4771,22 +4869,22 @@ BEGIN
                if threshold < 1. then
                  threshold := 1.;
                end if;
-               
+
 -- Above 10 million we go down by 2M: so 20M,18M,16M,14M,12M,10M,8M,6M,4M,2M
                if target_scale > 15000000. and scale >= 4000000. then
                   scale := scale - 2000000.;
--- At and above 10 million we go down by 1M for target scale of say 10M 
+-- At and above 10 million we go down by 1M for target scale of say 10M
                elsif target_scale > 5000000. and target_scale <= 15000000. and scale > 1000000. then
-                  scale := scale - 1000000.; 
+                  scale := scale - 1000000.;
 -- At and above million we go down by 500K: so 5M,4.5M,4M,3.5M,3M,2.5M,2M,1.5M,1M
                elsif target_scale > 1000000. and target_scale <= 10000000. and scale >= 1000000. then
-                  scale := scale - 500000.; 
--- At and above 1 million we go down by 100K for target scale of say 10M 
+                  scale := scale - 500000.;
+-- At and above 1 million we go down by 100K for target scale of say 10M
                elsif target_scale > 500000. and target_scale <= 1000000. and scale > 100000. then
-                  scale := scale - 100000.; 
+                  scale := scale - 100000.;
 -- At and above 500K we go down by 50K: so 500K,450K,400K,350K,300K,250K,200K,150K,100K
                elsif target_scale <= 1500000. and scale >= 100000. then
-                  scale := scale - 50000.; 
+                  scale := scale - 50000.;
 -- Below a million we halve more or less: 500K,250K,100K,50K,25K,10K,5K,2.5K,1K,500,250,125
                elsif scale <= 1000000. or (target_scale >= 10000000. and scale <= 4000000.) then
                  scale := TRUNC(scale / 2.);
@@ -4816,7 +4914,7 @@ BEGIN
    scale := TRUNC(iscale/iround)*iround;
  end if;
  scale := iscale;
-*/ 
+*/
 END GET_SCALE;
 --
 FUNCTION GET_LOOP_XYS(Edge_xys IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,Edges_Table VARCHAR2,ID_LIST IN OUT NOCOPY MDSYS.SDO_LIST_TYPE) RETURN MDSYS.SDO_ORDINATE_ARRAY AS
@@ -4828,10 +4926,10 @@ FUNCTION GET_LOOP_XYS(Edge_xys IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,Edges_Tabl
    geom  MDSYS.SDO_GEOMETRY;
    xys        MDSYS.SDO_ORDINATE_ARRAY;
    loop_xys   MDSYS.SDO_ORDINATE_ARRAY := Edge_xys;
-   
-   
+
+
    procedure concatenate_xys(loup_xys in out nocopy mdsys.sdo_ordinate_array, next_xys in out nocopy mdsys.sdo_ordinate_array, way number) as
-     
+
     m         pls_integer := loup_xys.count;
     begin
          loup_xys.extend(next_xys.count+1-start_xy);
@@ -4845,12 +4943,12 @@ FUNCTION GET_LOOP_XYS(Edge_xys IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,Edges_Tabl
     end;
 
 BEGIN
---          for i in 1..loop_xys.count loop  
+--          for i in 1..loop_xys.count loop
 --            dbms_output.put_line('loop_xys ' || round(loop_xys(i),6));
 --         end loop;
 --   dbms_output.put_line('id: ' || id_list(1) || ' n ' || n);
    for ii in 2..n Loop
-   
+
 -- Get either the old or new geometry for the current edge so we have a polygon
 -- built with the desired edge. A is to the right of edge B before generalization.
 -- After A moves to position C and is now to the left. The area of the loop AB
@@ -4865,8 +4963,8 @@ BEGIN
 --          +______
 
 
-     sql_stmt := 'SELECT NEW_GEOMETRY FROM ' ||EDGES_TABLE ||' WHERE EDGE_ID=:1';       
---     dbms_output.put_line( 'selecting ' ||id_list(ii)); 
+     sql_stmt := 'SELECT NEW_GEOMETRY FROM ' ||EDGES_TABLE ||' WHERE EDGE_ID=:1';
+--     dbms_output.put_line( 'selecting ' ||id_list(ii));
      EXECUTE IMMEDIATE sql_stmt into geom using ABS(id_list(ii));
 -- dbms_output.put_line( id_list(ii));
        if id_list(ii) > 0 then
@@ -4887,7 +4985,7 @@ FUNCTION IS_CONNECTED(edge_id NUMBER,start_node NUMBER,end_node NUMBER,
                        nearby_edges MDSYS.SDO_LIST_TYPE,
                        Edges_Table VARCHAR2,ID_LIST IN OUT NOCOPY MDSYS.SDO_LIST_TYPE ) RETURN VARCHAR2 AS
 
-  
+
 -- simple function to "discover" continuity from a small set of edges as in
 --   2,3,4 connect start_node to target
 --
@@ -4913,13 +5011,13 @@ FUNCTION IS_CONNECTED(edge_id NUMBER,start_node NUMBER,end_node NUMBER,
  temp         NUMBER;
  new          NUMBER := start_node;
  target       NUMBER := end_node;
- 
+
  n           PLS_INTEGER := nearby_edges.count;
- 
+
       function connect_it(node number,last number) return number as
-      
--- simple function to "discover" continuity of one edge from a small set of edges 
--- as in 3 connects from node c of edge 2 and sets the current node to d. 
+
+-- simple function to "discover" continuity of one edge from a small set of edges
+-- as in 3 connects from node c of edge 2 and sets the current node to d.
 -- Note how each edge can only be used once so we can keep track with an is
 -- connected (already) array.
 --
@@ -4948,7 +5046,7 @@ FUNCTION IS_CONNECTED(edge_id NUMBER,start_node NUMBER,end_node NUMBER,
                  id_list(next) := -edge_ids(ii);
                  connected(ii) :=1;
 --                 dbms_output.put_line('.......connected edge:'||edge_ids(ii) ||' from node ' || node ||' to node '|| new);
-                 return new;            
+                 return new;
             end if;
             end if;
          end loop;
@@ -4956,7 +5054,7 @@ FUNCTION IS_CONNECTED(edge_id NUMBER,start_node NUMBER,end_node NUMBER,
          return 0;
       end;
 BEGIN
- 
+
     id_list.extend(n);
     id_list(1) := edge_id;
 --    dbms_output.put_line('START ' || edge_id);
@@ -4969,7 +5067,7 @@ BEGIN
     end loop;
 --    dbms_output.put_line('list ' || nearby_list);
      sql_stmt := 'SELECT EDGE_ID,START_NODE_ID,END_NODE_ID FROM ' ||EDGES_TABLE ||' WHERE EDGE_ID in '|| nearby_list;
-     
+
      EXECUTE IMMEDIATE sql_stmt BULK COLLECT into edge_ids,starts,ends;
      Connected.extend(n);
 --     dbms_output.put_line('Pool of edges');
@@ -4979,7 +5077,7 @@ BEGIN
         Connected(ii) := 0;
      end loop;
      last_node :=0;
--- Here we go from start to end node     
+-- Here we go from start to end node
      WHILE new <> target and loop_counter < n LOOP
         loop_counter := loop_counter +1;
         current_node := start_node;
@@ -4995,7 +5093,7 @@ BEGIN
           current_node := new;
         end loop;
      END LOOP;
-     
+
      if new = target then
 -- we went backwards thru the first edge, so change order to appear we went forwards
      id_list.trim(id_list.count-next);
@@ -5029,7 +5127,7 @@ BEGIN
           current_node := new;
         end loop;
      END LOOP;
-     
+
      if new = target then
        id_list.trim(id_list.count-next);
 --     dbms_output.put_line('>>>Found target ' || new);
@@ -5043,7 +5141,7 @@ FUNCTION GET_SPLIT_VERTICES(edge_id NUMBER,start_node NUMBER,end_node NUMBER,
                             geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,
                             nearby_edges MDSYS.SDO_LIST_TYPE,
                             Edges_Table VARCHAR2 default NULL,
-                            part_geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,whole BOOLEAN default FALSE) RETURN MDSYS.SDO_LIST_TYPE AS 
+                            part_geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY,whole BOOLEAN default FALSE) RETURN MDSYS.SDO_LIST_TYPE AS
 
 /*
 ********************************************************************************
@@ -5064,9 +5162,9 @@ FUNCTION GET_SPLIT_VERTICES(edge_id NUMBER,start_node NUMBER,end_node NUMBER,
   --       geometry     - the original geometry
   --       nearby_edge  - the edges nearby that intersect edge_id
   --       Edges_Table  - the Edges_toprocess table
-  
+
 -- Purpose: Each generalized edge may intersect other edges. if so, this function
---          makes a list of places where to split the edge (quadraplets): 
+--          makes a list of places where to split the edge (quadraplets):
 --             1.  bad generalized segment #,
 --             2. orig start segment, (starting at the same vertex as the generalized segment)
 --             3. original end segment (starting at the same vertex as the generalized segment ended)
@@ -5095,7 +5193,7 @@ FUNCTION GET_SPLIT_VERTICES(edge_id NUMBER,start_node NUMBER,end_node NUMBER,
     area2            NUMBER;
     seg_low          NUMBER;
     seg_hi           NUMBER;
-    nearby_edge_id   NUMBER; 
+    nearby_edge_id   NUMBER;
     vertex           NUMBER := 0.;
     x                NUMBER;
     y                NUMBER;
@@ -5145,7 +5243,7 @@ BEGIN
     matching := Check_matching_Xys(tested,newXYOrd,XyOrd);
 
 
- 
+
 -- if ii < 1000 then
 --    dbms_output.put_Line('id ' || edge_id || ' match ' || matching || ' tested ' || tested);
 --  end if;
@@ -5159,7 +5257,7 @@ BEGIN
 
 -- For each nearby edge, get its current geometry and test the new generalized
 -- geometry to see it it intersects anywhere except on the ends (nodes).
- 
+
        For jj in 1..nearby_edges.count loop
        -- First one is the closest
           nearby_edge_id := nearby_edges(jj);
@@ -5174,7 +5272,7 @@ BEGIN
                ystart := NearbyOrd(2);
                xend   := NearbyOrd(NearbyOrd.count-1);
                yend := NearbyOrd(NearbyOrd.count);
-               
+
                ISegments := FIND_INTERSECTION_SEGMENT(new_geometry,nearby_geometry);
 --dbms_output.put_line(nearby_edge_id||' has INTERSECTIONS ' || isegments.count);
 -- Check to see if the segment stays on the same side of a nearby closed loop OR
@@ -5187,15 +5285,15 @@ BEGIN
                  (xstart <> XYord(1) or ystart <> XYord(2)) and
                  (xstart <> XYord(m-1) or ystart <> XYord(m))) then
 --               dbms_output.put_line('Isegments count ' || Isegments.count);
---               if Isegments.count=0 and jj =1 and xstart = xend and ystart = yend and 
---               if Isegments.count=0 and xstart = xend and ystart = yend and 
+--               if Isegments.count=0 and jj =1 and xstart = xend and ystart = yend and
+--               if Isegments.count=0 and xstart = xend and ystart = yend and
 --                 (xstart <> XYord(1) or ystart <> XYord(2)) and
 --                 (xstart <> XYord(m-1) or ystart <> XYord(m)) then
---                dbms_output.put_line('CCCalling polyLR with ' || part_geometry.sdo_ordinates.count || ' new ' || new_geometry.sdo_ordinates.count);  
+--                dbms_output.put_line('CCCalling polyLR with ' || part_geometry.sdo_ordinates.count || ' new ' || new_geometry.sdo_ordinates.count);
 
                  ISegments := CHECK_POLYLR(part_geometry,nearby_geometry,new_geometry);
 --                 dbms_output.put_line(nearby_edge_id||' has Isegments count after check polyLR ' || Isegments.count || ' nearby ' || nearby_edge_id);
-               end if; 
+               end if;
 --          dbms_output.put_line('Isegments count ' || Isegments.count);
 
           If Isegments.count <> 0 then
@@ -5215,7 +5313,7 @@ BEGIN
             if seg_pos > Segments.count then
               Segments.extend(12);
             end if;
-            
+
 -- Make a list of sextuplets: bad generalized segment #,
 --                          orig start segment, original end segment
 --                          nearby edge id that is the problem,
@@ -5246,7 +5344,7 @@ BEGIN
             if final_segment <= low_segment then
               final_segment := Find_matching_xy(x,y,XYord,1.E-6,low_segment+1);
             end if;
- 
+
             if XYOrd(1) = XYOrd(XYOrd.count-1) and XYOrd(2) = XYOrd(XYOrd.count) and
                x = XYord(1) and y = XYOrd(2) then
                final_segment := TRUNC(XYOrd.count/2);
@@ -5275,7 +5373,7 @@ BEGIN
           end if;
       End Loop;
     END IF;
-    
+
 -- Check nodestar is good.
 -- A is to the right of edge B before generalization.
 -- After A moves to poition C and is now to the left. The area of the loop AB
@@ -5288,12 +5386,12 @@ BEGIN
 --          |  |   |
 --          |  /   |
 --          +______
-    
+
     if whole and seg_count=0 and vertex_count=2 then
           is_a_connection := Is_Connected(edge_id,start_node,end_node,nearby_edges,Edges_Table,id_list);
 --          dbms_output.put_line('for id : ' || edge_id || ' is a connection ' || is_a_connection);
-          
-          
+
+
           if is_a_connection='TRUE' then
             new_xys := get_loop_xys(newXYOrd,Edges_table,id_list);
             old_xys := get_loop_xys(XYOrd,Edges_table,id_list);
@@ -5301,19 +5399,19 @@ BEGIN
             area1 := centroid(old_xys,xc,yc,8265.);
   --          dbms_output.put_line('Area1 ' || round(area1,6) || ' area2 ' || round(area2,6));
             if area2*area1 <= 0. then
-               Segments := MDSYS.SDO_LIST_TYPE(1,1,TRUNC(old_xys.count/2),ABS(id_list(2))); 
+               Segments := MDSYS.SDO_LIST_TYPE(1,1,TRUNC(old_xys.count/2),ABS(id_list(2)));
                RETURN Segments;
             end if;
           end if;
-      end if;   
- 
+      end if;
+
 --           for ij in 1..seg_count loop
 --    dbms_output.put_line('list was ' || segments(ij));
 --    end loop;
     Segments.trim(Segments.count-seg_count);
--- 
+--
     if seg_count > 6 then
--- We have to have the segment list sorted for Assemble_edge      
+-- We have to have the segment list sorted for Assemble_edge
        Seg_copy := Segments;
        Seg_ids.extend(segments.count/6);
        For ii in 1..Seg_ids.count Loop
@@ -5330,9 +5428,9 @@ BEGIN
          Segments(place2+3) := Seg_copy(place+3);
          Segments(place2+4) := Seg_copy(place+4);
        End Loop;
-       
+
 -- Avoid a gross mistake.
-     end if;   
+     end if;
 --   for ij in 1..segments.count loop
 --    dbms_output.put_line('LIST ' || segments(ij));
 --    end loop;
@@ -5341,16 +5439,16 @@ BEGIN
 END GET_SPLIT_VERTICES;
 --
 FUNCTION LINE_INTERSECT( X1 IN OUT NOCOPY NUMBER,
-                              Y1 IN OUT NOCOPY NUMBER,                        
+                              Y1 IN OUT NOCOPY NUMBER,
                               X2 IN OUT NOCOPY NUMBER,
                               Y2 IN OUT NOCOPY NUMBER,
                               X3 IN OUT NOCOPY NUMBER,
-                              Y3 IN OUT NOCOPY NUMBER,                        
+                              Y3 IN OUT NOCOPY NUMBER,
                               X4 IN OUT NOCOPY NUMBER,
                               Y4 IN OUT NOCOPY NUMBER,
                               Xi IN OUT NOCOPY NUMBER,
                               Yi IN OUT NOCOPY NUMBER,
-                              det IN OUT NOCOPY NUMBER,debugit boolean default false)           
+                              det IN OUT NOCOPY NUMBER,debugit boolean default false)
             RETURN NUMBER Deterministic IS
 /*
 ********************************************************************************
@@ -5364,7 +5462,7 @@ FUNCTION LINE_INTERSECT( X1 IN OUT NOCOPY NUMBER,
   --
   --   REQUIRED Parameters:
   --      INPUT
-  
+
   --      X1,Y1      - start point (x,y) of line 1 (point A)
   --      X2,Y2      - end point (x,y) of line 1 (point B)
   --      X3,Y3      - start point  (x,y) of line 2
@@ -5375,33 +5473,33 @@ FUNCTION LINE_INTERSECT( X1 IN OUT NOCOPY NUMBER,
   --      det        - The determinant.
   --      Not returned int this version
   --      R         - the (returned) line parameter along line 1 (A to B)
-  --                     will be from 0 to 1 if the interesection point C 
+  --                     will be from 0 to 1 if the interesection point C
   --                     is on the line.
-  --                     
+  --
   --
   --                   C
   --            A+-----.------+B
-  --          zero   prout    1.0 
+  --          zero   prout    1.0
   --
 -- Purpose: Determine where 2 lines intersect
   -- Return:      zero to 1.:  intersection point is on line
   --                      -1:  no intersection
   --                      -2:  parallel
   --                   -3,-4:  concident
--- Dependencies: 
+-- Dependencies:
 -- Updates: This data for derived and parent caused a problem
---  x1   NUMBER :=  70971.6838873964;         xes(1) :=71241.4748303597;     
+--  x1   NUMBER :=  70971.6838873964;         xes(1) :=71241.4748303597;
 --  y1   NUMBER :=  184331.932613249;         yes(1) :=184666.358957741;   <--
 --  x2   NUMBER :=  71241.4748303597;         xes(2) :=70439.6838592369;
 --  y2   NUMBER :=  184666.358957743;  <--    yes(2) :=183672.478212245;
 
---Case 1:  
+--Case 1:
 -- so we upped the tolerance from 1.E-5 to 2.E-5 which enabled x1,x2 to
 -- be changed by as much as 1.E-8 (20 times bigger than the difference
 -- shown above)
 --Case 2:
 -- After addding 4 million meters to x and 2 million meters to y the new
--- tolerances shown below enabled x1,y1 (and/or x2,y2) to be changed by 1.E-7 
+-- tolerances shown below enabled x1,y1 (and/or x2,y2) to be changed by 1.E-7
 
 -- Reference: A Programmer's Geometry: Adrian Bowyer and John Woodwark
 --  http://local.wasp.uwa.edu.au/~pbourke/geometry/pointline/
@@ -5410,7 +5508,7 @@ FUNCTION LINE_INTERSECT( X1 IN OUT NOCOPY NUMBER,
 */
    s    NUMBER;
    t    NUMBER;
-   
+
    length_2 NUMBER;
    d        NUMBER;
    xcheck   NUMBER;
@@ -5420,10 +5518,10 @@ BEGIN
 --                                           t is on line 2
 
    det := (X4 - X3) * (Y2 - Y1)  - (X2 - X1) * (Y4 - Y3) ;
-   
-   
-   IF det <> 0.0 THEN   
-      s := ((X4 - X3) * (Y3 - Y1) - (Y4 - Y3) * (X3 - X1)) /det; 
+
+
+   IF det <> 0.0 THEN
+      s := ((X4 - X3) * (Y3 - Y1) - (Y4 - Y3) * (X3 - X1)) /det;
       t := ((X2 - X1) * (Y3 - Y1) - (Y2 - Y1) * (X3 - X1)) /det;
 
 --      if debugit = TRUE then
@@ -5433,15 +5531,15 @@ BEGIN
 
         xi := X1 + s * (X2 - X1);
         yi := Y1 + s * (Y2 - Y1);
-        
+
         RETURN s;
 
 /*
       Elsif (s >= 0.0 and s <= 1.0) or (t >= 0.0 and t <= 1.0) then
         xi := X1 + s * (X2 - X1);
         yi := Y1 + s * (Y2 - Y1);
-        
--- pretend near glances intersect        
+
+-- pretend near glances intersect
         if y1 > 50. then  -- used tolerance = 2 meters hers
           xcheck   := 0.000064; --0.0000016 * tolerance/0.05;
           ycheck   := 0.00002; --0.0000005 * tolerance/0.05;
@@ -5465,7 +5563,7 @@ BEGIN
 
 -- check point is on line
          length_2 := ((X2 - X1) * (X2 - X1) + (Y2 - Y1) * (Y2 - Y1));
-    
+
          IF length_2 <> 0 THEN
               d := abs((X1 - xi) * (Y2 - Y1) - (Y1 - yi) * (X2 - X1))  / sqrt(length_2);
               dbms_output.put_line(' CHECK d is :' || round(d,10) || ' for intersection ' || xi || ' ' || yi);
@@ -5487,7 +5585,7 @@ BEGIN
 
 END LINE_INTERSECT;
 --
-FUNCTION PROCESS_SELF_SEGS(self_segs IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,origXYORD IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,XYORD IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY) RETURN MDSYS.SDO_LIST_TYPE 
+FUNCTION PROCESS_SELF_SEGS(self_segs IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,origXYORD IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,XYORD IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY) RETURN MDSYS.SDO_LIST_TYPE
 AS
 
    isegments         MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
@@ -5526,19 +5624,19 @@ BEGIN
     end loop;
     isegments := MDSYS.SDO_LIST_TYPE();
     isegments.extend(6*j);
-     
-      
+
+
     j := -6;
     for kk in 1..self_segs.count loop
         if self_segs(kk) <> 0 then
            seg2 := MOD(self_segs(kk),thousand);
            seg1 := TRUNC((self_segs(kk)-seg2)/thousand);
-          
+
 --         dbms_output.put_line ('>>>>>>>>seg1 ' || seg1 || ' seg2 ' || seg2);
- 
+
 -- keep each segment once
            if kk = 1 or (kk> 1 and isegments(j+1) <> seg1)  then
-                                   
+
 -- Self intersections can be very complicated
 -- Find lowest segment (8) that intersects the very lowest segment 3
 --              /  \
@@ -5549,15 +5647,15 @@ BEGIN
                isegments(j+4) := seg2;
                x := Xyord(seg2*2-1);
                y := Xyord(seg2*2);
-               seg_found := Find_matching_xy(x,y,origXYord); 
+               seg_found := Find_matching_xy(x,y,origXYord);
                isegments(j+5) := seg_found;
--- Because self intersection is complicated 
+-- Because self intersection is complicated
                x := Xyord(seg2*2+1);
                y := Xyord(seg2*2+2);
                seg_found := Find_matching_xy(x,y,origXYord);
                isegments(j+6) := seg_found;
 --                       dbms_output.put_line ('>>>>nowseg1 ' || seg1 || ' seg2 ' || seg2 || ' Low ' || isegments(7) || ' Hi ' || isegments(8));
-/*                  
+/*
                if seg2 = TRUNC(XYord.count/2)-1 then
                   seg1 := seg2;
                   seg2 := seg2 + 1;
@@ -5568,7 +5666,7 @@ BEGIN
 --                       dbms_output.put_line ('made seg2 1 larger!! ' || seg2);
 --                      seg1 := MOD(self_segs(kk),thousand);
                end if;
-*/                                 
+*/
                x := Xyord(seg1*2-1);
                y := Xyord(seg1*2);
 
@@ -5586,15 +5684,15 @@ BEGIN
 --                  dbms_output.put_line ('>>>>>>>>seg1 ' || seg1 || ' seg2 ' || seg2 || ' low ' || low_segment || ' hi ' || hi_segment);
 
                isegments(j+1) := seg1;    -- the generalized segment that intersects itself
-                   
+
 --      Each section (generalized segment) has a corresponding start vertex
 --      and end vertex in the ungeneralized data. This vertex (or segment since
 -- you wll note segment 1 starts at vertex 1 and ends at vertex 2,
 --                 "    2    "   "     "   2 "    "   "    "    3,  and so on)
---                        
+--
 --                          original ungeneralized segments
 --                          ____________
---                         /             \    
+--                         /             \
 --      low segment       /                \   hi segment
 --               lo_v   +------------------+ hi_v
 --                        generalized segment
@@ -5602,7 +5700,7 @@ BEGIN
                isegments(j+2) := low_segment;     -- the low ungeneralized segment
                isegments(j+3) := hi_segment;        -- the high generalized segment
             end if;
- 
+
           end if;
         end loop;
         isegments.trim(isegments.count-(j+6));
@@ -5611,26 +5709,26 @@ BEGIN
 
     end if;
     RETURN isegments;
-    
+
 END PROCESS_SELF_SEGS;
 --
 PROCEDURE RUN_MAKE_EDGE_TABLE(Topology VARCHAR2 default 'MT',run_flag VARCHAR2 default NULL,pedge_table VARCHAR2 default 'EDGE',pface VARCHAR2 default 'FACE',pedges_toprocesstable VARCHAR2 default 'EDGES_TOPROCESS',pState_Edge_Table VARCHAR2 default 'STATE_EDGE_TABLE',pEntityfp VARCHAR2 default 'STATEFP') AS
 
   --   REQUIRED Parameters:
   --      INPUT
- 
+
   --      TOPOLOGY      - Topology name
   --      run_flag       - a prefix to add to the output work tables
   --      Edge_table    - name of EDGE table
   --      Edges_toprocesstable   - A work table name to create.
   --      State_Edge_table - A work table name to create listing the state for each edge
-  
+
 -- SQL> exec Run_Make_edge_Table('MT','AA','EDGE',EDGES_TOPROCESS','State_Edge_Table');
 
 -- Makes the custom edges to process work table needed by simplify which needs
 -- a current geometry and a list of nearby edges. Also makes the State_Edge_input
 -- work table needed by Make_edge_table.
-  
+
   Edges_table                     VARCHAR2(100) := UPPER(pEdges_toprocesstable);
   Edge_table                      VARCHAR2(100) := UPPER(pEdge_table);
   State_Edge_table                VARCHAR2(100) := UPPER(pState_Edge_table);
@@ -5641,11 +5739,11 @@ PROCEDURE RUN_MAKE_EDGE_TABLE(Topology VARCHAR2 default 'MT',run_flag VARCHAR2 d
 BEGIN
 
 
--- First make sure caller has made our precursor tables 
+-- First make sure caller has made our precursor tables
 
       sql_stmt := 'SELECT USER from dual';
       Execute immediate sql_stmt into schema;
-      
+
 -- None of these auxiliary tables (Face and Edge) can be depended upon to have indexes !!
       if INDEX_Exists(FACE,'FACE_ID',schema) = FALSE then
          sql_stmt := 'CREATE INDEX '|| FACE ||'_IDX on '|| FACE||'(FACE_ID)';
@@ -5654,37 +5752,37 @@ BEGIN
 -- Make a state table which has the lowest state for each edge. We read all
 -- edges including boundary edges!
 
-   sql_stmt := 'INSERT INTO ' || State_Edge_table || 
+   sql_stmt := 'INSERT INTO ' || State_Edge_table ||
            ' select ed.edge_id, fr.'|| pEntityfp ||' as right_state, fl.'|| pEntityfp ||' as left_state, ' ||
-           'least(fr.'||pEntityfp||',fl.'||pEntityfp||') AS lowest_state from '|| Topology || 
+           'least(fr.'||pEntityfp||',fl.'||pEntityfp||') AS lowest_state from '|| Topology ||
            '_edge$ ed, '||face ||' fr,' ||face ||' fl' ||
            ' where ed.left_face_id = fl.face_id AND ed.right_face_id = fr.face_id ';
     Execute immediate sql_stmt;
 
-    
-    sql_stmt := 'INSERT INTO ' || State_Edge_table || 
+
+    sql_stmt := 'INSERT INTO ' || State_Edge_table ||
            ' select ed.edge_id, -1 as right_state, fl.'|| pEntityfp ||' as left_state, ' ||
-           ' fl.'||pEntityfp||' AS lowest_state from '|| Topology || 
+           ' fl.'||pEntityfp||' AS lowest_state from '|| Topology ||
            '_edge$ ed, '||face ||' fl where (ed.left_face_id = fl.face_id AND ed.right_face_id = -1)';
     Execute immediate sql_stmt;
- 
- -- Yhis never happens   
-      sql_stmt := 'INSERT INTO ' || State_Edge_table || 
+
+ -- Yhis never happens
+      sql_stmt := 'INSERT INTO ' || State_Edge_table ||
            ' select ed.edge_id, fl.'|| pEntityfp ||' as right_state, -1 as left_state,' ||
-           ' fl.'||pEntityfp||' AS lowest_state from '|| Topology || 
+           ' fl.'||pEntityfp||' AS lowest_state from '|| Topology ||
            '_edge$ ed, '||face ||' fl where (ed.right_face_id = fl.face_id AND ed.left_face_id = -1)';
     Execute immediate sql_stmt;
     commit;
     sql_stmt := 'CREATE INDEX '||State_Edge_Table ||'_EIDX on '||State_Edge_Table||'(EDGE_ID)';
     Execute immediate sql_stmt;
 
-  
+
   n := MAKE_EDGE_TABLE(Topology,'EDGE$',Edge_table,Edges_Table,NULL,State_Edge_table);
-  
+
   dbms_output.put_line('edge count ' || n);
 END RUN_MAKE_EDGE_TABLE;
 --
-PROCEDURE GET_BAD_IDS(Topology VARCHAR2 default 'MT',state_code VARCHAR2,Edges_Table VARCHAR2,validate_error VARCHAR2,BAD_IDS IN OUT NOCOPY MDSYS.SDO_LIST_TYPE) AS 
+PROCEDURE GET_BAD_IDS(Topology VARCHAR2 default 'MT',state_code VARCHAR2,Edges_Table VARCHAR2,validate_error VARCHAR2,BAD_IDS IN OUT NOCOPY MDSYS.SDO_LIST_TYPE) AS
 
 -- Gets the edges of a face when a validate error occurs like this:
 
@@ -5707,23 +5805,23 @@ BEGIN
 
   for ii in 1..10 loop
 --  dbms_output.put_line(SUBSTR(validate_error,pos+ii,1));
-    if SUBSTR(validate_error,pos+ii,1) = ' ' then    
+    if SUBSTR(validate_error,pos+ii,1) = ' ' then
       pos2 := pos+ii;
       face := SUBSTR(validate_error,pos,pos2-pos);
       exit;
     end if;
   end loop;
 --  dbms_output.put_line('face' || face);
-  
+
   sql_stmt := 'select e.edge_id from ' ||edges_Table ||' e,'||Topology||
               '_FACE$ f where sdo_relate(f.mbr_geometry,e.geometry,''mask=ANYINTERACT'') = ''TRUE'' and e.state=:1 and f.face_id=:2';
   execute immediate sql_stmt BULK COLLECT into bad_ones using state_code,face;
- -- Append to the array 
+ -- Append to the array
   For ii in 1..bad_ones.count Loop
     Bad_ids.extend(1);
     bad_ids(bad_ids.count) := Bad_ones(ii);
   End Loop;
-  
+
 END GET_BAD_IDS;
 --
 FUNCTION MAKE_EDGE_TABLE(Topology VARCHAR2 default 'MT',mt_Edge VARCHAR2 default 'EDGE$',pedge_table VARCHAR2 default 'EDGE',Edges_toprocesstable VARCHAR2,Ignore_Table VARCHAR2 default NULL,State_Edge_table VARCHAR2) RETURN NUMBER AS
@@ -5740,7 +5838,7 @@ FUNCTION MAKE_EDGE_TABLE(Topology VARCHAR2 default 'MT',mt_Edge VARCHAR2 default
   --
   --   REQUIRED Parameters:
   --      INPUT
- 
+
   --      TOPOLOGY      - Topology name
   --      MT_EDGE       - MT_edge$ name
   --      Edge_table    - name of EDGE table
@@ -5751,14 +5849,14 @@ FUNCTION MAKE_EDGE_TABLE(Topology VARCHAR2 default 'MT',mt_Edge VARCHAR2 default
 -- Purpose: <<This function is automatically run by Simplify but since it is
 --          slow to run (about 3 hours for a million edges) it is best to run it
 --          separately. See Run_make_edge_table>>
---          It makes a custom edge table used by the Simplify function to generalize  
---          each edge and update the topology with the new edge coordinates. 
---          This edge table has edge, node and face info, MBRs and the original 
+--          It makes a custom edge table used by the Simplify function to generalize
+--          each edge and update the topology with the new edge coordinates.
+--          This edge table has edge, node and face info, MBRs and the original
 --          geometry, and the nearby edges. These nearby edges are the key to
 --          to simplify generalizing in the presence of nearby edges.
---          The new_geometry column (which starts out as the original geometry)  
---          is used as a state variable to represent the state of each geometry 
---          in MT_EDGE$ as Simplify updates the edge_coordinates in the topology.                          
+--          The new_geometry column (which starts out as the original geometry)
+--          is used as a state variable to represent the state of each geometry
+--          in MT_EDGE$ as Simplify updates the edge_coordinates in the topology.
 
 -- Called by: Run_Make_Edge_table
 -- Calls: Table_Exists, Get_Nearby_Edges
@@ -5779,7 +5877,7 @@ FUNCTION MAKE_EDGE_TABLE(Topology VARCHAR2 default 'MT',mt_Edge VARCHAR2 default
    Start_nodes       MDSYS.SDO_LIST_TYPE;
    End_nodes         MDSYS.SDO_LIST_TYPE;
    schema            VARCHAR2(30);
-  
+
    xLL               NUMBER;
    yLL               NUMBER;
    xUR               NUMBER;
@@ -5808,8 +5906,8 @@ BEGIN
 
    sql_stmt := 'SELECT USER from dual';
    Execute immediate sql_stmt into schema;
-   
-    -- This table holds the current geometry and act as a state variable  
+
+    -- This table holds the current geometry and act as a state variable
    sql_stmt := 'INSERT INTO  ' || Edges_Table ||  -- ' NOLOGGING ' ||
                  ' SELECT t.edge_id,t.start_node_id,t.end_node_id,t.left_face_id,t.right_face_id,s.lowest_state state,0. uniq,0. mt_length,' ||
                  ' SDO_GEOM.SDO_MIN_MBR_ORDINATE(t.geometry,1) XLL,' ||
@@ -5818,85 +5916,85 @@ BEGIN
                  ' SDO_GEOM.SDO_MAX_MBR_ORDINATE(t.geometry,2) YUR,' ||
                  ' CAST(NULL AS MDSYS.SDO_LIST_TYPE) NEARBY_EDGES,sdo_util.getnumvertices(t.geometry) vertices,0. Ignore,t.geometry,t.geometry new_geometry from ' ||
                  Topology||'_'||MT_edge || ' t,' || State_Edge_table || ' s where s.edge_id= t.edge_id';
-                     
+
    EXECUTE Immediate sql_stmt;
-   
+
 -- Get the SRID
    sql_stmt := 'SELECT t.geometry.SDO_SRID  from ' || Edges_table ||' t WHERE rownum=1';
    EXECUTE Immediate sql_stmt into SRID;
-   
---Set the ones to ignore and not generalize   
+
+--Set the ones to ignore and not generalize
    sql_stmt := 'UPDATE ' || Edges_table ||' e set e.Ignore=1 WHERE e.vertices=2 or e.left_face_id = -1 or e.right_face_id = -1';
    EXECUTE Immediate sql_stmt;
-   
+
    If Ignore_Table is NOT NULL then
      sql_stmt := 'UPDATE ' || Edges_table || ' e set e.Ignore= (SELECT 1 from ' || Ignore_Table ||' i where i.edge_id=e.edge_id) ' ||
                  'WHERE EXISTS (SELECT 1 from ' || Ignore_Table ||' i where i.edge_id=e.edge_id)';
      EXECUTE Immediate sql_stmt;
    end if;
-   
--- Make an index on the edge_att table   
+
+-- Make an index on the edge_att table
 
    if INDEX_Exists(pEDGE_Table,'EDGE_ID',schema) = FALSE then
      sql_stmt := 'CREATE INDEX ' ||pEDGE_Table ||'_EIDX on '||pEDGE_Table ||'(EDGE_ID)';
      Execute immediate sql_stmt;
    end if;
-  
+
    sql_stmt := 'UPDATE ' || Edges_table || ' e set e.mt_length= (SELECT d.edgelen from '||pEDGE_Table ||'  d where d.edge_id=e.edge_id)'||
                       ' WHERE EXISTS (SELECT d.edgelen from '||pEDGE_table ||' d where d.edge_id=e.edge_id)';
-   EXECUTE Immediate sql_stmt;   
-   
+   EXECUTE Immediate sql_stmt;
+
    sql_stmt := 'CREATE INDEX '||Edges_Table ||'_EIDX on '||Edges_Table||'(EDGE_ID)';
    Execute immediate sql_stmt;
-   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_XLLIDX ON ' || Edges_Table ||'(XLL)'; 
+   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_XLLIDX ON ' || Edges_Table ||'(XLL)';
    EXECUTE IMMEDIATE sql_stmt;
-   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_YLLIDX ON ' || Edges_Table ||'(YLL)'; 
+   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_YLLIDX ON ' || Edges_Table ||'(YLL)';
    EXECUTE IMMEDIATE sql_stmt;
-   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_XURIDX ON ' || Edges_Table ||'(XUR)'; 
+   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_XURIDX ON ' || Edges_Table ||'(XUR)';
    EXECUTE IMMEDIATE sql_stmt;
-   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_YURIDX ON ' || Edges_Table ||'(YUR)'; 
+   sql_stmt := 'CREATE INDEX ' || Edges_Table ||'_YURIDX ON ' || Edges_Table ||'(YUR)';
    EXECUTE IMMEDIATE sql_stmt;
-   
+
    sql_stmt := 'CREATE INDEX '||Edges_Table ||'_SIDX on '||Edges_Table||'(START_NODE_ID)';
    Execute immediate sql_stmt;
- 
+
    sql_stmt := 'CREATE INDEX '||Edges_Table ||'_NIDX on '||Edges_Table||'(END_NODE_ID)';
    Execute immediate sql_stmt;
- 
+
    sql_stmt := 'CREATE INDEX '||Edges_Table ||'_STIDX on '||Edges_Table||'(STATE)';
    Execute immediate sql_stmt;
-   
+
    sql_stmt := 'CREATE INDEX '||Edges_Table ||'_STGIDX on '||Edges_Table||'(STATE,IGNORE)';
    Execute immediate sql_stmt;
- 
+
  -- Calculate the node frequency of the node for closed loops. We actually count
  -- two less than the frequency.
- 
+
    sql_stmt := 'UPDATE '|| Edges_Table || ' e set e.uniq=(select count(1) from ' || edges_table ||' b where  '||
                                              ' b.edge_id= e.edge_id and (e.start_node_id=e.end_node_id))';
    EXECUTE Immediate sql_stmt;
-   
-   sql_stmt := 'UPDATE '|| Edges_Table || ' e set e.uniq = (select count(1) from '|| Edges_Table || 
-   ' b where e.uniq = 1 and e.edge_id <> b.edge_id and (e.start_node_id=b.start_node_id or e.start_node_id = b.end_node_id)) ' || 
-   ' where exists (select count(1) from '|| Edges_Table || 
+
+   sql_stmt := 'UPDATE '|| Edges_Table || ' e set e.uniq = (select count(1) from '|| Edges_Table ||
+   ' b where e.uniq = 1 and e.edge_id <> b.edge_id and (e.start_node_id=b.start_node_id or e.start_node_id = b.end_node_id)) ' ||
+   ' where exists (select count(1) from '|| Edges_Table ||
    ' b where e.uniq = 1 and e.edge_id <> b.edge_id and (e.start_node_id=b.start_node_id or e.start_node_id = b.end_node_id))';
   EXECUTE Immediate sql_stmt;
-  
-  
+
+
 -- This marks the edges that have another edge that completes them with 100,200 etc
      sql_stmt := 'UPDATE '|| Edges_Table || ' e set e.uniq= e.uniq + 100*(select count(1) from ' || edges_table ||' b where b.edge_id <> e.edge_id and '||
-        '((e.start_node_id=b.end_node_id and e.end_node_id = b.start_node_id) or(e.start_node_id=b.start_node_id and e.end_node_id = b.end_node_id))) ' || 
+        '((e.start_node_id=b.end_node_id and e.end_node_id = b.start_node_id) or(e.start_node_id=b.start_node_id and e.end_node_id = b.end_node_id))) ' ||
         'where exists(select count(1) from '|| Edges_Table || ' b where b.edge_id <> e.edge_id and ((e.start_node_id=b.end_node_id and e.end_node_id = b.start_node_id) or(e.start_node_id=b.start_node_id and e.end_node_id = b.end_node_id)))';
     EXECUTE Immediate sql_stmt;
    commit;
 
 -- Mark figure of eights with an 8
      sql_stmt := 'UPDATE '|| Edges_Table || ' e set e.uniq=(select 8 from ' || edges_table ||' b where b.edge_id <> e.edge_id and '||
-        '(e.start_node_id=e.end_node_id and e.end_node_id = b.start_node_id and e.end_node_id=b.end_node_id)) ' || 
+        '(e.start_node_id=e.end_node_id and e.end_node_id = b.start_node_id and e.end_node_id=b.end_node_id)) ' ||
         'where exists(select 8 from '|| Edges_Table || ' b where b.edge_id <> e.edge_id and (e.start_node_id=e.end_node_id and e.end_node_id = b.start_node_id and e.end_node_id=b.end_node_id))';
     EXECUTE Immediate sql_stmt;
    commit;
-   
+
    if SRID = 8265 then
      add_geom_metadata(Edges_Table,'GEOMETRY',schema,SRID);
    else
@@ -5905,35 +6003,35 @@ BEGIN
      EXECUTE Immediate sql_stmt into xLL,yLL,xUR,yUR;
      add_geom_metadata(Edges_Table,'GEOMETRY',schema,SRID,xLL,yLL,xUR,yUR,0.001);
    end if;
-   
+
    sql_stmt := 'CREATE INDEX '||Edges_Table ||'_SPIDX on '||Edges_Table||'(GEOMETRY) ' ||
               'INDEXTYPE IS MDSYS.SPATIAL_INDEX';
    Execute immediate sql_stmt;
-   
+
    sql_stmt := 'Select Edge_id from ' || Edges_Table || ' where start_node_id = end_node_id';
    Execute immediate sql_stmt BULK COLLECT into Loop_ids;
-   
+
    n := Loop_ids.count;
    Nearby_ids.extend(n);
-   
--- Get each edges nearby edges  (the ones that intersect the subject edges MBR) 
+
+-- Get each edges nearby edges  (the ones that intersect the subject edges MBR)
    sql_stmt := 'Select edge_id,start_node_id,end_node_id,xLL,yLL,xUR,yUR from ' || Edges_Table ||
                ' order by edge_id';
 
    sql_stmt2 := 'SELECT sdo_geom.sdo_distance(t.geometry,s.geometry,0.05,''unit=meter'') from ' ||
                  Edges_table || ' t,' || Edges_table || ' s where t.edge_id=:1 and s.edge_id=:2';
-                 
+
   OPEN Table_cursor FOR sql_stmt;
 
    LOOP
        FETCH Table_cursor BULK COLLECT INTO Edge_ids,Start_nodes,End_nodes,xLLs,yLLs,xURs,yURs LIMIT ROW_LIMIT;
        Exit when Edge_ids.count=0;
- 
+
        edge_kount := edge_kount + Edge_ids.count;
-       
-       For ii in 1..Edge_ids.count Loop 
+
+       For ii in 1..Edge_ids.count Loop
          Edge_id := Edge_ids(ii);
-         
+
 -- Get Nearby Edges uses x and y epsilons around the border of the edge MBR to
 -- ensure it finds all nearby edges.
          xLL := XLLs(ii);
@@ -5952,7 +6050,7 @@ BEGIN
 --            the_time := current_timestamp;
             for jj in 1..Nearby_edges.count Loop
               nearby_id := Nearby_edges(jj);
-              Execute immediate sql_stmt2 into distance using edge_id,nearby_id; 
+              Execute immediate sql_stmt2 into distance using edge_id,nearby_id;
               if distance < best_dist then
                 closest := jj;
                 best_dist := distance;
@@ -5972,18 +6070,18 @@ BEGIN
             Nearby_ids(pos) := temp;
             Loop_ids(pos) := edge_id;
          end if;
---            dbms_output.put_line('Elapsed time : ' || (current_timestamp - the_time)); 
+--            dbms_output.put_line('Elapsed time : ' || (current_timestamp - the_time));
 
-         
+
 -- Insert the nearby edges for current edge into the table
          If Nearby_Edges.count <> 0 then
                sql_stmt := 'Update ' || Edges_Table|| ' set NEARBY_EDGES=:1 where edge_id=:2';
-               Execute immediate sql_stmt using Nearby_Edges,edge_id; 
+               Execute immediate sql_stmt using Nearby_Edges,edge_id;
          End if;
- 
+
        End Loop;
        commit;
-   
+
    END LOOP;
    CLOSE Table_cursor;
    commit;
@@ -6018,13 +6116,13 @@ BEGIN
          end if;
      end if;
    end loop;
--- Note that we cannot delete any edges because we need them for nearby checks   
+-- Note that we cannot delete any edges because we need them for nearby checks
 -- (for example the ones with 2 vertices)
-   commit;    
+   commit;
 
-    
+
   RETURN edge_kount;
-  
+
 END MAKE_EDGE_TABLE;
 --
 FUNCTION GET_NEARBY_EDGES(Edges_Table VARCHAR2,Edge_id NUMBER,pxLL NUMBER,pyLL NUMBER,pxUR NUMBER,pyUR NUMBER,SRID NUMBER,pxepsilon NUMBER default NULL,pyepsilon NUMBER default NULL,ptolerance NUMBER default 0.05) RETURN MDSYS.SDO_LIST_TYPE AS
@@ -6033,11 +6131,11 @@ FUNCTION GET_NEARBY_EDGES(Edges_Table VARCHAR2,Edge_id NUMBER,pxLL NUMBER,pyLL N
 --Program Name: Get_Nearby_edges
 --Author: Sidey Timmins
 --Creation Date: 05/06/2010
---Updated: 
+--Updated:
 --Usage:
-  -- Call this function from inside another PL/SQL program.  
+  -- Call this function from inside another PL/SQL program.
   --
-  --   REQUIRED Parameters: 
+  --   REQUIRED Parameters:
   --           Edges_table -- a table name of a table that has columns
   --                           xLL,yLL,xUR,yUR for each geometry.
   --           Edge_id     - The edge_id in question to get the nearby edges for
@@ -6046,15 +6144,15 @@ FUNCTION GET_NEARBY_EDGES(Edges_Table VARCHAR2,Edge_id NUMBER,pxLL NUMBER,pyLL N
   --           pxepsilon: a distance to search nearby in degrees.
   --               When pxepsilon is NULL then this function calculates it
   --               using the tolerance (usually 0.05 meters).
-  --           pyepsilon: a distance to search nearby in degrees 
-  --               When pyepsilon is NULL then this function calculates it. 
+  --           pyepsilon: a distance to search nearby in degrees
+  --               When pyepsilon is NULL then this function calculates it.
   --               It is suggested you leave this NULL.
   --           ptolerance: the tolerance usually 0.05 meters
 --
 -- Purpose:  Gets the edge_ids of nearby edges that are within (wholly or partially)
 --           the extent (MBR) of the edge in question. No geometries are pulled.
 
--- Method:  Uses standard computer graphics code for clipping to a window 
+-- Method:  Uses standard computer graphics code for clipping to a window
 --          moderated slightly by borders to allow for geodetic coordinates.
 --          This function may be slightly conservative and find a few edges which
 --          are not within the subject's MBR but so far, I have not found any
@@ -6078,7 +6176,7 @@ FUNCTION GET_NEARBY_EDGES(Edges_Table VARCHAR2,Edge_id NUMBER,pxLL NUMBER,pyLL N
     delta       NUMBER := pxepsilon;
     xdiff       NUMBER;
     n           PLS_INTEGER := 0;
-    
+
 BEGIN
 
 -- This function fails badly when these are NULL.
@@ -6087,19 +6185,19 @@ BEGIN
       RETURN NULL;
    end if;
 
--- Convert 0.05 meters to degrees 
+-- Convert 0.05 meters to degrees
    if delta is NULL and SRID = 8265. then
        delta := ptolerance/(111319.490793274*cos(yLL*deg2rad));
    elsif delta is NULL then
        delta := ptolerance;
    end if;
-   
+
    xLL := xLL - delta;
    xUR := xUR + delta;
-   
+
 -- This vertical offset was found by checking a horizontal line 1 degree long
--- at all latitudes and finding the max vertical offset (.001091) and finding 
--- that the y offset varied with latitude and as the square of the length. 
+-- at all latitudes and finding the max vertical offset (.001091) and finding
+-- that the y offset varied with latitude and as the square of the length.
 --lat 0 diff 0
 --lat 10 diff .000373
 --lat 20 diff .000701
@@ -6123,16 +6221,16 @@ BEGIN
    end if;
    yLL := yLL - epsilon;
    yUR := yUR + epsilon;
- 
+
  -- Get nearby edges. We exclude the current Edge_id by ignoring it in the results.
-      
+
    sql_stmt := 'SELECT m.edge_id FROM '|| Edges_Table  || ' m WHERE ' ||
                'SDO_FILTER(m.geometry,MDSYS.sdo_geometry(2003,:1,NULL,MDSYS.SDO_ELEM_INFO_ARRAY(1,1003,3),'||
                'MDSYS.SDO_ORDINATE_ARRAY(:2,:3,:4,:5))) = ''TRUE''';
 -- SDO_FILTER is much faster than these range checks on a large table
 --   'NOT( (( m.XUR <:1)  OR (m.YUR <:2)) OR  (( m.XLL >:3) OR (m.YLL > :4)))';
     EXECUTE IMMEDIATE sql_stmt BULK COLLECT INTO Nearby_Edges USING SRID,xLL,yLL,xUR,yUR;
-    
+
 -- we may return an empty array it would seem.
 
     IF Nearby_Edges is NULL THEN
@@ -6146,10 +6244,10 @@ BEGIN
            Nearby_Edges(n) := Nearby_Edges(ii);
          end if;
         End Loop;
-    
-       Nearby_Edges.trim(Nearby_Edges.count-n);   
+
+       Nearby_Edges.trim(Nearby_Edges.count-n);
     END IF;
-    
+
   RETURN Nearby_Edges;    -- We may return an empty array
 
 END GET_NEARBY_EDGES;
@@ -6169,20 +6267,20 @@ FUNCTION Perpendicular(xin IN OUT NOCOPY NUMBER,yin IN OUT NOCOPY NUMBER,  -- th
 -- Updated: 10/20/2010 To return the distance when not using geodetic coordinates
 --Usage:  --
   --   REQUIRED Parameters:
-  --      INPUT 
-  --      (xin,yin)   - The point to start from 
-  --      (x1,y1)     - Coordinates for one end of the line to test.            
+  --      INPUT
+  --      (xin,yin)   - The point to start from
+  --      (x1,y1)     - Coordinates for one end of the line to test.
   --      (x2,y2)     - Coordinates for other end of the line to test.
   --      OUTPUT
   --      (xnear,ynear): Calculated nearest point on line.
   --          Returns the perpendicular distance in meters when the point
   --          (xin,yin) projects onto the given line or 1.E10 when it does not.
--- Purpose:  Find whether a point projects onto aline, and if so, the distance.  
-                          
+-- Purpose:  Find whether a point projects onto aline, and if so, the distance.
+
 -- Reference: Paul Bourke: "Minimum Distance between a point and a line".
 --             http://local.wasp.uwa.edu.au/~pbourke/geometry/pointline/
 ********************************************************************************
-*/                        
+*/
      u             NUMBER;
      distance      NUMBER := 1.E10;
      length_sq     NUMBER;
@@ -6199,14 +6297,14 @@ BEGIN
 --     dbms_output.put_line('x2 ' || x2 || ' y2 ' || y2);
      xnear := NULL;
      ynear := NULL;
-     If u >= 0. or Always then 
+     If u >= 0. or Always then
         length_sq :=  dx*dx + dy*dy;
         if (u <= length_sq or Always) and length_sq > 0. then
 
            u := u/length_sq;
 
            xnear := X1 + u * dx;
-           ynear := Y1 + u * dy; 
+           ynear := Y1 + u * dy;
 
            if meters then
              Distance := fast_distance(xin,yin,xnear,ynear,8265);
@@ -6224,7 +6322,7 @@ BEGIN
 
 END Perpendicular;
 --
-FUNCTION REMOVE_CLOSE_XYS(Geom IN OUT NOCOPY MDSYS.SDO_GEOMETRY,ptolerance NUMBER default 0.05) 
+FUNCTION REMOVE_CLOSE_XYS(Geom IN OUT NOCOPY MDSYS.SDO_GEOMETRY,ptolerance NUMBER default 0.05)
  RETURN BOOLEAN Deterministic IS
 /**
  ################################################################################
@@ -6235,7 +6333,7 @@ FUNCTION REMOVE_CLOSE_XYS(Geom IN OUT NOCOPY MDSYS.SDO_GEOMETRY,ptolerance NUMBE
  # Usage:
  #   This PL/SQL procedure has 2 parameters:
  #                   Geom: the Geometry to check and fix.
- #                   ptolerance: Tolerance in meters - vertices closer than this 
+ #                   ptolerance: Tolerance in meters - vertices closer than this
  #                               will have one removed.
  #   Returns TRUE only when the geometry is changed;
  #
@@ -6244,7 +6342,7 @@ FUNCTION REMOVE_CLOSE_XYS(Geom IN OUT NOCOPY MDSYS.SDO_GEOMETRY,ptolerance NUMBE
  #          A longitude difference of 1.E-06 degrees at 64 degrees North with the
  #          same latitude is 0.047 meters and less than the 0.05 meter tolerance.
  #
- # Method: Filters vertices to determine the ones to remove.         
+ # Method: Filters vertices to determine the ones to remove.
  # Dependencies:
  #  CDB_UTIL.fast_vincenty_gcd
  ################################################################################
@@ -6270,7 +6368,7 @@ FUNCTION REMOVE_CLOSE_XYS(Geom IN OUT NOCOPY MDSYS.SDO_GEOMETRY,ptolerance NUMBE
     UB         PLS_INTEGER;
     j          PLS_INTEGER;
     n          PLS_INTEGER;
-    
+
     tolerance  NUMBER := ptolerance;
     tolerance2 NUMBER;
     oracle_tol NUMBER := 0.05;    -- usual Oracle tolerance for geometries
@@ -6282,13 +6380,13 @@ FUNCTION REMOVE_CLOSE_XYS(Geom IN OUT NOCOPY MDSYS.SDO_GEOMETRY,ptolerance NUMBE
 -- Written as a procedure so as NOT to create new geometry objects and waste memory
 
 BEGIN
-   
+
 -- Detect dups because most edges are ok
 
     Info_Array := geom.SDO_ELEM_INFO;
     XYORD := geom.SDO_Ordinates;
     n := XYOrd.count;
--- Cannot shorten an edge with 2 vertices; 
+-- Cannot shorten an edge with 2 vertices;
 --dbms_output.put_line('IN remove ' || XYord.count);
     If XYord.count = 4 or NOT(gtype = 2002 or gtype = 2003) then
       RETURN FALSE;
@@ -6296,14 +6394,14 @@ BEGIN
     If gtype = 2003 or (XYOrd(1) = XYOrd(n-1) and XYord(2) = XYOrd(n)) then
        minimum_no := 8;  -- minimum number of coordinates in loop
     End if;
-   
+
     If ptolerance <= 0. then
        tolerance := 0.05;
     End if;
 -- These parameters were tested from 0 to 72 degrees North with random coordinates
 -- to check that this procedure got the same results as the Oracle function
 -- SDO_UTIL.REMOVE_DUPLICATE_VERTICES. Note that the Oracle function may change the
--- coordinates! 
+-- coordinates!
 
     tolerance2 := tolerance *1.01;
     If SRID = 8265 THEN
@@ -6320,7 +6418,7 @@ BEGIN
         xcheck := tolerance;
         ycheck := tolerance;
     END IF;
-    
+
     rings := TRUNC(Info_Array.count/3);
     FOR i in 1.. rings LOOP
 
@@ -6342,8 +6440,8 @@ BEGIN
 
      For jj in LB..UB LOOP
        ii := jj*2-1;
-       xnew := XYOrd(ii); 
-       ynew := XYOrd(ii+1); 
+       xnew := XYOrd(ii);
+       ynew := XYOrd(ii+1);
 
 -- Empirical set of comparisons so we rarely calculate the difference.
        If k + (UB-jj)*2 > minimum_no and abs(xnew - xlast) < xcheck and abs(ynew - ylast) < ycheck then
@@ -6354,7 +6452,7 @@ BEGIN
            if distance < tolerance2 then
                   geometry := SDO_GEOMETRY(2002,SRID,NULL,SDO_ELEM_INFO_ARRAY(1,2,1),
                              SDO_ORDINATE_ARRAY(xnew,ynew,xlast,ylast));
-                  distance := SDO_GEOM.SDO_LENGTH(geometry,oracle_tol,'unit=meter'); 
+                  distance := SDO_GEOM.SDO_LENGTH(geometry,oracle_tol,'unit=meter');
            End If;
 
 -- drop it if within tolerance (equal or less)
@@ -6387,13 +6485,13 @@ BEGIN
 --dbms_output.put_line('usual case ' || k || ' xnew ' || xnew || ' ynew ' || ynew);
        End If;
 
-    End Loop;    
+    End Loop;
     END LOOP;
-    
+
     k := k + 1;
 
     If k <> XYOrd.count then
-       XYOrd.trim(XYOrd.count-k);    
+       XYOrd.trim(XYOrd.count-k);
        geom := MDSYS.SDO_GEOMETRY(GTYPE,SRID,NULL,Info_Array,XYOrd);
 --       dbms_output.put_line('changed ' || XYord.count);
        RETURN TRUE;
@@ -6421,14 +6519,14 @@ FUNCTION remove_obtuse_angles(check_angle number, In_Xys IN OUT NOCOPY MDSYS.SDO
      x2      number;
      y2      number;
      angle   number;
-     
+
 BEGIN
-     
+
    Out_Xys := In_Xys;
    x1 := In_Xys(1);
    y1 := In_Xys(2);
 
-   
+
    For ii in 2..n-1 loop
       x0 := x1;
       y0 := y1;
@@ -6437,7 +6535,7 @@ BEGIN
       y1 := In_Xys(pos);
       x2 := In_Xys(pos+1);
       y2 := In_Xys(pos+2);
- 
+
       angle := GZ_QA.angle(x0,y0,x1,y1,x2,y2)*rad2deg;
 --      dbms_output.put_line('A ' || round(angle,3));
       if angle < check_angle then
@@ -6495,7 +6593,7 @@ BEGIN
 
    END IF;
    Return FALSE;
-   
+
 END Simple_Intersect;
 --
 PROCEDURE CHECK_ALL_VERTICES(pInTable VARCHAR2,PGeometry_column VARCHAR2,pInTable2 VARCHAR2,PnewGeometry_column VARCHAR2,pOutput_table VARCHAR2,pInclude_state_edges VARCHAR2 default 'NO',pprint VARCHAR2 default 'NO') AS
@@ -6504,31 +6602,31 @@ BEGIN
 END CHECK_ALL_VERTICES;
 --
 PROCEDURE SHELLSORT( InArray      IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
-                       InLB         PLS_INTEGER default 1, 
+                       InLB         PLS_INTEGER default 1,
                        InUB         PLS_INTEGER default 0,
-                       pInDirection    VARCHAR2 default 'ASC') 
+                       pInDirection    VARCHAR2 default 'ASC')
  AS
 /*******************************************************************************
 --Program Name: c_shellsort
 --Author: Sidey Timmins
 --Creation Date: 01/04/2007
 
---Usage: 
+--Usage:
   -- Call this program from inside another PL/SQL program.  This program
   -- has 1 required parameter:
   --
   --   REQUIRED Parameters:
- --          InArray           - Input number Array to sort. Sort is ascending. 
+ --          InArray           - Input number Array to sort. Sort is ascending.
  --                            c_shellsort(Data_Array,1,n);
 
  --          LB              - lower bound of Arr to sort, defaults to 1
  --          UB              - upper bound of Arr to sort, defaults to Arr.count
--- 
---Purpose: 
+--
+--Purpose:
   -- Sorts an array ascending or descending.
- 
+
     -- example of input                             sorted output
-  --    unsorted Nodes         Order         Node                sorted Order   
+  --    unsorted Nodes         Order         Node                sorted Order
 --     216000003385025             1         8185025                   4
 --     216000008785025             2         8185025                   3
 --             8185025             3         8385025                   5
@@ -6558,20 +6656,20 @@ PROCEDURE SHELLSORT( InArray      IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
 
   valu             NUMBER;
   n                PLS_INTEGER;
-  
-  BEGIN 
+
+  BEGIN
 
   IF UB = 0 THEN
      UB := InArray.count;
   END IF;
- 
+
   n := UB - LB +1;
   IF (n <= 1) THEN
      RETURN;
-  END IF; 
- 
- -- compute largest increment: h. NOTE h=4 best for short arrays    
- 
+  END IF;
+
+ -- compute largest increment: h. NOTE h=4 best for short arrays
+
 -- Successive values of h are 1, 4, 14, 40, 121,..
 -- see references to understand this loop
    IF (n > 14) THEN
@@ -6581,50 +6679,50 @@ PROCEDURE SHELLSORT( InArray      IN OUT NOCOPY MDSYS.SDO_LIST_TYPE,
      END LOOP;
  -- After this line, have the largest increment <= n
      h := trunc(h / 3);
-  
+
    END IF;
- 
+
    IF Direction = 'ASC' THEN
-  
+
    While h > 0  LOOP
 
 -- Sort by insertion in increments of h
      LBh := LB+h;
       For i IN LBh..UB LOOP
         valu := InArray(i);
-        j := i; 
+        j := i;
         WHILE ( j >= LBh) and valu < InArray(j-h) LOOP
            InArray(j) := InArray(j-h);
            j := j - h;
         END LOOP;
-        InArray(j) := valu;   
+        InArray(j) := valu;
       END LOOP;
      h := trunc(h / 3);
   End Loop;
 
 -- Array is now sorted ascending
   ELSE
--- Descending sort 
+-- Descending sort
 
      While h > 0  LOOP
-      
+
        LBh := LB+h;
        For i IN LBh..UB LOOP
         valu := InArray(i);
-        j := i ; 
+        j := i ;
         WHILE ( j >= LBh) and (valu > InArray(j-h))  LOOP
           InArray(j) := InArray(j-h);
           j := j - h;
         END LOOP;
-        InArray(j) := valu;  
+        InArray(j) := valu;
       END LOOP;
       h := trunc(h / 3);
     End Loop;
   END IF;
- 
+
 End Shellsort;
 --
-FUNCTION BUILD_MBR(topology     VARCHAR2,                                       
+FUNCTION BUILD_MBR(topology     VARCHAR2,
                     state_code      VARCHAR2,
                     min_x           NUMBER default NULL,
                     min_y           NUMBER default NULL,
@@ -6639,7 +6737,7 @@ FUNCTION BUILD_MBR(topology     VARCHAR2,
 
     type        cursor_type is REF CURSOR;
     query_crs   cursor_type ;
-    
+
     Done            MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
     Edge_ids        MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
     Skip_Table      VARCHAR2(100) := UPPER(pskip_table);
@@ -6663,40 +6761,40 @@ FUNCTION BUILD_MBR(topology     VARCHAR2,
     and_statement      VARCHAR2(4000) := NULL;
 BEGIN
 
---------------------------------------------------------------------------------  
-    query_str := 'SELECT max(edge_id) FROM ' || topology || '_edge$';    
+--------------------------------------------------------------------------------
+    query_str := 'SELECT max(edge_id) FROM ' || topology || '_edge$';
     execute immediate query_str into max_id;
     Done.extend(max_id);
 
--------------------------------------------------------------------------------- 
+--------------------------------------------------------------------------------
 -- Find out how many on Universal Face
     EXECUTE IMMEDIATE 'SELECT count(1) FROM ' || Edges_table || ' WHERE IGNORE=1' into no_on_UF;
 
--- Skip edges in Done Table. Zero means not done, 1 means done (or do not process). 
+-- Skip edges in Done Table. Zero means not done, 1 means done (or do not process).
     for ii in 1..max_id loop
       Done(ii) := 0.;
     end loop;
-        
+
     query_str := 'SELECT  edge_id FROM ' || Done_Table;
 
-  
+
     OPEN query_crs FOR query_str;
-      
+
     LOOP
       FETCH query_crs BULK COLLECT INTO edge_ids LIMIT Row_Limit;
-      EXIT WHEN edge_ids.count = 0; 
+      EXIT WHEN edge_ids.count = 0;
       for ii in 1..Edge_ids.count loop
         edge_id := Edge_ids(ii);
         Done(edge_id) := 1.;
       end loop;
       no_done := no_done + Edge_ids.count;
     END LOOP;
-    
+
     CLOSE query_crs;
- 
---------------------------------------------------------------------------------  
-   
--- Skip edges in Skip Table 
+
+--------------------------------------------------------------------------------
+
+-- Skip edges in Skip Table
     IF Skip_Table is NOT NULL then
       p := INSTR(Skip_table,'(');
       if p = 0 Then
@@ -6704,9 +6802,9 @@ BEGIN
       dbms_output.put_line(query_str);
        GZ_TOPOFIX.Track_App(query_str,Topology,'LS');
       OPEN query_crs FOR query_str;
-  
+
       LOOP
-   
+
         FETCH query_crs BULK COLLECT INTO edge_ids LIMIT Row_limit;
         EXIT WHEN edge_ids.count=0;
         for ii in 1..Edge_ids.count loop
@@ -6715,14 +6813,14 @@ BEGIN
         end loop;
         no_skip := no_skip + Edge_ids.count;
       END LOOP;
- 
+
       CLOSE query_crs;
- 
+
       and_statement := 'e.edge_id NOT in (' || query_str || ') and ';
-      
+
 -- It is a skip List so get rid of the Topology name at the beginning
       else
-        
+
           minus_statement := ' and e.edge_id NOT in ' || Skip_Table;
           p := INSTR(Skip_table,')');
           if p = 0 then
@@ -6730,16 +6828,16 @@ BEGIN
           end if;
       end if;
     END IF;
-    
-    
+
+
     sql_stmt := 'SELECT SDO_AGGR_MBR(e.geometry) FROM ' ||
-                Edges_Table || ' e WHERE e.state=:1 and e.Ignore=0 and ' ||  and_statement ||                
+                Edges_Table || ' e WHERE e.state=:1 and e.Ignore=0 and ' ||  and_statement ||
                   'SDO_ANYINTERACT(e.geometry,MDSYS.sdo_geometry(2003,:2,NULL,MDSYS.SDO_ELEM_INFO_ARRAY(1,1003,3),'||
                  'MDSYS.SDO_ORDINATE_ARRAY(:3,:4,:5,:6))) = ''TRUE''' || minus_statement;
 
     EXECUTE IMMEDIATE sql_stmt INTO MBR_Geom USING state_code,SRID,min_x,min_y,max_x,max_y;
-    MBR := MBR_GEOM.sdo_ordinates;    
-          
+    MBR := MBR_GEOM.sdo_ordinates;
+
     RETURN MBR;
 END BUILD_MBR;
 --
@@ -6761,17 +6859,17 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                                         dec_digits      NUMBER default 6.
                                         ) RETURN NUMBER AS
 --                                        context_info     SDO_KEYWORDARRAY) IS
-                                        
+
     type        cursor_type is REF CURSOR;
     query_crs   cursor_type ;
-    
+
     Done            MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
     Edge_ids        MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
     State_Edge_ids  MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
     Bad_ids         MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
     Skip_ids        MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
-    
-    Bad_Table       VARCHAR2(100) := UPPER(pbad_table); 
+
+    Bad_Table       VARCHAR2(100) := UPPER(pbad_table);
     Skip_Table      VARCHAR2(100) := UPPER(pskip_table);
     Done_Table      VARCHAR2(100) := UPPER(pdone_table);
     Edges_Table     VARCHAR2(100) := UPPER(pEdges_table);
@@ -6779,8 +6877,8 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
     PolyXys         MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
     EndXys          MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
     self_segs       MDSYS.SDO_LIST_TYPE;
-    
-    
+
+
     edge_id         NUMBER;
     max_id          NUMBER;
     scale           NUMBER := pscale;
@@ -6802,7 +6900,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
     yLL2            NUMBER;
     xUR2            NUMBER;
     yUR2            NUMBER;
-    
+
 
     no_done         PLS_INTEGER := 0;
     no_skip         PLS_INTEGER := 0;
@@ -6818,7 +6916,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
     poly_geometry   MDSYS.SDO_GEOMETRY;
     XYOrd           MDSYS.SDO_ORDINATE_ARRAY;
     origXYOrd       MDSYS.SDO_ORDINATE_ARRAY;
-    
+
     status           VARCHAR2(10000);
     result           VARCHAR2(4000);
     minus_statement  VARCHAR2(4000) :=NULL;
@@ -6846,9 +6944,9 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
     problem_edge     BOOLEAN := FALSE;
     clear_it         PLS_INTEGER := 0;
     the_time         timestamp;
---------------------------------------------------------------------------------    
+--------------------------------------------------------------------------------
     function is_digit(cvalue varchar2) return boolean as
-    
+
 -- Is a character a digit? (or a sign?)
     begin
         for ii in -1..9 loop
@@ -6860,9 +6958,9 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
         end loop;
         return FALSE;
     end;
-    
+
     function is_digits(cvalue varchar2) return boolean as
-    
+
 -- Are all the characters digits?
     begin
         for ii in 1..length(cvalue) loop
@@ -6872,9 +6970,9 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
         end loop;
         return TRUE;
     end;
-    
+
     function split(input VARCHAR2) return mdsys.sdo_list_type as
-    
+
 -- Split a comma delimited list into an array of values.
 
        pos     pls_integer :=1;
@@ -6888,14 +6986,14 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
        while pos < Length(input) loop
           next := INSTR(input,',',pos+1);
           if next = 0 then
-            next := INSTR(input,')',pos+1); 
+            next := INSTR(input,')',pos+1);
           end if;
           if next = 0 then
             next := Length(input);
             pos := Length(input);
           end if;
           cval := SUBSTR(input,pos+1,next-pos-1);
-          
+
           if is_digits(cval) then
             nof := nof+1;
             valus.extend(1);
@@ -6909,58 +7007,58 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
     end;
 --------------------------------------------------------------------------------
   BEGIN
-  
+
     the_time := current_timestamp;
     EndXys.extend(4);
     PolyInfo_Array.extend(3);
     PolyInfo_Array(1) := 1;
     PolyInfo_Array(2) := 1003;
     PolyInfo_Array(3) := 1;
- 
-     
+
+
     --Matt! Added this 9/14/12
-    --seeing cases in production where the sdo_TOPO_MAP.LOAD_TOPO_MAP below is erroring with 
+    --seeing cases in production where the sdo_TOPO_MAP.LOAD_TOPO_MAP below is erroring with
     --   java out of memory
     --Maybe theres a higher level one-time-only spot where it belongs?
     SDO_TOPO_MAP.SET_MAX_MEMORY_SIZE(2147483648);
-       
-    
---------------------------------------------------------------------------------  
-    query_str := 'SELECT max(edge_id) FROM ' || topology || '_edge$';    
+
+
+--------------------------------------------------------------------------------
+    query_str := 'SELECT max(edge_id) FROM ' || topology || '_edge$';
     execute immediate query_str into max_id;
     Done.extend(max_id);
 
--------------------------------------------------------------------------------- 
+--------------------------------------------------------------------------------
    EXECUTE IMMEDIATE 'SELECT count(1) FROM ' || Edges_table into kount;
-   
+
 -- Find out how many on Universal Face
     EXECUTE IMMEDIATE 'SELECT count(1) FROM ' || Edges_table || ' WHERE IGNORE=1' into no_on_UF;
 
--- Skip edges in Done Table. Zero means not done, 1 means done (or do not process). 
+-- Skip edges in Done Table. Zero means not done, 1 means done (or do not process).
     for ii in 1..max_id loop
       Done(ii) := 0.;
     end loop;
-        
+
     query_str := 'SELECT  edge_id FROM ' || Done_Table;
 
-  
+
     OPEN query_crs FOR query_str;
-      
+
     LOOP
       FETCH query_crs BULK COLLECT INTO edge_ids LIMIT Row_Limit;
-      EXIT WHEN edge_ids.count = 0; 
+      EXIT WHEN edge_ids.count = 0;
       for ii in 1..Edge_ids.count loop
         edge_id := Edge_ids(ii);
         Done(edge_id) := 1.;
       end loop;
       no_done := no_done + Edge_ids.count;
     END LOOP;
-    
+
     CLOSE query_crs;
- 
---------------------------------------------------------------------------------  
-   
--- Skip edges in Skip Table    
+
+--------------------------------------------------------------------------------
+
+-- Skip edges in Skip Table
     IF Skip_Table is NOT NULL then
 -- User passed a comm delimited list of edge_ids to skip in parentheses.
 -- Example (1,3)
@@ -6984,7 +7082,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
           query_str := '(';
           for ii in 1..Skip_ids.count loop
             Skip_ids(ii) := ABS(Skip_ids(ii));
-            query_str := query_str|| Skip_ids(ii); 
+            query_str := query_str|| Skip_ids(ii);
             if ii <> Skip_ids.count then
               query_str := query_str||',';
             else
@@ -7002,9 +7100,9 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
       query_str := 'SELECT  Edge_id FROM ' || Skip_Table;
        GZ_TOPOFIX.Track_App(query_str,Topology,'LS');
       OPEN query_crs FOR query_str;
-  
+
       LOOP
-   
+
         FETCH query_crs BULK COLLECT INTO Skip_ids LIMIT Row_limit;
         EXIT WHEN edge_ids.count=0;
         for ii in 1..Skip_ids.count loop
@@ -7013,31 +7111,31 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
         end loop;
         no_skip := no_skip + Skip_ids.count;
       END LOOP;
- 
+
       CLOSE query_crs;
-      
+
       minus_statement := ' minus ' || query_str;
       end if;
     END IF;
-    
+
       error_msg := ':Edges to Skip:Line_Simplify:Edge counts '||no_on_UF||' on univ face';
     if no_skip > 0 then
       error_msg := error_msg || ', and user requests '|| no_skip || ' to skip';
     end if;
- 
+
     if no_done > 0 then
       error_msg := error_msg || ', '|| no_done || ' already simplified.';
     end if;
- 
+
  --   dbms_output.put_line( substr(error_msg,1,100));
- 
+
     GZ_TOPOFIX.Track_App(error_msg,Topology,'LS');
-   
+
     dbms_output.put_line( 'Number of edges done: '|| no_done  || ' from ' || done_table);
     dbms_output.put_line( 'Number to skip: '|| no_skip);
     dbms_output.put_line( 'Number on Universal Face: '|| no_on_UF);
 --------------------------------------------------------------------------------
-/*    
+/*
     window_geom := SDO_GEOMETRY (2003,NULL,NULL,
                                  SDO_ELEM_INFO_ARRAY(1,1003,3),
                                  SDO_ORDINATE_ARRAY(min_x,min_y,max_x,max_y));
@@ -7056,28 +7154,28 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                                    max_y || ',-1)) b ' ||
                    'WHERE a.edge_id = b.column_value';
     END IF;
-*/  
+*/
 
-    
+
     sql_stmt2 := 'INSERT INTO ' || Done_Table || ' (EDGE_ID,STATE) VALUES(:1,:2)';
-   
-   
+
+
    if p <> 0 then
      sql_stmt := 'SELECT e.edge_id ' ||
-                   'FROM ' || Edges_Table || ' e WHERE e.state=:1 and e.Ignore=0 and ' ||                  
+                   'FROM ' || Edges_Table || ' e WHERE e.state=:1 and e.Ignore=0 and ' ||
                   'SDO_RELATE(e.geometry,MDSYS.sdo_geometry(2003,:2,NULL,MDSYS.SDO_ELEM_INFO_ARRAY(1,1003,3),'||
                  'MDSYS.SDO_ORDINATE_ARRAY(:3,:4,:5,:6)),''MASK=INSIDE'') = ''TRUE''' || minus_statement;
     dbms_output.put_line('minus ' || minus_statement);
     EXECUTE IMMEDIATE sql_stmt BULK COLLECT INTO Edge_ids USING state_code,SRID,min_x,min_y,max_x,max_y,Skip_ids;
    else
     sql_stmt := 'SELECT e.edge_id ' ||
-                   'FROM ' || Edges_Table || ' e WHERE e.state=:1 and e.Ignore=0 and ' ||                  
+                   'FROM ' || Edges_Table || ' e WHERE e.state=:1 and e.Ignore=0 and ' ||
                   'SDO_RELATE(e.geometry,MDSYS.sdo_geometry(2003,:2,NULL,MDSYS.SDO_ELEM_INFO_ARRAY(1,1003,3),'||
                  'MDSYS.SDO_ORDINATE_ARRAY(:3,:4,:5,:6)),''MASK=INSIDE'') = ''TRUE''' || minus_statement;
 
     EXECUTE IMMEDIATE sql_stmt BULK COLLECT INTO Edge_ids USING state_code,SRID,min_x,min_y,max_x,max_y;
-   end if; 
-   
+   end if;
+
 
     If Edge_ids.count = 0 then
       RETURN 0;
@@ -7086,20 +7184,20 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
 -- For example:
 -- If we process 2 curved river edges, then if we process the top one first, it must
 -- not interfere or intersect with the lower one. So the shape is well preserved.
--- If we process the lower one first, it is free to cut across missing the top 
+-- If we process the lower one first, it is free to cut across missing the top
 -- one altogether. Then both edges can have much straighter shapes.
 
     shellsort(Edge_ids);
- 
-    
+
+
 --    sql_stmt4 := 'INSERT INTO ' ||BAD_Table || ' VALUES(:1,:2,:3)';
-    sql_stmt3 := 'UPDATE ' || Edges_Table || ' set new_geometry=:1 where edge_id=:2'; 
-    
+    sql_stmt3 := 'UPDATE ' || Edges_Table || ' set new_geometry=:1 where edge_id=:2';
+
     sql_stmt := 'SELECT e.new_geometry,m.start_node_id,m.end_node_id,e.uniq,e.mt_length,e.vertices ' ||
-                   'FROM ' || Topology ||'_edge$ m,' || Edges_table || ' e where m.edge_id=:1 and m.edge_id=e.edge_id'; 
+                   'FROM ' || Topology ||'_edge$ m,' || Edges_table || ' e where m.edge_id=:1 and m.edge_id=e.edge_id';
 
 
---    dbms_output.put_line('edge ids count ' || edge_ids.count); 
+--    dbms_output.put_line('edge ids count ' || edge_ids.count);
 --------------------------------------------------------------------------------
 --dbms_output.put_line('Elapsed time : ' || (current_timestamp - the_time));
   no_done := 0;
@@ -7124,9 +7222,9 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
         end if;
      end if;
 -- Loop over all edges that are not done
-   
+
     loup_count := 0;
-  
+
     WHILE loup_count < batch LOOP   -- we do batches of edge_ids
       if loup_count = 0 then
         if clear_it = 0 and single_edge_mode = FALSE then
@@ -7136,11 +7234,11 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
             GZ_TOPOFIX.Track_App(error_msg,Topology,'LS');
             BEGIN
             sdo_TOPO_MAP.LOAD_TOPO_MAP(topomap_name,min_x,min_y,max_x,max_y, 'true');
-            
-            EXCEPTION 
+
+            EXCEPTION
             WHEN OTHERS  then
               sdo_TOPO_MAP.DROP_TOPO_MAP(topomap_name);
-              
+
               IF UPPER(SQLERRM) LIKE '%MEMORY%' THEN
                  error_msg := ':Load TopoMap:Line_Simplify:Topology reload fail with MBR, LL:'|| min_x || ' : ' || min_y||' UR: '|| max_x || ' : ' || max_y;
                  GZ_TOPOFIX.Track_App(error_msg,Topology,'LS');
@@ -7173,25 +7271,25 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
 --      end if;
 --      edge_id :=1760;
 --     edge_id := 1554569; --1760; --1129513; --765744; --11381; --1220221; --2109193; --85113; --624950; --970887; --1298; --970058; --1219656; --62781; --1138750; --1997295; --772282; --2165828; --472958;
- 
+
       geometry := NULL;
       execute immediate sql_stmt into geometry,start_node,end_node,uniq,elength,vertices using edge_id;
 
 --  Two vertices cannot be generalized, so the edge is done.
       IF vertices = 2 THEN
           execute immediate sql_stmt2 using edge_id,state_code;
-          
+
 -- If the Edge has not been already generalized and it has more than 2 vertices
 --  then process it
 
       ELSIF Done(edge_id) = 0 THEN
-           
+
            if single_edge_mode then
 --           dbms_output.put_line(edge_id);
-           
+
              sql_stmt5 := 'SELECT xLL,yLL,xUR,yUR from '|| Edges_Table || ' where edge_id=:1';
              Execute Immediate sql_stmt5 into xLL2,yLL2,xUR2,yUR2 using edge_id;
- 
+
              xLL2 := xLL2-delta;
              yLL2 := yLL2-delta;
              xUR2 := xUR2+delta;
@@ -7202,20 +7300,20 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
              end if;
              error_msg := ':Load TopoMap:Line_Simplify:Single Edge reloading with MBR, LL:'|| xLL2 || ' : ' || yLL2||' UR: '|| xUR2 || ' : ' || yUR2;
             GZ_TOPOFIX.Track_App(error_msg,Topology,'LS');
-             sdo_TOPO_MAP.LOAD_TOPO_MAP(topomap_name,xLL2,yLL2,xUR2,yUR2, 'true'); 
+             sdo_TOPO_MAP.LOAD_TOPO_MAP(topomap_name,xLL2,yLL2,xUR2,yUR2, 'true');
              clear_it := 1;
            end if;
-           
--- First Simplify the edge, and then test if its good.        
-        
+
+-- First Simplify the edge, and then test if its good.
+
            execute immediate sql_stmt2 using edge_id,state_code;
            commit;
            origXyord := geometry.sdo_ordinates;
            scale := pscale;
 
-       
+
 -- Treat very small polygons or edges that are part of a small polygon
--- differently since they may not generalize at all. For example, how do you 
+-- differently since they may not generalize at all. For example, how do you
 -- generalize a square at some arbitrary scale? The chance you can do better
 -- is not good and sometimes it is easier to just use the ungeneralized or
 -- a very mildly generalized version of the geometry.
@@ -7225,7 +7323,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
            end if;
            if elength < length_cutoff then
              m := origXYord.count;
-             if origxyord(1) = origxyord(m-1) and 
+             if origxyord(1) = origxyord(m-1) and
                origxyord(2) = origxyord(m) then
                scale := ROUND(elength*200.,0);
                if scale < 0.8*pscale then
@@ -7240,7 +7338,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                PolyXys(jj) := origXYord(jj);
              end loop;
              PolyXys(m+1) := Polyxys(1);
-             PolyXys(m+2) := Polyxys(2);              
+             PolyXys(m+2) := Polyxys(2);
              area := area_perim(PolyXys,perim);
 --  A triangle with 2 sides L and included angle of 90 degrees has area L*L/2
 --  Perimeter is 2L. so sqrt(area/perim) = sqrt(L*L/2)/2L.
@@ -7253,7 +7351,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                EndXys(4) := origxyord(m);
                short_dist := GZ_UTIL_ZONE.accurate_length(EndXys);
 --             dbms_output.put_line('elen ' || elength || ' short ' || short_dist);
--- Here we reset the scale for very short edges that will not 
+-- Here we reset the scale for very short edges that will not
                if short_dist < 0.3 * elength or uniq >= 8 then
                  scale := ROUND(elength*200.,0);
                end if;
@@ -7262,13 +7360,13 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                end if;
 --                dbms_output.put_line('scale now' || scale);
              end if;
- 
+
              if scale > pscale then
                scale := pscale;
              end if;
  --             dbms_output.put_line('scale final ' || scale);
            end if;
-        
+
            OK := TRUE;
            result := 'BAD';
            loops := 0;
@@ -7278,15 +7376,15 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
 --             dbms_output.put_line('calling edge simplify scale is ' || scale || ' elength ' || (200*round(elength,4)));
              new_geometry := EDGE_SIMPLIFY(Status,Edge_id,geometry,elength,uniq,scale,nice,tolerance,
                                       dec_digits,method,Edges_Table,topology);
-                       
+
              IF new_geometry is not NULL THEN
                xyord := geometry.sdo_ordinates;
                SRID := Geometry.sdo_srid;
 --        dbms_output.put_line('vertex kount ' || xyord.count || ' new count ' || new_geometry.sdo_ordinates.count);
-  
--- If the edge closes then we test to see if it self intersects using ORACLE  
+
+-- If the edge closes then we test to see if it self intersects using ORACLE
                if xyord(1) = xyord(XYord.count-1) and xyord(2) = xyord(XYord.count) then
-      
+
                   poly_geometry := MDSYS.SDO_GEOMETRY(2003,SRID,NULL,SDO_ELEM_INFO_ARRAY(1,1003,1),
                                new_geometry.sdo_ordinates);
                   result := sdo_geom.validate_geometry_with_context(poly_geometry,0.05);
@@ -7304,14 +7402,14 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                   self_segs := check_for_self_intersect(new_geometry);
 --           if edge_id = 2220515 then
 --      dbms_output.put_line(edge_id || ' new ' || new_geometry.sdo_ordinates.count);
---      end if; 
+--      end if;
 --           dbms_output.put_line('SEG is ' || seg1);
 
 -- If it does make a similar 13349 error message.
                  if self_segs.count > 0 then
                    seg2 := MOD(self_segs(1),100000.);
                    seg1 := TRUNC((self_segs(1)-seg2)/100000.);
-                   result := '13349 [Element <1>] [Ring <1>][Edge <'||seg1||'>][Edge <'||seg2||'>]'; 
+                   result := '13349 [Element <1>] [Ring <1>][Edge <'||seg1||'>][Edge <'||seg2||'>]';
                    dbms_output.put_line(edge_id || ' self intersected ' || result);
 --                   sql_stmt := 'INSERT into points values(:1,:2,:3)';
 --                   execute immediate sql_stmt using -19,new_geometry,'generalized geom';
@@ -7319,19 +7417,19 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                  else
 -- We are done, its good.
                    result := 'TRUE';
-                 end if;       
+                 end if;
                end if;
-            
+
              END IF;
              loops := loops+1;
            END LOOP;
- 
---------------------------------------------------------------------------------       
+
+--------------------------------------------------------------------------------
            IF new_geometry is not NULL THEN
               xyord := new_geometry.sdo_ordinates;
              if result <> 'TRUE' then
                OK := FALSE;
-               
+
                error_msg := ':WARNING'||edge_id||':Line_Simplify:Updated edge failed insertion into topology with ERROR:'||result;
                GZ_TOPOFIX.Track_App(error_msg,Topology,'LS',new_geometry);
 --               for pp in 1..TRUNC(Xyord.count/2) loop
@@ -7343,9 +7441,9 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
 --   dbms_output.put_line(result);
 
 
---  Record that the edge is done. 
-       
-            
+--  Record that the edge is done.
+
+
 
              IF OK = TRUE THEN
                status := swap_edge_coords(Topology,edge_id,new_geometry);
@@ -7361,7 +7459,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
 
 -- then just leave the original edge!
 
-               if (INSTR(status, 'Changing edge coordinates attempts to reorder node star') != 0 or INSTR(status, 'coordinates reverses the sense of the loop') != 0)  then 
+               if (INSTR(status, 'Changing edge coordinates attempts to reorder node star') != 0 or INSTR(status, 'coordinates reverses the sense of the loop') != 0)  then
 -- We mark it as done even though it was not generalized..
                   error_msg := ':WARNING'||edge_id||':Line_Simplify:Updated edge failed insertion into topology with ERROR:'||status;
                  GZ_TOPOFIX.Track_App(error_msg,Topology,'LS',new_geometry);
@@ -7369,8 +7467,8 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                  execute immediate sql_stmt2 using edge_id,state_code;
                  commit;
                elsif SUBSTR(status,1,4)  <> 'TRUE' then
- 
-                 DBMS_OUTPUT.PUT_LINE('Unable to Change Edge Coords: ' || Edge_id || ': ' || status); 
+
+                 DBMS_OUTPUT.PUT_LINE('Unable to Change Edge Coords: ' || Edge_id || ': ' || status);
                  if status <> 'NOT SWAPPED' then
                   error_msg := ':WARNING'||edge_id||':Line_Simplify:Updated edge failed insertion into topology with ERROR:'||status;
                  GZ_TOPOFIX.Track_App(error_msg,Topology,'LS',new_geometry);
@@ -7384,21 +7482,21 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                    error_msg := ':WARNING'||edge_id||':Line_Simplify:Updated edge failed insertion into topology with ERROR:'||status;
                  GZ_TOPOFIX.Track_App(error_msg,Topology,'LS',new_geometry);
 --                   execute immediate sql_stmt4 using edge_id,state_code,status;
-                   commit;                 
+                   commit;
                  end if;
- 
+
                else
 -- This is sucess
--- This is the geometry we placed into the Topology  
-                 sql_stmt3 := 'UPDATE ' || Edges_Table || ' set new_geometry=:1 where edge_id=:2'; 
-                 execute immediate sql_stmt3 using new_geometry,edge_id;     
+-- This is the geometry we placed into the Topology
+                 sql_stmt3 := 'UPDATE ' || Edges_Table || ' set new_geometry=:1 where edge_id=:2';
+                 execute immediate sql_stmt3 using new_geometry,edge_id;
                  Done(edge_id) := 1.;
                  execute immediate sql_stmt2 using edge_id,state_code;
                  commit;
                end if;
- 
-               
- 
+
+
+
              END IF;  -- end of edge was 'OK'
 
          END IF;  -- end of if new_geometry is not null
@@ -7414,7 +7512,7 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
 --                 sql_stmt7 := 'SELECT count(1) from '||Topology||'_EDGE$ a, GZ_SDRP10_Z6.Z641SP1_edge$ b where a.edge_id = b.edge_id and (a.left_face_id <> b.left_face_id or a.right_face_id <> b.right_face_id)';
 --                 execute immediate sql_stmt7 into bad_count;
 --                 dbms_output.put_line('Bad count ' || bad_count || ' at id ' || edge_id);
---                 if bad_count > 0 then                 
+--                 if bad_count > 0 then
 --                   raise_application_error(-20001,'BAD');
 --                 end if;
                  EXCEPTION
@@ -7423,14 +7521,14 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
                  dbms_output.put_line(sqlerrm);
                  IF (INSTR(sqlerrm, 'has an edge coincident with outer boundary') != 0) THEN
                   Get_bad_ids(Topology,state_code,Edges_table,sqlerrm,Bad_ids);
-                  
+
 -- Mark those done as not done
                   for jj in last_idx+1..idx Loop
                     Done(Edge_ids(jj)) := 0.;
                   end loop;
                   sql_stmt6 := 'Delete from ' || Done_table || ' WHERE STATE=:1 and EDGE_ID >=:1 and EDGE_ID <=:2';
                   Execute Immediate sql_stmt6 using state_code,low_id,hi_id;
-                  sql_stmt6 := 'UPDATE '||Edges_Table || ' SET new_geometry = geometry WHERE state=:1 and edge_id >=:2 and edge_id <=:3';         
+                  sql_stmt6 := 'UPDATE '||Edges_Table || ' SET new_geometry = geometry WHERE state=:1 and edge_id >=:2 and edge_id <=:3';
                   Execute Immediate sql_stmt6 using state_code,low_id,hi_id;
                   dbms_output.put_line('Reset geometries back to original for ids: ' || low_id || ' to ' || hi_id);
                   commit;
@@ -7457,12 +7555,12 @@ FUNCTION SIMPLIFY_REGION (topology     VARCHAR2,
       if loup_count = batch and idx < Edge_ids.count then
          loup_count := 0;
       end if;
- 
+
     END LOOP;
     END LOOP;   -- end of Loop over loops
-  
+
     RETURN no_done;
-    
+
   END SIMPLIFY_REGION;
   --
 PROCEDURE SET_MBR(   XYs IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,
@@ -7479,9 +7577,9 @@ PROCEDURE SET_MBR(   XYs IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,
 --Updated: 11/04/2010 To go through the array in different directions
 
 --Usage: Set_MBR(Xys,xLL,yLL,xUR,yUR);
- 
+
   --             XYs:             the input array of xy coordinates
-  --             pLB, pUB  :      elements caller may specify describing the  
+  --             pLB, pUB  :      elements caller may specify describing the
   --                              range in the ordinate array to use. (Set Many MBR
   --                              uses these parameters to set up many extents
   --                              for a single edge. These are used to sudivide it.)
@@ -7492,27 +7590,27 @@ PROCEDURE SET_MBR(   XYs IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,
 --                |        |
 --      (xLL,yLL) +--------+
 --
---Purpose: Determines the minimum bounding rectangle (MBR) of a geometry. It is 
+--Purpose: Determines the minimum bounding rectangle (MBR) of a geometry. It is
 --         about 10% faster than Oracle sdo_geom.sdo_mbr.
 -- Method: May loop through the coordinates twice using a coarse comb to first
 -- check values far apart bedore checking every vertex.
 --==============================================================================
-                     
+
    n       PLS_INTEGER := Xys.count;
    ii      PLS_INTEGER;
    LB      PLS_INTEGER := pLB;
-   UB      PLS_INTEGER := pUB;   
+   UB      PLS_INTEGER := pUB;
    inc     PLS_INTEGER;
    mid     PLS_INTEGER;
    loops   PLS_INTEGER :=2;
    m       PLS_INTEGER;
-    
+
 BEGIN
 --------------------------------------------------------------------------------
 -- Setup to get initial values for the returned extent.
 
    If UB = 0 then UB := n; End if;
-   
+
 -- We want the loop below to just do comparisons and not unnecessary stores.
 -- Since we start at the beginning (below), check the midpoint and the end here.
 
@@ -7523,29 +7621,29 @@ BEGIN
    yLL := XYS(mid);
    xUR := XYs(mid-1);
    yUR := XYs(mid);
- 
+
    If XYs(UB-1) < xLL then
           xLL := XYs(UB-1);
    ElsIf XYs(UB-1) > xUR then
           xUR := XYs(UB-1);
-   End If; 
+   End If;
 
    If XYs(UB) < yLL then
          yLL := XYs(UB);
    ElsIf XYs(UB) > yUR then
          yUR := XYs(UB);
    End If;
-   
+
    if n <=4 then RETURN; end if;  -- Done when we have a 2 vertex edge.
 --------------------------------------------------------------------------------
 -- Loop twice using a comb to avoid a lot of wasted loads and stores. Usually
 -- begind with a coarse comb before checking every value.
--- Set thiscomb increment 
+-- Set thiscomb increment
 
    inc := sqrt(UB - LB +1);
 
    if TRUNC(inc/2)*2 <> inc then inc := inc + 1; end if;
-   
+
 -- for less than 400 coordinates, one loop (brute force) seems fastest
    if inc <= 20 then
       inc := 2;
@@ -7554,12 +7652,12 @@ BEGIN
       inc := inc * 2;
    End if;
 
---------------------------------------------------------------------------------   
+--------------------------------------------------------------------------------
 -- Begin 2 or 1 loops (sort of like Shellsort). First loop uses coarse comb
 -- and second uses a fine comb to check every vertex.
 
 
-   For jj in 1..loops Loop 
+   For jj in 1..loops Loop
      m := TRUNC((UB-LB+1)/inc);
      inc := inc -1;
      if loops = 2 and jj = 1 then
@@ -7569,17 +7667,17 @@ BEGIN
        ii := pLB  - inc;
      end if;
 --dbms_output.put_line('inc was ' ||inc);
---   Loop of the coordinates. Most of the time this loop doesn't do anything 
---   except additions and tests.     
+--   Loop of the coordinates. Most of the time this loop doesn't do anything
+--   except additions and tests.
 
      For i in 1..m Loop
        ii := ii + inc;
- 
-       If Xys(ii) < xLL then          -- it is believed that this if .. elsif 
+
+       If Xys(ii) < xLL then          -- it is believed that this if .. elsif
           xLL := Xys(ii);
        ElsIf Xys(ii) > xUR then
           xUR := Xys(ii);
-       End If; 
+       End If;
        ii := ii +1;
 
        If Xys(ii) < yLL then          -- structure is missing from the comparable Oracle code!
@@ -7611,14 +7709,14 @@ PROCEDURE SET_MANY_MBR(XYs IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,
 --Creation Date: 11/03/08
 --Updated: 12/02/2008 To handle holes in polygons
 --Usage:
- 
+
   --             XYs:      the input array of xy coordinates
   --             Info_Array: the Elem Info Array from the geometry
   --             MBRs:     an output array to be filled with MBRs
   --                       (groups of 6, xLL,yLL,xUR,yUR followed by
   --                       the range for each MBR - start/stop elements)
-  --             pLB, pUB  :     (lower bound and upper bound)- elements caller 
-  --                              must specify to start and stop at in the 
+  --             pLB, pUB  :     (lower bound and upper bound)- elements caller
+  --                              must specify to start and stop at in the
   --                              ordinate array. pLB defaults to 1
   --                              and pUB defaults to Xys.count
   --             pbeg: where to start storing in MBR minus 1 (usually zero). Only
@@ -7634,9 +7732,9 @@ PROCEDURE SET_MANY_MBR(XYs IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,
 --      (xLL,yLL) +--------+              NOTE: Extents are a pair of points.
 
 --
---Purpose: 
---          Takes an XY ordinate array and produces many MBRs (Minimum Bounding 
---          Rectangles or boxes) and the overall extent (xLL,yLL) to (xUR,yUR) 
+--Purpose:
+--          Takes an XY ordinate array and produces many MBRs (Minimum Bounding
+--          Rectangles or boxes) and the overall extent (xLL,yLL) to (xUR,yUR)
 --          spanning the coordinates. These MBRS enable a geometry to be subdivided.
 --                              MBRs                    geometry
 --                        ___________________         ___________
@@ -7649,10 +7747,10 @@ PROCEDURE SET_MANY_MBR(XYs IN OUT NOCOPY MDSYS.SDO_ORDINATE_ARRAY,
 --         a geometry as shown. These MBRs can be used to limit xy searches.
 --         very efficiently If the LB is not equal to 1 then the Info Array is
 --         ignored and MBRs are determined using pLB and pUB.
-                      
+
 --Dependencies: SET_MBR
 --==============================================================================
-     
+
      xLL2            NUMBER;
      yLL2            NUMBER;
      xUR2            NUMBER;
@@ -7683,7 +7781,7 @@ BEGIN
        UB := Info_Array(4) -1;
     End if;
     m := TRUNC(sqrt((InUB-LB+1)/2));
- 
+
     if m <= 0 then
        m := 1;
     end if;
@@ -7701,7 +7799,7 @@ BEGIN
     else
       if m*(no_to_do-2)+2 < InUB-LB+1 then   -- this is new - and next 2 lines
         no_to_do := no_to_do + 2;
-      end if;          
+      end if;
 ----          m := TRUNC((InUB-LB+1)/(no_to_do -2));
       If (m* (no_to_do-2)) +2 < (InUB-LB+1) then  -- +2 is new
         no_to_do := no_to_do + 2; -- m := m + 1;
@@ -7725,7 +7823,7 @@ BEGIN
       For ii in 1..mm Loop
         UBB := LBB + no_to_do-1;
         If UBB > UB then
-           UBB := UB;            
+           UBB := UB;
         End if;
 --      Do a partial MBR and then save its extent and the range irt covers
         Set_MBR(XYs,xLL2,yLL2,xUR2,yUR2,LBB,UBB);
@@ -7740,7 +7838,7 @@ BEGIN
         MBRs(jj+4) := yUR2;
         MBRs(jj+5) := LBB;   -- start range
         MBRs(jj+6) := UBB;   -- end range
--- Work out overall MBR 
+-- Work out overall MBR
         If ii = 1 or xLL2 < xLL then
            xLL := xLL2;
         End if;
@@ -7754,18 +7852,18 @@ BEGIN
            yUR := yUR2;
         End If;
         m := ii;
--- handle holes          
+-- handle holes
         If no_holes > 0 and UBB = UB then
-           next := next + 3; 
+           next := next + 3;
            LBB := UB + 1;
            if next < Info_Array.count then
              UB := Info_Array(next)-1;
            else
-             exit when UB = Xys.count;              
+             exit when UB = Xys.count;
              UB := XYs.count;
            end if;
            exit when LBB >= InUB;
-        Else  
+        Else
 --            exit when UBB >= UB;
           LBB := UBB-1;
         End if;
@@ -7781,14 +7879,14 @@ BEGIN
 
 END SET_MANY_MBR;
 --
-FUNCTION SWAP_EDGE_COORDS(Topology VARCHAR2,Edge_id NUMBER, Geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY) RETURN VARCHAR2 AS 
+FUNCTION SWAP_EDGE_COORDS(Topology VARCHAR2,Edge_id NUMBER, Geometry IN OUT NOCOPY MDSYS.SDO_GEOMETRY) RETURN VARCHAR2 AS
 
 --------------------------------------------------------------------------------
 -- Program Name: swap_edge_coords
 -- Author: Sidey Timmins
 -- Creation Date: 2010
 --
--- Usage: 
+-- Usage:
 --     REQUIRED Parameter:
 --        Topology            - The name of the Topology.
 --        Edge_id             - The edge_id to reshape
@@ -7796,21 +7894,21 @@ FUNCTION SWAP_EDGE_COORDS(Topology VARCHAR2,Edge_id NUMBER, Geometry IN OUT NOCO
 -- Purpose:       Update a topology by reshaping a single edge
 -- Modification History:
 --       10/21/2010 Niranjan Reddy suggested a different entry point with 3 extra
---                   arguments to avoid Oracle bug SR 3-2169673431 
+--                   arguments to avoid Oracle bug SR 3-2169673431
 --------------------------------------------------------------------------------
-     
+
      status            VARCHAR2(4000);
      v_errm            VARCHAR2(4000);
      v_code            NUMBER;
      moved_iso_nodes   SDO_NUMBER_ARRAY;
      moved_iso_edges   SDO_NUMBER_ARRAY;
      allow_iso_moves   VARCHAR2(5) := 'FALSE';
- 
+
 BEGIN
---------------------------------------------------------------------------------    
+--------------------------------------------------------------------------------
  --   In the specified topology, replace one edge's geometry with the input geometry.
  --   Perform the swap within an exception begin ..end clause
- 
+
       BEGIN
 
         SDO_TOPO_MAP.CHANGE_EDGE_COORDS(NULL,EDGE_ID,Geometry,moved_iso_nodes,moved_iso_edges,allow_iso_moves);
@@ -7824,19 +7922,19 @@ BEGIN
 --      If we get here the edge was swapped.
 
         RETURN 'TRUE';
-        
+
         EXCEPTION       --      If there is an error then return the status
           WHEN OTHERS THEN
                 IF (INSTR(sqlerrm, 'with an edge ID that does not exist in cache') != 0) THEN
                   DBMS_OUTPUT.PUT_LINE('in handler' || substr(sqlerrm,1,100));
                 ELSE
                   v_code := SQLCODE;
-                  v_errm :=  SQLERRM; 
-             
+                  v_errm :=  SQLERRM;
+
                 END IF;
                 RETURN SUBSTR(sqlerrm,1,300);  -- error message can be long
        END;
---------------------------------------------------------------------------------       
+--------------------------------------------------------------------------------
 END SWAP_EDGE_COORDS;
 --
 PROCEDURE Add_geom_metadata(pTableName VARCHAR2,pColumnName VARCHAR2,pInSchema VARCHAR2 default NULL,SRID NUMBER default 8265.,xLL NUMBER default -180.,yLL NUMBER default -90.,xUR NUMBER default 180.,yUR NUMBER default 90.,tolerance NUMBER default 0.05) AS
@@ -7851,13 +7949,13 @@ PROCEDURE Add_geom_metadata(pTableName VARCHAR2,pColumnName VARCHAR2,pInSchema V
 -- Usage: exec Add_geom_metadata('My_Table','GEOMETRY');
 
      --   pTableName      - a table name
-     --   pColumnName     - a column name in that table to be registered with 
+     --   pColumnName     - a column name in that table to be registered with
      --                     the USER_SDO_GEOM_METADATA table
      --   pInSchema       - the Schema name (defaults to user)
      --   SRID            - the Spatial reference id
      --   xLL,yLL,xUR,yUR - the maximum extent of coordinates for this SRID
      --   tolerance       - Oracle tolerance
-     
+
 -- Purpose: This procedure registers an existing spatial column with
 --          the USER_SDO_GEOM_METADATA table.
 
@@ -7874,23 +7972,23 @@ PROCEDURE Add_geom_metadata(pTableName VARCHAR2,pColumnName VARCHAR2,pInSchema V
    RecordCount    NUMBER;
 BEGIN
  -------------------------------------------------------------------------------
-   
+
 -- Check to see if the COLUMN exists!
 
    IF Table_exists( Tablename , InSchema) then
-   
+
       If NOT Column_exists(ColumnName,TableName,InSchema) then
         dbms_output.put_line('WARNING: the '||ColumnName||' column does not exist in the '||InSchema||'.'||TableName||' table');
         RETURN;
       End if;
-   
+
    -- Check to see if this geometry is already registered
-   
+
      SELECT COUNT(rownum)
              INTO RowsSelected
              FROM user_sdo_geom_metadata
              WHERE table_name = TableName AND column_name = ColumnName;
- 
+
      IF (RowsSelected > 0) THEN
         dbms_output.put_line('There were ' || RowsSelected || ' pre-existing records found in the USER_SDO_GEOM_METADATA table.');
         DELETE FROM user_sdo_geom_metadata
@@ -7898,7 +7996,7 @@ BEGIN
         COMMIT;
         dbms_output.put_line('These pre-existing records were deleted');
      END IF;
-  
+
    -----------------------------------------------------------------------------
    -- Add a record to the system metadata table
    --Additional notes about insertion:
@@ -7928,7 +8026,7 @@ BEGIN
              INTO RowsSelected
              FROM user_sdo_geom_metadata
              WHERE table_name = TableName AND column_name = ColumnName;
-             
+
      IF (RowsSelected = 1) THEN
         dbms_output.put_line(TableName || '.' || ColumnName || ' was successfully registered!');
      ELSE
@@ -7951,13 +8049,13 @@ FUNCTION Index_Exists(pInTable VARCHAR2, pInColumn VARCHAR2, pInSchema VARCHAR2 
  #        pInColumn             - Column name to check if it is indexed.
  #
  #     OPTIONAL Parameters:
- #        pInSchema             - The Schema that pInTable resides in.  
- #                                This value is used to query the TABLE_OWNER column 
- #                                of table ALL_IND_COLUMNS.  If pInschema is NULL, 
+ #        pInSchema             - The Schema that pInTable resides in.
+ #                                This value is used to query the TABLE_OWNER column
+ #                                of table ALL_IND_COLUMNS.  If pInschema is NULL,
  #                                then the current schema will be used.
  #
  # Purpose:  Checks to see if a particular column in a given table is indexed.
- #           Returns TRUE:  if the table/column is indexed and 
+ #           Returns TRUE:  if the table/column is indexed and
  #                   FALSE  otherwise.
  #
  # Dependencies:
@@ -7976,46 +8074,46 @@ FUNCTION Index_Exists(pInTable VARCHAR2, pInColumn VARCHAR2, pInSchema VARCHAR2 
    sql_stmt      VARCHAR2(4000);
 BEGIN
    ------------------------------------------------------
- 
+
    -- Check to see if: the USER exists
-   
+
    sql_stmt := 'SELECT COUNT(*) FROM all_users WHERE username = :1';
    EXECUTE IMMEDIATE sql_stmt INTO RecordCount USING InSchema;
    IF (RecordCount = 0.) THEN
       dbms_output.put_line(Warning||' schema does not exist');
- 
+
    --                 the TABLE exists!
-   
-   ELSIF NOT Table_exists( InTable , InSchema) then   
+
+   ELSIF NOT Table_exists( InTable , InSchema) then
       dbms_output.put_line(Warning||'.'||InTable||' table does not exist');
 
    --                the COLUMN exists!
-   
-   ELSIF NOT Column_exists( InColumn, InTable , InSchema) then 
+
+   ELSIF NOT Column_exists( InColumn, InTable , InSchema) then
       dbms_output.put_line(Warning ||'.'||InTable|| ' does not have a column named '||InColumn);
-  
+
    --            and if the INDEX exists!
    ELSE
       sql_stmt := 'SELECT COUNT(*) FROM all_ind_columns WHERE table_owner = :1 AND table_name = :2 AND column_name = :3';
       EXECUTE IMMEDIATE sql_stmt INTO RecordCount USING InSchema,InTable,InColumn;
    END IF;
-   
+
    RETURN (RecordCount > 0.);
   ------------------------------------------------------
 END Index_exists;
 --
 FUNCTION COLUMN_EXISTS ( pInColumn  IN VARCHAR2, pInTable  IN VARCHAR2, pInSchema IN VARCHAR2 DEFAULT NULL) RETURN BOOLEAN AS
- 
+
 -- Purpose: Checks to see if a table contains a particular column.
 -- Author: Nick Padfield
 -- Method: Checks to see if the specified column exists in ALL_TAB_COLUMNS.
 
    InColumn      VARCHAR2(30)     := UPPER(pInColumn);
    InTable       VARCHAR2(30)     := UPPER(pInTable);
-   InSchema      VARCHAR2(30)     := UPPER(NVL(pInSchema,USER)); 
+   InSchema      VARCHAR2(30)     := UPPER(NVL(pInSchema,USER));
    RecordCount   NUMBER(22)       := 0.;
    sql_stmt      VARCHAR2(4000);
-   
+
 BEGIN
   ------------------------------------------------------
    IF Table_exists( pInTable , pInSchema) then
@@ -8035,17 +8133,17 @@ FUNCTION TABLE_EXISTS ( pInTable  IN VARCHAR2, pInSchema IN VARCHAR2 DEFAULT NUL
 --          Updated to not place NVL in SQL statement and use bind variables.
 
    InTable       VARCHAR2(30)     := UPPER(pInTable);
-   InSchema      VARCHAR2(30)     := UPPER(NVL(pInSchema,USER)); 
+   InSchema      VARCHAR2(30)     := UPPER(NVL(pInSchema,USER));
    RecordCount   NUMBER(22)       := 0.;
    sql_stmt      VARCHAR2(4000);
    BEGIN
-   
+
       If pInTable is NULL then   -- Table name may not be NULL. new 06/06/2012 Sidey
-         RETURN FALSE;            
+         RETURN FALSE;
       end if;
       ------------------------------------------------------
       -- Check to see if the table exists in ALL_OBJECTS
-      
+
       sql_stmt := 'SELECT COUNT(*) FROM all_objects WHERE object_type = :1 AND owner = :2 AND object_name = :3';
       EXECUTE IMMEDIATE sql_stmt INTO RecordCount USING 'TABLE',InSchema,InTable;
 
@@ -8054,19 +8152,19 @@ FUNCTION TABLE_EXISTS ( pInTable  IN VARCHAR2, pInSchema IN VARCHAR2 DEFAULT NUL
    END TABLE_EXISTS;
 --
   procedure test_find_intersection_segment as
-  
+
   geom1    mdsys.sdo_geometry := mdsys.sdo_geometry(2002,8265,null,mdsys.sdo_elem_info_array(1,2,1),
                                                        mdsys.sdo_ordinate_array(-100,30,-101,31));
   geom2    mdsys.sdo_geometry := mdsys.sdo_geometry(2002,8265,null,mdsys.sdo_elem_info_array(1,2,1),
                                                        mdsys.sdo_ordinate_array(-100,30,-101,31));
-  
+
   segments mdsys.sdo_list_type;
   begin
     segments := find_intersection_segment(geom1,geom2);
     for ii in 1..segments.count loop
        dbms_output.put_line('seg ' ||segments(ii));
     end loop;
-    
+
   end;
 procedure test_check_PolyLR  as
 
@@ -8125,7 +8223,7 @@ procedure test_find_distances  as
     Poly_xys := poly_geom.sdo_ordinates;
     info_array := geom.sdo_elem_info;
     SET_MANY_MBR(XYs,Info_Array,MBR,xLL,yLL,xUR,yUR);
-    
+
     for ii in 1..TRUNC(Poly_Xys.count/2)-1 loop
        xc := Poly_Xys(ii*2-1);
        yc := Poly_XYs(ii*2);
@@ -8137,7 +8235,7 @@ procedure test_find_distances  as
          dbms_output.put_line('>>>>>>>found ' || round(best,5) || ' at vertex ' ||iseg);
        end if;
     end loop;
-    
+
 end;
 procedure test_set_mbr as
   xys       sdo_ordinate_array:= sdo_ordinate_array();
@@ -8151,7 +8249,7 @@ procedure test_set_mbr as
   the_time  timestamp := current_timestamp;
 begin
   xys.extend(8998);
- 
+
   for jj in 1..3000 loop
   for ii in 1..xys.count loop
      xys(ii) := Mod(ii+200+jj,8997)*0.01;
@@ -8196,7 +8294,7 @@ begin
    yLL := 25.8326614491579;
    xUR := -93.5024306963926;
    yUR := 36.5052161428592;
-   
+
 -- tile(1) is the current quad
 -- tile(2) is the next tile to pass UNLESS you want to subdivide this tile
 -- in which case reset tile to tile(1) - the current quad you want subdivided
@@ -8212,7 +8310,7 @@ function test_robust_line_gen(pgeom mdsys.sdo_geometry default NULL,no_of_vert p
  geom  mdsys.sdo_geometry := pgeom;
 begin
    if geom is NULL then
-      geom := SDO_GEOMETRY(2002, 8265, NULL, SDO_ELEM_INFO_ARRAY(1, 2, 1), 
+      geom := SDO_GEOMETRY(2002, 8265, NULL, SDO_ELEM_INFO_ARRAY(1, 2, 1),
       SDO_ORDINATE_ARRAY(
 -93.887954, 43.626488, -93.91519, 43.626589, -93.915841, 43.625022, -93.927866,
 43.626054, -93.927835, 43.630185, -93.942826, 43.630228, -93.942898, 43.604825,
@@ -8221,7 +8319,7 @@ begin
  -93.968104, 43.557859, -93.96811, 43.543333, -93.988033, 43.543398));
 
    end if;
-   
+
    return robust_line_gen(geom,no_of_vert);
 end;
 END GZ_SUPER;

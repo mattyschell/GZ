@@ -42,10 +42,10 @@ AS
   vSchema VARCHAR2(32) := UPPER(pSchema);
   vJobRun VARCHAR2(20) := UPPER(pJobrun); -- the topology name
 BEGIN
-   GZ_UTILITIES.CREATE_GEN_XTEND_TRACKING_LOG(SYS_CONTEXT('USERENV', 'CURRENT_USER'),
+   GZ_BUSINESS_UTILS.CREATE_GEN_XTEND_TRACKING_LOG(SYS_CONTEXT('USERENV', 'CURRENT_USER'),
                                                     vJobRun || '_SP_TRACKING');
 
-   GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', pJobRun,
+   GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', pJobRun,
                                                 'START_SP_LOGGING', NULL,
                                                 'STARTING SP REMOVAL  JOB: ' || pJobRun);
 
@@ -237,11 +237,11 @@ AS
 
            CASE p_Process
               WHEN 'SP' THEN
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_Process,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_Process,
                                                                   p_sqlstmt=>p_Process || ' Are_My_Polys_Valid',
                                                                   p_error_msg=>p_Message);
               WHEN 'LS' THEN
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('LS', p_topo, p_Process,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('LS', p_topo, p_Process,
                                                                   p_sqlstmt=>p_Process || ' Are_My_Polys_Valid',
                                                                   p_error_msg=>p_Message);
 
@@ -624,7 +624,7 @@ PROCEDURE CREATE_GEN_SP_PARAMETERS (
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 END CREATE_GEN_SP_PARAMETERS;
@@ -695,7 +695,7 @@ BEGIN
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
    ----------------------------------------------------------------------------
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 END CREATE_DELETE_EDGES_INPUT;
@@ -751,7 +751,7 @@ BEGIN
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ----------------------------------------------------------------------------------
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 END CREATE_GEN_SP_TRACKING;
@@ -807,7 +807,7 @@ BEGIN
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ----------------------------------------------------------------------------------
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
 END CREATE_EDGE_ATTRIBUTE;
@@ -911,11 +911,16 @@ PROCEDURE  GENERALIZATION_SP_REMOVAL (
     pGeoIDColumn        IN VARCHAR2 default 'GEOID',
     pRunId              IN VARCHAR2 default '1',
     pCleanup            IN VARCHAR2 default 'N',
-    ptopofix_qa         IN VARCHAR2 DEFAULT NULL
+    p_validate_topo     IN VARCHAR2 DEFAULT 'Y',
+    p_fix_edge          IN VARCHAR2 DEFAULT 'Y',
+    p_fix_2edge         IN VARCHAR2 DEFAULT 'N',
+    p_topofix_qa        IN VARCHAR2 DEFAULT 'N'    
 ) AS
 
    --Matt! 6/7/13 added ptopofix_qa management
-   
+   --Matt! 12/4/13 added fix edge and close edge nonsense
+   --M! 12/30 reorganized topofix and validation deck chairs again
+
    retval     VARCHAR2(8000);
    vSchema    VARCHAR2(32) := UPPER(pSchema);
    vProjectID VARCHAR2(4) := UPPER(pProjectID); -- Z6 or Z8 (to use to look up parameters
@@ -993,7 +998,7 @@ BEGIN
    vFromTopo := UPPER(pFromTopo); -- post-clip topology name
    vStateOutlineTable :=  UPPER(pStateOutlineTable);
    vStateFP := UPPER(pStateFP);
-   
+
    -- Read the small_polygon_parameters table
    --vGeoIDColumn :=  'GEOID';
    vSQL := 'SELECT target_scale, gen_clip_table, release FROM gz_job_setup WHERE jobid =   :1';
@@ -1074,27 +1079,31 @@ BEGIN
                         || ' pGeoIDColumn: ' || pGeoIDColumn
                         || ' pRunId: ' || pRunId
                         || ' pCleanup: ' || pCleanup
-                        || ' ptopofix_qa: ' || ptopofix_qa;
-   GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+                        || ' p_validate_topo: ' || p_validate_topo
+                        || ' p_fix_edge: ' || p_fix_edge
+                        || ' p_fix_2edge: ' || p_fix_2edge
+                        || ' p_topofix_qa: ' || p_topofix_qa;
+                        
+   GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                      p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    dbms_output.put_line (vNote);
-   
-   
-   IF ptopofix_qa IS NULL
-   OR ptopofix_qa = 'N'
+
+
+   IF p_topofix_qa IS NULL
+   OR p_topofix_qa = 'N'
    THEN
-   
+
       --SOP
       topofix_qa := 'N';
-      
+
    ELSE
-   
+
       --dont plan to fail on topofix fails for SP any more
       topofix_qa := 'Y';
-   
+
    END IF;
-   
+
    -- retreive parameters
    -- EXECUTE IMMEDIATE 'SELECT * '||
    --                  'FROM '||vSchema||'.GEN_SP_PARAMETERS '||
@@ -1113,7 +1122,7 @@ BEGIN
    if rowCount = 0
    then
       vNote := 'Topology ' || vFromTopo || ' does not exist.  Terminating execution';
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
       dbms_output.put_line ('ERROR - ' || vNote);
       RAISE_APPLICATION_ERROR(-20001, vNote);
@@ -1124,7 +1133,7 @@ BEGIN
    if rowCount > 0
    then
       vNote := 'Topology ' || vTopo || ' exists.  This will be purged if module flag step 20 is set to Y';
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       dbms_output.put_line (vNote);
@@ -1136,7 +1145,7 @@ BEGIN
    if rowCount > 0
    then
       vNote := 'Topology ' || vTopoBk || ' exists.  This will be purged if module flag step 80 is set to Y';
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       dbms_output.put_line (vNote);
@@ -1147,13 +1156,13 @@ BEGIN
    -- Does it get used by any procedures we call?
    -- Nope.
    -- Removed this check 1/4/2013 -- Stephanie
-   /* 
+   /*
    sql1 := 'Select count(*) from user_tables where table_name = :1';
    execute immediate sql1 into rowCount using vStateOutlineTable;
    if rowCount = 0
    then
       vNote := 'State Outline Table ' || vStateOutlineTable || ' does not exist.  Terminating execution';
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       dbms_output.put_line ('ERROR - ' || vNote);
@@ -1170,7 +1179,7 @@ BEGIN
    if rowCount > 0
    then
       vNote := 'Found tables ' || tblName || ' for Run ID:  ' || vRunID || '. Drop them';
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       -- Add code to purge tables
@@ -1196,30 +1205,30 @@ BEGIN
     If rowCount > 0 Then
        vNote := 'Found ' || rowCount || ' FSL tables in ' || vFromTopo || '.  Calling gz_topo_helper.deregister_fsl.';
        dbms_output.put_line(vNote);
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
        GZ_TOPO_HELPER.DEREGISTER_FSL(vFromTopo, 'FSL', vSchema);
 
        vNote := 'Done with gz_topo_helper.deregister_fsl.';
        dbms_output.put_line(vNote);
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
     Else
        vNote := 'Did not find any FSL tables in ' || vFromTopo || ', we are good to go';
        dbms_output.put_line(vNote);
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
     End If;
 ----------------------------------------------------------------------------------
    --vUpdateLog := 'INSERT INTO '||vLog||' values(:p1,:p2)';
-   vSPModules := GZ_UTILITIES.split(vModules);
+   vSPModules := GZ_BUSINESS_UTILS.split(vModules);
    IF vSPModules.COUNT <> 17
    THEN
       vNote := 'ERROR - wrong number of modules to run.  Expecting 17 modules.';
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       dbms_output.put_line (vNote);
@@ -1236,7 +1245,7 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Drop Edge Table');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       --vEdgeTab := vFromTopo||'_EDGE';
@@ -1257,13 +1266,13 @@ BEGIN
          vNote :=  '*** Edge feature table ' || vEdgeTab || ' does not exist. Finished ' || vStep ||'***';
       end if;
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1277,7 +1286,7 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Copy Topology and Validate Feature Tables');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       -- 01/04/2012 Turned Oracle validation OFF on initial copy -- Stephanie
@@ -1288,13 +1297,13 @@ BEGIN
       THEN
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - All Feature Tables are valid in '|| vTopo);
          vNote := 'All Feature Tables are valid in '|| vTopo;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       ELSE
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Some Feature Tables in '|| vTopo||' are NOT VALID.');
           vNote := 'Some Feature Tables in '|| vTopo||' are NOT VALID.';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line ('ERROR - ' || 'Some Feature Tables in '||
@@ -1304,13 +1313,13 @@ BEGIN
       END IF;
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
        vNote := 'Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
        vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1323,33 +1332,33 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Remove Obsolete Nodes');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
-      EXECUTE IMMEDIATE 'SELECT GZ_UTILITIES.COUNT_OBSOLETE_NODES('''||
+      EXECUTE IMMEDIATE 'SELECT GZ_TOPO_UTIL.COUNT_OBSOLETE_NODES('''||
                           vTopo||''') FROM DUAL' INTO vONCount;
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Obsolete Node Count = '||vONCount||' in '||vTopo);
       vNote := 'Step '||vStepNum||' - Obsolete Node Count = '||vONCount||' in '||vTopo;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       -- (drop)
       IF vONCount > 0
       THEN
 
-         vONCount := GZ_UTILITIES.GZ_REMOVE_OBSOLETE_NODES(vTopo);
+         vONCount := GZ_TOPO_UTIL.GZ_REMOVE_OBSOLETE_NODES(vTopo);
 
       END IF;
       --
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1362,29 +1371,29 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Remove Isolated Nodes');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       EXECUTE IMMEDIATE 'SELECT count(node_id) FROM '||
                        vTopo||'_node$ where edge_id = 0 or edge_id IS NULL' INTO vINcount;
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Isolated Node Count = '||vINCount||' in '||vTopo);
       vNote := 'Step '||vStepNum||' - Isolated Node Count = '||vINCount||' in '||vTopo;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       IF vINCount > 0
       THEN
-          GZ_UTILITIES.remove_isolated_nodes(vTopo);
+          GZ_TOPO_UTIL.remove_isolated_nodes(vTopo);
       END IF;
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1397,19 +1406,19 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Load Initial Edge Attribute Table');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       GZ_SMPOLY.LOAD_EDGE_SIMPLE(vSchema, vTopo);
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1422,12 +1431,12 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Identify Small Polygons');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
-      -- hard coding z6 for today...
+      -- Log details of call to Sidey's SP ID program
       DBMS_OUTPUT.PUT_LINE('vRunID: ' || vRunId || ' vCleanup: ' || vCleanup);
-      vNote := 'Calling ELIMINATE_SMALL_POLYS with: ' ||
+      vNote := 'Step '||vStepNum||' - Calling ELIMINATE_SMALL_POLYS with: ' ||
                              ' pInSchema: ' || vSchema ||
                              ' pInMT_EDGE$: ' ||vTopo ||
                              ' pInTable: ' || vFaceTable ||
@@ -1439,23 +1448,64 @@ BEGIN
                              ' InAreaTolerance: ' ||vInAreaTolerance ||
                              ' pRunId: ' || vRunId ||
                              ' pCleanup: '  || vCleanup;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       dbms_output.put_line(vNote);
-      ELIMINATE_SMALL_POLYS (vSchema, vTopo, vFaceTable, vEdgeAtt, vGeoIDColumn, vSPEdges, vInScale, vArea_Cutoff, vInAreaTolerance, vRunId, vCleanup);
-      --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
+
+      -- Call Sidey's small polygon identification tool and create the
+      -- SP edges to remove (SPE) table
+
+      ELIMINATE_SMALL_POLYS (vSchema, vTopo, vFaceTable, vEdgeAtt,
+                             vGeoIDColumn, vSPEdges, vInScale,
+                             vArea_Cutoff, vInAreaTolerance,
+                             vRunId, vCleanup);
+
+      --------------------------------------------------------------------------
+      -- Stephanie
+      -- Added this section 7/12/2013 to fix a bug that allowed adjacent
+      -- small polygons to be removed even when their combined area was greater
+      -- than the area_tolerance.
+      --------------------------------------------------------------------------
+      -- This function checks the small polygon identification results
+      -- and fixes errors in the SPE table.
+
+      vNote := 'Step '||vStepNum||
+            ' - Checking for Adjacent small polygon errors';
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+                        p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
+
+
+      -- run update and log results
+      vNote := UPDATE_SPE_RESULTS(vInAreaTolerance,
+                                  vSPEdges,
+                                  vTopo,
+                                  vProcess,
+                                  vStepNum);
+
+      -- log FINISHED message 
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+                        p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
+      --------------------------------------------------------------------------
+      --------------------------------------------------------------------------
+
+      -- Log step completion
+
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
+
+
+
    -- Prepare DelEdges Input
    vStepNum := 70;
    vStep := 'Prepare Delete Edges input for '||vTopo;
@@ -1465,14 +1515,14 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Prepare DelEdges Input');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       EXECUTE IMMEDIATE 'create table '||vDEInput||' as select * from '||vSPEdges;
       EXECUTE IMMEDIATE 'alter table '||vDEInput||' add (done varchar2(100), sqlstmt varchar2(4000), error_msg varchar2(4000))';
       EXECUTE IMMEDIATE 'update '||vDEInput||' set left_face_id = NULL, right_face_id = NULL';
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',vDEInput);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',vDEInput);
 
       COMMIT;
       -- Check table...
@@ -1487,7 +1537,7 @@ BEGIN
       THEN
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - ERROR: '|| 'Problem with Delete Edges Input Table. Keep Faces do not match edge$');
          vNote := 'Step '||vStepNum||' - ERROR: '|| 'Problem with Delete Edges Input Table. Keep Faces do not match edge$';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line ('ERROR - ' || 'Problem with Delete Edges Input Table. '||
@@ -1505,7 +1555,7 @@ BEGIN
       THEN
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - ERROR: Problem with Delete Edges Input Table. Not Keep Faces do not match edge$');
          vNote := 'Step '||vStepNum||' - ERROR: Problem with Delete Edges Input Table. Not Keep Faces do not match edge$';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line ('ERROR - ' || 'Problem with Delete Edges Input Table. '||
@@ -1524,7 +1574,7 @@ BEGIN
       THEN
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - ERROR: Problem with Delete Edges Input Table. An edge marked for deletion bounds the universal face.');
          vNote := 'Step '||vStepNum||' - ERROR: Problem with Delete Edges Input Table. An edge marked for deletion bounds the universal face.';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line ('ERROR - ' || 'Problem with Delete Edges Input Table. '||
@@ -1534,13 +1584,13 @@ BEGIN
       END IF;
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1553,10 +1603,10 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Backup Topology');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
-      -- 01/04/2012 Turned Oracle validation OFF on backup copy 
+      -- 01/04/2012 Turned Oracle validation OFF on backup copy
       -- (we always skip this step anyway)-- Stephanie
 
       GZ_TOPO_UTIL.copy_topology(vSchema,vTopo,vSchema,vTopoBk,'Y','N');
@@ -1566,13 +1616,13 @@ BEGIN
       THEN
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - All Feature Tables are valid in '||vTopoBk);
          vNote := 'Step '||vStepNum||' - All Feature Tables are valid in '||vTopoBk;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       ELSE
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Some Feature Tables in '|| vTopoBk||' are NOT VALID.');
          vNote := 'Step '||vStepNum||' - Some Feature Tables in '|| vTopoBk||' are NOT VALID.';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line ('ERROR - ' || 'Some Feature Tables in '||
@@ -1582,13 +1632,13 @@ BEGIN
       END IF;
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1601,14 +1651,14 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Delete Edges');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       sql1 := 'Select Count(*) from ' || vDEInput;
       execute immediate sql1 into rowCount;
       If rowCount > 0 Then
          vNote := 'Calling gz_topo_edit.delete_edges_tpmp with vTopo: ' || vTopo || ', vFaceTable: ' || vFaceTable || ', vDEInput: ' || vDEInput || ', valFlag: ' || 'TRUE';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          GZ_TOPO_EDIT.delete_edges_tpmp(vTopo,vFaceTable,vDEInput,'TRUE');
@@ -1617,27 +1667,27 @@ BEGIN
          execute immediate sql1 into rowCount2 using 'Y';
          If rowCount2 > 0 Then
             vNote := rowCount2 || ' out of ' || rowCount  ||'( ' || rowcount/rowcount2*100|| '%) small polygons did not get removed ';
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                               p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
             Success_Flag := 'N';
          else
             Success_Flag := 'Y';
             vNote := 'Processed all small polygons successfully';
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                               p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          end if;
 
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
          vNote := 'Step '||vStepNum||' - Finished '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       else
          Success_Flag := 'Y';
          vNote := 'Skipping ' || vStepNum || '.  Did not find any records in Delete Edges Input table ' || vDEInput;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       end if;
@@ -1650,7 +1700,7 @@ BEGIN
          DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Check and Remove Dangles');
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
          vNote := 'Step '||vStepNum||' - Begin '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          EXECUTE IMMEDIATE 'SELECT count(*) '||
@@ -1659,7 +1709,7 @@ BEGIN
 
          vNote := 'Step '||vStepNum||' Dangle Count before gz_smpoly.drop_dangles = '||vDangleCount;
          dbms_output.put_line(vNote);
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          IF vDangleCount > 0
@@ -1672,7 +1722,7 @@ BEGIN
 
             vNote := 'Step '||vStepNum||' Dangle Count after gz_smpoly.drop_dangles = '||vDangleCount;
             dbms_output.put_line(vNote);
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                               p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
             IF vDangleCount > 0
@@ -1686,13 +1736,13 @@ BEGIN
 
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
          vNote := 'Step '||vStepNum||' - Finished '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       ELSE
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
          vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       END IF;
@@ -1712,26 +1762,26 @@ BEGIN
 
           --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
           vNote := 'Step '||vStepNum||' - Begin '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
           EXECUTE IMMEDIATE 'SELECT count(node_id) FROM '||
                        vTopo||'_node$ where edge_id = 0 or edge_id IS NULL' INTO vINcount;
           --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Isolated Node Count = '||vINCount||' in '||vTopo);
-          vNote := 'Step '||vStepNum||' - Isolated Node Count before gz_utilities.remove_isolated_nodes = '||vINCount||' in '||vTopo;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+          vNote := 'Step '||vStepNum||' - Isolated Node Count before gz_topo_util.remove_isolated_nodes = '||vINCount||' in '||vTopo;
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
           IF vINCount > 0
           THEN
-             GZ_UTILITIES.remove_isolated_nodes(vTopo);
+             GZ_TOPO_UTIL.remove_isolated_nodes(vTopo);
 
              -- Check if all Isolated nodes are removed.
              EXECUTE IMMEDIATE 'SELECT count(node_id) FROM '||
                           vTopo||'_node$ where edge_id = 0 or edge_id IS NULL' INTO vINcount;
              --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Isolated Node Count = '||vINCount||' in '||vTopo);
-             vNote := 'Step '||vStepNum||' - Isolated Node Count after gz_utilities.remove_isolated_nodes = '||vINCount||' in '||vTopo;
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+             vNote := 'Step '||vStepNum||' - Isolated Node Count after gz_topo_util.remove_isolated_nodes = '||vINCount||' in '||vTopo;
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                               p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
              IF vINCount > 0
@@ -1743,13 +1793,13 @@ BEGIN
 
           --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
           vNote := 'Step '||vStepNum||' - Finished '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       ELSE
          --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
          vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       END IF;
@@ -1757,7 +1807,7 @@ BEGIN
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1778,23 +1828,23 @@ BEGIN
 
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       --
-      EXECUTE IMMEDIATE 'SELECT gz_utilities.COUNT_OBSOLETE_NODES('''||
+      EXECUTE IMMEDIATE 'SELECT gz_topo_util.COUNT_OBSOLETE_NODES('''||
                          vTopo||''') FROM DUAL' INTO vONCount;
 
-      vNote := 'Step '||vStepNum||' Obsolete Node Count before gz_utilities.GZ_REMOVE_OBSOLETE_NODES = '||vONcount;
+      vNote := 'Step '||vStepNum||' Obsolete Node Count before gz_topo_util.GZ_REMOVE_OBSOLETE_NODES = '||vONcount;
       dbms_output.put_line(vNote);
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       -- (drop)
       IF vONCount > 0
       THEN
 
-         vONCount := GZ_UTILITIES.GZ_REMOVE_OBSOLETE_NODES(vTopo);
+         vONCount := GZ_TOPO_UTIL.GZ_REMOVE_OBSOLETE_NODES(vTopo);
 
          -- DO NOT Check if all Obsolete Nodes are removed, new utility will return the number
 
@@ -1804,13 +1854,13 @@ BEGIN
             --Try again like fools
             --This may never happen, or it may happen a lot
             --just adding it untested on a wild hunch. Shouldnt hurt
-            vONCount := GZ_UTILITIES.GZ_REMOVE_OBSOLETE_NODES(vTopo);
+            vONCount := GZ_TOPO_UTIL.GZ_REMOVE_OBSOLETE_NODES(vTopo);
 
          END IF;
 
-         vNote := 'Step '||vStepNum||' Obsolete Node Count after gz_utilities.GZ_REMOVE_OBSOLETE_NODES = '||vONcount;
+         vNote := 'Step '||vStepNum||' Obsolete Node Count after gz_topo_util.GZ_REMOVE_OBSOLETE_NODES = '||vONcount;
          dbms_output.put_line(vNote);
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          IF vONCount > 0
@@ -1824,13 +1874,13 @@ BEGIN
 
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1846,56 +1896,63 @@ BEGIN
    ------------------------------------------------------------------------------------
 
    If vSPModules(12) = 'Y'
+   AND p_fix_edge = 'Y'
    THEN
 
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
       --
-      edgefix_val := GZ_TOPOFIX.GZ_FIX_EDGE (vJobID ,vTopo, 'SP', 'Y', 0.05, NULL, 'Y');
+      edgefix_val := GZ_TOPOFIX.GZ_FIX_EDGE (vJobID ,
+                                             vTopo, 
+                                             'SP', 
+                                             'Y', 
+                                             0.05,  --no parameterized tolerance in SP?
+                                             NULL, 
+                                             p_fix_2edge);  --check close edge pairs, expensive if Y
 
-      IF edgefix_val = '0' 
+      IF edgefix_val = '0'
       THEN
-      
+
          --Fix Edge success
          vNote := 'Step '||vStepNum||' - Finished Successful '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
-                           
+
       ELSIF edgefix_val <> '0'
       AND topofix_qa = 'N'
       THEN
-      
+
          --Fix Edge not successful, but we dont want to fail SP for this reason
          vNote := 'Step '||vStepNum||' - Finished and failed '||vStep || '. But we wont fail SP for this';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
-         
 
-      ELSIF edgefix_val <> '0' 
+
+      ELSIF edgefix_val <> '0'
       AND topofix_qa = 'Y'
       THEN
 
          --Fail the module for a fix_edge failure.  We dont plan to do this for SP any more
          vNote := 'Step '||vStepNum||' - Fail '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          Success_Flag :='N';
-         
+
       ELSE
-      
+
          vNote := 'Step '||vStepNum||' - Unknown edgefix fail '||vStep;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          Success_Flag :='N';
-          RAISE_APPLICATION_ERROR(-20001, vNote);
-          
+         RAISE_APPLICATION_ERROR(-20001, vNote);
+
       END IF;
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1917,20 +1974,20 @@ BEGIN
 
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Begin '||vStep);
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       --
       GZ_SMPOLY.UPDATE_MEASURES_WHERE_NULL(vFaceTable,'FACE_ID');
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - Finished '||vStep);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       --GZ_SMPOLY.LOGNOTE('Step '||vStepNum||' - SKIPPING '||vStep);
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1945,22 +2002,22 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_ACTION(vStepNum);
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Calling vertex thinner');
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
-      vtxCount := GZ_UTILITIES.SP_VERTEX_THINNER(vTopo, vClipTable, vFaceTable);
+      vtxCount := GZ_SMPOLY.SP_VERTEX_THINNER(vTopo, vClipTable, vFaceTable);
 
       vNote := 'Step '||vStepNum||' removed vertex count: ' || vtxCount;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1973,18 +2030,18 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_ACTION(vStepNum);
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Rebuild Edge Attribute Table');
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       EXECUTE IMMEDIATE 'DROP TABLE '||vEdgeAtt||' CASCADE CONSTRAINTS PURGE';
       GZ_SMPOLY.LOAD_EDGE_SIMPLE(vSchema,vTopo);
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
@@ -1996,45 +2053,51 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_ACTION(vStepNum);
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Validate Topology');
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       vRes := gz_topo_util.validate_feature_tables(vSchema,vTopo);
       IF vRes
       THEN
          vNote := 'Step '||vStepNum||': Final SP Check: All Feature Tables are valid in '||vTopo;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line(vNote);
       ELSE
          vNote :=  'Step '||vStepNum||': Final SP Check: Some Feature Table records are not valid in '||vTopo;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line(vLogNote);
          RAISE_APPLICATION_ERROR(-20001, vNote);
       END IF;
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
+   
    -- Validate Topology 2
    vStepNum := 160;
    vStep := 'Validate Topology '||vTopo;
-   If vSPModules(16) = 'Y'
+   
+   IF vSPModules(16) = 'Y'
+   AND p_validate_topo = 'Y'
    THEN
+   
       DBMS_APPLICATION_INFO.SET_ACTION(vStepNum);
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Validate Topology 2');
+      
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
-                        p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
+      
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+                                                   p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
 
       Begin
@@ -2048,11 +2111,11 @@ BEGIN
         --retVal := GZ_UTILITIES.VALIDATE_TOPOLOGY(vtopo,rowCount);
         -- 01/04/2013
         -- Updated to tile-based validator to avoid memory issues
-        -- after getting help from Matt.  We're totally guessing on the 
+        -- after getting help from Matt.  We're totally guessing on the
         -- tile count, but if any tile count we enter hits a memory error
         -- the validation utility will subdivide just that bad tile.
         -- Stephanie
-        
+
         IF rowCount > 500000
         THEN    -- we'll guess this is a large topology
                 -- that will need to
@@ -2065,16 +2128,16 @@ BEGIN
            vTileGuess := 1;
         END IF;
 
-        retVal := GZ_UTILITIES.GZ_VALIDATE_TOPOLOGY(vTopo,vFaceTable,'SDOGEOMETRY', p_log_type => 'SP', p_tile_target => vTileGuess);
+        retVal := GZ_TOPO_UTIL.GZ_VALIDATE_TOPOLOGY(vTopo,vFaceTable,'SDOGEOMETRY', p_log_type => 'SP', p_tile_target => vTileGuess);
 
         IF retVal = 'TRUE' THEN
            vNote := 'Oracle Topology Validation - PASSED';
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                               p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
         ELSE
            vNote := 'Oracle Topology Validation - FAILED';
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                               p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
            RAISE_APPLICATION_ERROR(-20001, vNote);
@@ -2082,7 +2145,7 @@ BEGIN
 
 
          vNote := 'Step '||vStepNum || ' Successfully validated topology';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          dbms_output.put_line(vNote);
@@ -2090,7 +2153,7 @@ BEGIN
          When Others Then
             retVal := 'Validation Failed due to ' || SQLCODE || '-' || SQLERRM;
             vNote := retVal;
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                               p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
            dbms_output.put_line(vNote);
@@ -2098,14 +2161,15 @@ BEGIN
       End;
 
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
 
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
-                        p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
+      
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+                                                  p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
 
@@ -2118,38 +2182,38 @@ BEGIN
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Validate Geom with context');
 
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
-      
+
       --aka FIX_FACE
       vOutput := GZ_TOPOFIX.check_face_tab(pJobId, vTopo,vFaceTable,'FACE_ID', 'SP');
-      
-      If (vOutput = '0' ) 
+
+      If (vOutput = '0' )
       THEN
-      
+
          vNote := ' FIX_FACE and Val geom with context -- successful';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
       ELSIF vOutput <> '0'
-      AND ptopofix_qa = 'N'
+      AND p_topofix_qa = 'N'
       THEN
-      
+
          --dbms_output.put_line('FALSE'); --whats this for?
          vNote := ' FIX_FACE and Val geom with context -- Failed but we wont fail SP for it';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
-         
+
       ELSIF vOutput <> '0'
-      AND ptopofix_qa = 'Y'
+      AND p_topofix_qa = 'Y'
       THEN
-      
+
          --This is not the usual plan.  Fix face failures dont fail SP
          --dbms_output.put_line('FALSE'); --whats this for?
          vNote := ' FIX_FACE and Val geom with context -- Failed and we will fail SP for it';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                            p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
          Success_Flag := 'N';
@@ -2157,24 +2221,24 @@ BEGIN
       END IF;
 
       vNote := 'Step '||vStepNum||' - Finished '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    ELSE
 
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
 
    If (Success_Flag = 'Y') then
        vNote := 'Complete - Successful';
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess, p_error_msg=>vNote);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess, p_error_msg=>vNote);
 
    else
        vNote := 'Complete, but failed processing. Please check the tracking and DEI tables for more information.';
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,  p_error_msg=>vNote);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,  p_error_msg=>vNote);
 
        RAISE_APPLICATION_ERROR(-20001, vNote);
    end if;
@@ -2194,7 +2258,7 @@ EXCEPTION
             || ' SQLERRM: ' || SQLERRM || CHR(10)
             || ' Backtrace: ' || DBMS_UTILITY.format_error_backtrace;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,  p_error_msg=>vNote);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,  p_error_msg=>vNote);
       ------------------------------
       -- Clear the session tag
       --MT_UTIL_CONN_ID.clear_module;
@@ -2795,7 +2859,7 @@ BEGIN
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',UniqTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',UniqTable);
 
 -- Then Create a table of faces whose combination of Geography is not unique
    NonUniqTable := pRunId||'SP'||'_NUNQ';
@@ -2811,7 +2875,7 @@ BEGIN
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',NonUniqTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',NonUniqTable);
 
 -- Then create a table of Big and unique faces
    BigUFaceTable := pRunId||'SP'||'_BIGU';
@@ -2840,7 +2904,7 @@ BEGIN
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',BigUFaceTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',BigUFaceTable);
 
 -- Then create a table of not unique and not Big faces
    NonUniqFaceTable := pRunId||'SP'||'_NUF';
@@ -2857,7 +2921,7 @@ BEGIN
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',NonUniqFaceTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',NonUniqFaceTable);
 
    vFaceIDIndexName :=  NonUniqFaceTable ||'_FIDX';
    sql_stmt3 :='CREATE INDEX ' || InSchema||'.'|| vFaceIDIndexName || ' ON ' ||InSchema||'.' ||
@@ -2888,7 +2952,7 @@ BEGIN
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',NonUniqEdgeTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',NonUniqEdgeTable);
 
    vEdgeIDIndexName := NonUniqEdgeTable || '_IDX';
    sql_stmt3 :='CREATE INDEX '|| InSchema|| '.' ||vEdgeIDIndexName||' ON ' ||InSchema|| '.' ||
@@ -2984,7 +3048,7 @@ BEGIN
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',FaceUpDateTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',FaceUpDateTable);
 
     vFaceUFaceIndexName := FaceUpdateTable || '_FIDX';
     sql_stmt3 :='CREATE INDEX ' ||InSchema|| '.'||  vFaceUFaceIndexName||' ON ' ||InSchema|| '.' ||
@@ -3063,7 +3127,7 @@ Don't propogate changing face_ids 20100809
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',OutTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',OutTable);
 
 --
 -- We can get this case for a single edge - its the longest in 2 faces
@@ -3091,7 +3155,7 @@ Don't propogate changing face_ids 20100809
            'Try changing your run ID, or dropping this table if it already exists in your schema');
    END;
 
-   GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',DupTable);
+   GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',DupTable);
 
     sql_stmt3 := 'UPDATE ' || OutTable || ' o SET o.MAX_AREA = (SELECT d.MAX_AREA FROM ' || DupTable ||
     ' d WHERE d.EDGE_ID = o.EDGE_ID)';
@@ -3185,12 +3249,12 @@ END ELIMINATE_SMALL_POLYS;
       END;
       RETURN output;
    END GET_SMPOLY_PROJECT_PARAMETERS;
-   
-   
+
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -- | Matt! Face Merge Code below here  |
-   -- |                                   |                                   
+   -- |                                   |
    -- V                                   V
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
@@ -3350,7 +3414,7 @@ END ELIMINATE_SMALL_POLYS;
 
 
    END IS_STRING_IN_ARRAY;
-   
+
 
    ------------------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3412,7 +3476,7 @@ END ELIMINATE_SMALL_POLYS;
       RETURN output;
 
    END NUMBERARRAY_ADD_UNIQUE;
-   
+
    ------------------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------------------
@@ -3424,84 +3488,84 @@ END ELIMINATE_SMALL_POLYS;
      p_order         IN VARCHAR2 DEFAULT 'ASC'
    ) RETURN GZ_TYPES.doublenumarray DETERMINISTIC
    AS
-   
+
       --Matt! 11/16/12
       --This is dubdiculous
       --want to keep a list of keys and values in order by value
       --for example edges and distances
       --Assumption that the input is correctly ordered
-      
+
       output            GZ_TYPES.doublenumarray;
       all_done          PLS_INTEGER := 0;
       kounter           PLS_INTEGER := 1;
-      
+
    BEGIN
-   
+
       IF p_inputarray.COUNT = 0
       THEN
-      
+
          output(1).number1 := p_key;
          output(1).number2 := p_val;
-         RETURN output;         
-      
+         RETURN output;
+
       END IF;
-      
-   
+
+
       FOR i IN 1 .. p_inputarray.COUNT
       LOOP
-         
+
          IF p_order = 'ASC'
          THEN
-         
+
             IF p_val <= p_inputarray(i).number2
             AND all_done = 0
             THEN
-            
-               
+
+
                output(kounter).number1 := p_key;
                output(kounter).number2 := p_val;
-               
+
                kounter := kounter + 1;
                all_done := 1;
 
-            END IF;       
-            
-            output(kounter) := p_inputarray(i);  
-         
+            END IF;
+
+            output(kounter) := p_inputarray(i);
+
          ELSIF p_order = 'DESC'
-         THEN      
-         
+         THEN
+
             IF p_val >= p_inputarray(i).number2
             AND all_done = 0
             THEN
-            
+
                output(kounter).number1 := p_key;
                output(kounter).number2 := p_val;
-               
+
                kounter := kounter + 1;
                all_done := 1;
 
-            END IF;       
-            
-            output(kounter) := p_inputarray(i); 
-         
+            END IF;
+
+            output(kounter) := p_inputarray(i);
+
          END IF;
-         
+
          kounter := kounter + 1;
-      
+
       END LOOP;
-      
+
       IF all_done = 0
       THEN
-      
+
          output(kounter).number1 := p_key;
          output(kounter).number2 := p_val;
-               
+
       END IF;
-      
-      RETURN output;   
-   
-   END DUBNUMBERARRAY_ORDER;   
+
+      RETURN output;
+
+   END DUBNUMBERARRAY_ORDER;
 
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3552,7 +3616,7 @@ END ELIMINATE_SMALL_POLYS;
 
       ELSE
 
-         geo_id_array := GZ_UTILITIES.SPLIT(output(p_fsl_table), p_delimiter);
+         geo_id_array := GZ_BUSINESS_UTILS.SPLIT(output(p_fsl_table), p_delimiter);
 
          IF NOT IS_STRING_IN_ARRAY(p_key_val, geo_id_array)
          THEN
@@ -3614,7 +3678,7 @@ END ELIMINATE_SMALL_POLYS;
 
       ELSE
 
-         geo_id_array := GZ_UTILITIES.SPLIT(output(p_fsl_table), p_delimiter);
+         geo_id_array := GZ_BUSINESS_UTILS.SPLIT(output(p_fsl_table), p_delimiter);
 
          FOR i IN 1 .. geo_id_array.COUNT
          LOOP
@@ -3693,11 +3757,11 @@ END ELIMINATE_SMALL_POLYS;
       RETURN output;
 
    END SUBTRACT_HASH_UNIQUE;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
-   
+
    FUNCTION GET_EDGE_MBR (
       p_topo            IN VARCHAR2,
       p_edge            IN NUMBER
@@ -3729,93 +3793,93 @@ END ELIMINATE_SMALL_POLYS;
 
 
    END GET_EDGE_MBR;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
-   
+
    FUNCTION GET_EDGE_NODE (
       p_topo            IN VARCHAR2,
       p_edge            IN NUMBER,
       p_tip             IN VARCHAR2 DEFAULT 'START'
    ) RETURN NUMBER
    AS
-   
+
       --Matt! 11/07/12
-      
+
       psql              VARCHAR2(4000);
       output            NUMBER;
-      
+
    BEGIN
-   
+
       IF p_tip NOT IN ('START','END')
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Tip on out with this tip ' || p_tip);
-      
+
       END IF;
-   
+
       psql := 'SELECT e.' || p_tip || '_node_id '
            || 'FROM ' || p_topo || '_edge$ e '
            || 'WHERE e.edge_id = :p1 ';
-           
+
       BEGIN
-      
+
          EXECUTE IMMEDIATE psql INTO output USING p_edge;
-         
+
       EXCEPTION
-      
+
       WHEN NO_DATA_FOUND
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Found nothing for edge ' || p_edge || ' with ' || psql);
-      
+
       WHEN OTHERS
       THEN
-      
+
          RAISE;
-         
-      END;     
-      
+
+      END;
+
       IF p_edge IS NULL
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001, 'Nuthin for ' || p_edge);
-      
+
       END IF;
-      
-      RETURN output;   
-   
+
+      RETURN output;
+
    END GET_EDGE_NODE;
-      
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
-   
+
    FUNCTION GET_FEATURE_FACE_GEOMETRY (
       p_face_table      IN VARCHAR2,
       p_face_id         IN NUMBER
    ) RETURN SDO_GEOMETRY
    AS
-   
+
       --Matt! 11/16/12
-      
+
       psql        VARCHAR2(4000);
       output      SDO_GEOMETRY;
-      
+
    BEGIN
-   
+
       psql := 'SELECT a.sdogeometry '
            || 'FROM ' || p_face_table || ' a '
            || 'WHERE '
            || 'a.face_id = :p1 ';
-      
+
       EXECUTE IMMEDIATE psql INTO output USING p_face_id;
-      
+
       RETURN output;
-   
+
    END GET_FEATURE_FACE_GEOMETRY;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
@@ -3845,84 +3909,84 @@ END ELIMINATE_SMALL_POLYS;
 
 
    END GET_NODE_GEOMETRY;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION GET_EDGES_BETWEEN_FACES (
       p_topology           IN VARCHAR2,
       p_face_id_1          IN NUMBER,
       p_face_id_2          IN NUMBER
-   ) RETURN GZ_TYPES.numberarray 
+   ) RETURN GZ_TYPES.numberarray
    AS
-   
+
       --Matt! 11/02/12
       --This SQL was getting copied and pasted too often
-      
+
       psql              VARCHAR2(4000);
       output            GZ_TYPES.numberarray;
-      
+
    BEGIN
-      
+
       psql := 'SELECT e.edge_id '
            || 'FROM ' || p_topology || '_edge$ e '
            || 'WHERE '
            || '(e.left_face_id = :p1 AND e.right_face_id = :p2) OR '
            || '(e.left_face_id = :p3 AND e.right_face_id = :p4) ';
-           
+
       EXECUTE IMMEDIATE psql BULK COLLECT INTO output USING p_face_id_1,
                                                             p_face_id_2,
                                                             p_face_id_2,
                                                             p_face_id_1;
-      /*      For now                                                
+      /*      For now
       IF output.COUNT = 0
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001, 'No shared edges between ' || p_face_id_1 || ' and ' || p_face_id_2);
-         
+
       END IF;
       */
-      
+
       RETURN output;
-   
+
    END GET_EDGES_BETWEEN_FACES;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION GET_EDGE_BETWEEN_FACES (
       p_topology           IN VARCHAR2,
       p_face_id_1          IN NUMBER,
       p_face_id_2          IN NUMBER
-   ) RETURN NUMBER 
+   ) RETURN NUMBER
    AS
-   
+
       --Matt! 11/05/12
       output               GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
+
       output := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                   p_face_id_1,
                                                   p_face_id_2);
-                                        
+
       IF output.COUNT <> 1
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001, 'Should only be one edge between ' || p_face_id_1 || ' and ' || p_face_id_2);
-      
+
       END IF;
-      
-      RETURN output(1);   
-   
+
+      RETURN output(1);
+
    END GET_EDGE_BETWEEN_FACES;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
     FUNCTION GET_EDGES_BETWEEN_FACES_HINTED (
       p_topology           IN VARCHAR2,
       p_face_id_1          IN NUMBER,
@@ -3931,82 +3995,82 @@ END ELIMINATE_SMALL_POLYS;
       p_edge_hint_2        IN NUMBER DEFAULT NULL
    ) RETURN GZ_TYPES.numberarray
    AS
-   
+
       --Matt! 11/08/12
       --Theres more than one edge between these faces.
       --I want only the edges that touch some other edge I'm confident about
-      
-      --     
+
+      --
       --         ___    2
       --         |  \
       --   0-----0---0
       --   |   1      |<--want (maybe another on the other side too)
       --   |          |
       -----------hint----------
-      
+
       output               GZ_TYPES.numberarray;
       edgez                GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
+
       edgez := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                  p_face_id_1,
                                                  p_face_id_2);
-                                                 
+
       IF edgez.COUNT = 0
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001, 'Didnt find ANY edges with faces ' 
+
+         RAISE_APPLICATION_ERROR(-20001, 'Didnt find ANY edges with faces '
                                  || p_face_id_1 || ' and ' || p_face_id_2);
-      
+
       END IF;
-                                                    
+
       FOR i IN 1 .. edgez.COUNT
       LOOP
-      
+
          IF p_edge_hint_2 IS NULL
          THEN
-         
-            IF GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint, edgez(i)) 
+
+            IF GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint, edgez(i))
             THEN
-            
+
                output(output.COUNT + 1) := edgez(i);
-            
+
             END IF;
-            
+
          ELSE
-         
-            IF  GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint, edgez(i)) 
-            AND GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint_2, edgez(i)) 
+
+            IF  GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint, edgez(i))
+            AND GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint_2, edgez(i))
             THEN
-            
+
                output(output.COUNT + 1) := edgez(i);
-            
+
             END IF;
-         
+
          END IF;
-      
-      END LOOP;       
-      
+
+      END LOOP;
+
       IF output IS NULL
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001, 'Didnt find 1 edges with faces ' 
+
+         RAISE_APPLICATION_ERROR(-20001, 'Didnt find 1 edges with faces '
                                  || p_face_id_1 || ' and ' || p_face_id_2 || ' and edge '
-                                 || p_edge_hint);   
-                                 
-      ELSE                                   
-      
+                                 || p_edge_hint);
+
+      ELSE
+
          RETURN output;
-   
+
       END IF;
-      
+
    END GET_EDGES_BETWEEN_FACES_HINTED;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
     FUNCTION GET_EDGE_BETWEEN_FACES_HINTED (
       p_topology           IN VARCHAR2,
       p_face_id_1          IN NUMBER,
@@ -4015,92 +4079,92 @@ END ELIMINATE_SMALL_POLYS;
       p_edge_hint_2        IN NUMBER
    ) RETURN NUMBER
    AS
-   
+
       --Matt! 11/08/12
       --Theres more than one edge between these faces.
       --I want only the 1 edge that touch 2 edges I'm confident about
-      
-      --     
+
+      --
       --         ___    2
       --         |  \
       --   0-----0---0
-      --   |   1      |<--want 
+      --   |   1      |<--want
       --   |          |
       -----------hint---hint----
-      
+
       output               NUMBER;
       edgez                GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
+
       edgez := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                  p_face_id_1,
                                                  p_face_id_2);
-                                                 
+
       IF edgez.COUNT = 0
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001, 'Didnt find ANY edges with faces ' 
+
+         RAISE_APPLICATION_ERROR(-20001, 'Didnt find ANY edges with faces '
                                  || p_face_id_1 || ' and ' || p_face_id_2);
-      
+
       END IF;
-                                                    
+
       FOR i IN 1 .. edgez.COUNT
       LOOP
-      
-         IF  GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint_1, edgez(i)) 
-         AND GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint_2, edgez(i)) 
+
+         IF  GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint_1, edgez(i))
+         AND GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology, p_edge_hint_2, edgez(i))
          THEN
-         
+
             IF output IS NULL
             THEN
-            
+
                output := edgez(i);
-               
+
             ELSE
-            
-               RAISE_APPLICATION_ERROR(-20001, 'Found 2 hinted edges, ' || output || ' and ' || edgez(i) 
+
+               RAISE_APPLICATION_ERROR(-20001, 'Found 2 hinted edges, ' || output || ' and ' || edgez(i)
                                       || ' between '|| p_face_id_1 || ' and ' || p_face_id_2);
-            
+
             END IF;
-         
+
          END IF;
-      
-      END LOOP;       
-      
+
+      END LOOP;
+
       IF output IS NULL
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001, 'Didnt find an edge with faces ' 
+
+         RAISE_APPLICATION_ERROR(-20001, 'Didnt find an edge with faces '
                                  || p_face_id_1 || ' and ' || p_face_id_2 || ' and edges '
-                                 || p_edge_hint_1 || ',' || p_edge_hint_2);   
-                                 
-      ELSE                                   
-      
+                                 || p_edge_hint_1 || ',' || p_edge_hint_2);
+
+      ELSE
+
          RETURN output;
-   
+
       END IF;
-      
+
    END GET_EDGE_BETWEEN_FACES_HINTED;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION GET_OPPOSITE_FACE (
       p_topology           IN VARCHAR2,
       p_face_id            IN NUMBER,
       p_edge_id            IN NUMBER
-   ) RETURN NUMBER 
+   ) RETURN NUMBER
    AS
-   
+
       --Matt! 11/06/12
-      
+
       psql                 VARCHAR2(4000);
       output               NUMBER;
-      
+
    BEGIN
-   
+
       psql := 'SELECT faces '
            || 'FROM ' || p_topology || '_edge$ UNPIVOT (faces '
            || 'FOR face '
@@ -4108,42 +4172,42 @@ END ELIMINATE_SMALL_POLYS;
            || 'WHERE '
            || 'edge_id = :p1 AND '
            || 'faces <> :p2 ';
-           
+
       EXECUTE IMMEDIATE psql INTO output USING p_edge_id,
                                                p_face_id;
-                                               
+
       IF output IS NOT NULL
       THEN
-      
+
          RETURN output;
-         
+
       ELSE
-      
+
          RAISE_APPLICATION_ERROR(-20001, 'Didnt get an opposite face for edge ' || p_edge_id
                                        || 'and face ' || p_face_id);
-      
+
       END IF;
-   
+
    END GET_OPPOSITE_FACE;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION GET_SINGLE_OPPOSITE_FACE (
       p_topology           IN VARCHAR2,
       p_face_id            IN NUMBER
-   ) RETURN NUMBER 
+   ) RETURN NUMBER
    AS
-   
+
       --Matt! 11/16/12
       --2 faces are separated by just one edge
-      
+
       psql                 VARCHAR2(4000);
       output               NUMBER;
-      
+
    BEGIN
-   
+
       psql := 'SELECT faces FROM ( '
            || 'SELECT e.left_face_id, e.right_face_id '
            || 'FROM ' || p_topology || '_edge$ e '
@@ -4152,104 +4216,104 @@ END ELIMINATE_SMALL_POLYS;
            || '(left_face_id <> :p3 and right_face_id <> :p4) '
            || ') UNPIVOT (faces FOR face IN (left_face_id, right_face_id)) '
            || 'WHERE faces <> :p5 ';
-        
+
       BEGIN
-         
+
          EXECUTE IMMEDIATE psql INTO output USING p_face_id, p_face_id,
                                                   -1, -1,
                                                   p_face_id;
-                                                  
+
       EXCEPTION
-         WHEN TOO_MANY_ROWS 
+         WHEN TOO_MANY_ROWS
          THEN
-        
+
             RAISE_APPLICATION_ERROR(-20001,'Face ' || p_face_id || ' touches more than one additional face');
-            
+
          WHEN NO_DATA_FOUND
          THEN
-         
+
             RAISE_APPLICATION_ERROR(-20001,'Face ' || p_face_id || ' doesnt exist');
-            
+
          WHEN OTHERS
          THEN
-        
+
             RAISE_APPLICATION_ERROR(-20001,SQLERRM);
-         
-      END; 
-                                               
+
+      END;
+
       IF output IS NULL
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001, 'Face ' || p_face_id || ' has no opposite face');
-         
+
       END IF;
-                                               
+
       RETURN output;
-   
+
    END GET_SINGLE_OPPOSITE_FACE;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION GET_NODES_FOR_EDGE (
       p_topo               IN VARCHAR2,
       p_edge_id            IN NUMBER
    ) RETURN GZ_TYPES.numberarray
    AS
-   
+
       --Matt! 11/09/12
-      
+
       output               GZ_TYPES.numberarray;
       startnode            NUMBER;
       endnode              NUMBER;
       psql                 VARCHAR2(4000);
-      
+
    BEGIN
-   
+
       psql := 'SELECT e.start_node_id, e.end_node_id '
            || 'FROM ' || p_topo || '_edge$ e '
            || 'WHERE e.edge_id = :p1 ';
-           
+
       EXECUTE IMMEDIATE psql INTO startnode,
                                   endnode USING p_edge_id;
-             
+
       IF startnode IS NULL
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Bomba! No edge ' || p_edge_id);
-      
-      END IF;     
-                      
+
+      END IF;
+
       output(1) := startnode;
       output(2) := endnode;
-      
+
       RETURN output;
-   
+
    END GET_NODES_FOR_EDGE;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION GET_NODE_BETWEEN_EDGES (
       p_topology           IN VARCHAR2,
       p_edge_id_1          IN NUMBER,
       p_edge_id_2          IN NUMBER
-   ) RETURN NUMBER 
+   ) RETURN NUMBER
    AS
-   
+
       --Matt! 11/05/12
-      
+
       --MUST BE
       --          -----X------
       --No loops
-      
+
       psql                 VARCHAR2(4000);
       output               NUMBER;
-      
+
    BEGIN
-   
+
       psql := 'SELECT nodes FROM ( '
            || 'SELECT nodes, COUNT(nodes) kount '
            || 'FROM ' || p_topology || '_edge$ UNPIVOT (nodes '
@@ -4258,47 +4322,47 @@ END ELIMINATE_SMALL_POLYS;
            || 'WHERE edge_id IN (:p1,:p2) '
            || 'GROUP BY nodes '
            || ') WHERE kount = :p3 ';
-      
+
       BEGIN
-      
+
          EXECUTE IMMEDIATE psql INTO output USING p_edge_id_1,
                                                   p_edge_id_2,
                                                   2;
-                                                  
+
       EXCEPTION
       WHEN OTHERS
       THEN
-      
+
           RAISE_APPLICATION_ERROR(-20001,SQLERRM || ' on edges ' || p_edge_id_1 || ',' || p_edge_id_2
-                                         || '-- ' || psql ); 
-   
+                                         || '-- ' || psql );
+
       END;
-      
+
       RETURN output;
-   
+
    END GET_NODE_BETWEEN_EDGES;
-   
-   
+
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION GET_NODE_TIP (
       p_topology           IN VARCHAR2,
       p_edge_id            IN NUMBER,
       p_node_id            IN NUMBER
-   ) RETURN VARCHAR2 
+   ) RETURN VARCHAR2
    AS
-   
+
       --Matt! 11/06/12
       --Is the node the START or the END of the edge
-      --no loops allowed      
-      
+      --no loops allowed
+
       psql                 VARCHAR2(4000);
       output               VARCHAR2(8);
-      
+
    BEGIN
-   
+
       psql := 'SELECT node '
            || 'FROM ' || p_topology || '_edge$ UNPIVOT (nodes '
            || 'FOR node '
@@ -4306,27 +4370,27 @@ END ELIMINATE_SMALL_POLYS;
            || 'WHERE '
            || 'edge_id = :p3 AND '
            || 'nodes = :p4 ';
-      
+
       BEGIN
-      
+
          EXECUTE IMMEDIATE psql INTO output USING 'START',
                                                   'END',
                                                   p_edge_id,
                                                   p_node_id;
-                                                  
+
       EXCEPTION
       WHEN OTHERS
       THEN
-      
+
           RAISE_APPLICATION_ERROR(-20001,SQLERRM || ' on edge ' || p_edge_id || ', node' || p_node_id
-                                         || '-- ' || psql ); 
-   
+                                         || '-- ' || psql );
+
       END;
-      
+
       RETURN output;
-   
+
    END GET_NODE_TIP;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
@@ -4336,60 +4400,60 @@ END ELIMINATE_SMALL_POLYS;
       p_edge_id         IN NUMBER
    ) RETURN BOOLEAN
    AS
-   
+
       --Matt! 11/02/12
-      
-      psql              VARCHAR2(4000);  
+
+      psql              VARCHAR2(4000);
       start_node_id     NUMBER;
       end_node_id       NUMBER;
       kount             PLS_INTEGER;
-   
+
    BEGIN
-   
+
       psql := 'SELECT e.start_node_id, e.end_node_id '
            || 'FROM ' || p_topology || '_edge$ e '
            || 'WHERE e.edge_id = :p1 ';
-      
+
       EXECUTE IMMEDIATE psql INTO start_node_id, end_node_id USING p_edge_id;
-      
+
       IF start_node_id = end_node_id
       THEN
-      
+
          --islands are never obsolete
          RETURN FALSE;
-      
+
       END IF;
-      
+
       psql := 'SELECT COUNT(*) '
            || 'FROM ' || p_topology || '_edge$ e '
            || 'WHERE :p1 IN '
            || '(e.start_node_id, e.end_node_id) ';
-           
+
       EXECUTE IMMEDIATE psql INTO kount USING start_node_id;
-     
+
       IF kount = 2
       THEN
-     
-         --lollipop islands?  
+
+         --lollipop islands?
          --Should be ok since we tossed start=end above
          --All other lollipop-licke cases should be three-connects (right?) (bug alert here)
          RETURN TRUE;
-     
+
       END IF;
-     
+
       EXECUTE IMMEDIATE psql INTO kount USING end_node_id;
-     
-      IF kount = 2 
+
+      IF kount = 2
       THEN
-     
+
          RETURN TRUE;
-        
+
       END IF;
-     
-      RETURN FALSE;   
-   
+
+      RETURN FALSE;
+
    END IS_EDGE_BOUNDED_BY_OBSOLETE;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
@@ -4401,71 +4465,71 @@ END ELIMINATE_SMALL_POLYS;
       p_face_id_2       IN NUMBER
    ) RETURN BOOLEAN
    AS
-   
+
       --Matt! 11/02/12
-      --Used to detect disallowed obsolete node case 
-   
+      --Used to detect disallowed obsolete node case
+
       psql              VARCHAR2(4000);
       edge_ids          GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
+
       edge_ids := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                     p_face_id_1,
                                                     p_face_id_2);
-                                                              
+
       IF edge_ids.COUNT = 1
       THEN
-      
+
          --Most of the time here, just 2 faces facing across an edge
          RETURN FALSE;
-      
+
       END IF;
-      
-      --If more than one, need to be sure that none of the edges in the list 
+
+      --If more than one, need to be sure that none of the edges in the list
       --are connected via an obsolete node
       --The faces could also face off at non-connected edges, or at a lollipop
       --   TMI, just check if the edges are bounded by obsoletes
-      
+
       FOR i IN 1 .. edge_ids.COUNT
       LOOP
-      
+
          IF GZ_SMPOLY.IS_EDGE_BOUNDED_BY_OBSOLETE(p_topology,
                                                   edge_ids(i))
          THEN
-         
+
             RETURN TRUE;
-            
+
          END IF;
-      
+
       END LOOP;
-      
-      RETURN FALSE;      
-      
-   
-   END IS_OBSOLETE_NODE_BETWEEN_FACES;   
-   
+
+      RETURN FALSE;
+
+
+   END IS_OBSOLETE_NODE_BETWEEN_FACES;
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION ARE_EDGES_CONNECTED (
       p_topology        IN VARCHAR2,
       p_edge_id_1       IN NUMBER,
       p_edge_id_2       IN NUMBER
    ) RETURN BOOLEAN
    AS
-   
+
       --Matt! 11/02/12
-      
+
       psql              VARCHAR2(4000);
       kount             PLS_INTEGER;
-      
-   BEGIN   
-      
+
+   BEGIN
+
       --what a load of.. got to be something clearer
       --I just don't like 2x index accesses with UNION ALLS
-      
+
       psql := 'WITH '
            || ' FIRST_NODES AS '
            || '   (SELECT nodes '
@@ -4482,24 +4546,24 @@ END ELIMINATE_SMALL_POLYS;
            || 'SELECT COUNT (*) '
            || '   FROM FIRST_NODES '
            || '   WHERE nodes IN (SELECT * FROM SECOND_NODES) ';
-           
+
       EXECUTE IMMEDIATE psql INTO kount USING p_edge_id_1,
                                               p_edge_id_2;
-      
+
       IF kount = 0
       THEN
-      
+
          RETURN FALSE;
-         
+
       ELSE
-      
+
          RETURN TRUE;
-         
-      END IF;   
-    
+
+      END IF;
+
 
    END ARE_EDGES_CONNECTED;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
@@ -4511,56 +4575,56 @@ END ELIMINATE_SMALL_POLYS;
       p_face_id_2       IN NUMBER
    ) RETURN BOOLEAN
    AS
-   
+
       --Matt! 11/02/12
       -- 2 Faces
       -- Something interrupts their border at a node
       -- Could be a triangle face, or some sort of chain of faces, dont care
-      
+
       --  _______________
       --  |  B          |
       --  |     ___     |
       --  |     \ /     |
       --  -------0-------
-      --  |             |      
+      --  |             |
       --  |      A      |
       --  |_____________|
       --
 
-      
-   
+
+
       psql              VARCHAR2(4000);
       edge_ids          GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
+
       edge_ids := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                     p_face_id_1,
                                                     p_face_id_2);
-                                                    
+
       IF edge_ids.COUNT <> 2
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001,'This should be 2 faces with 2 shared edges');
-      
+
       END IF;
-      
+
       IF GZ_SMPOLY.ARE_EDGES_CONNECTED(p_topology,
                                        edge_ids(1),
                                        edge_ids(2))
       THEN
-      
+
          RETURN TRUE;
-         
+
       ELSE
-      
+
          RETURN FALSE;
-      
+
       END IF;
 
-   
+
    END ARE_EDGES_BTWN_FACES_CONNECTED;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
@@ -4573,9 +4637,9 @@ END ELIMINATE_SMALL_POLYS;
       p_face_id_3       IN NUMBER
    ) RETURN BOOLEAN
    AS
-   
+
       --Matt! 11/02/12
-      
+
       -- TRUE
       --       |
       --    1  |
@@ -4586,131 +4650,131 @@ END ELIMINATE_SMALL_POLYS;
       -- FALSE! FN should be named ARE_THREE_FACES_AND_ONLY_THOSE_FACE_JOINT_AT_A_POINT_DEADCOUNT
       --       |
       --    1  |
-      -- ------0-----   
+      -- ------0-----
       --    2   \  3
       --         \
       --
       -- FALSE
-      --        |  3 
+      --        |  3
       --        |     3
       --        0--0
       --     1  |  |
       --  ------0  |   3
       --     2  |  |
       --        0--0  3
-      --        | 
+      --        |
       --        |  3
       --        |
-   
+
       psql              VARCHAR2(4000);
       edge_ids1         GZ_TYPES.numberarray;
       edge_ids2         GZ_TYPES.numberarray;
       edge_ids3         GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
+
       edge_ids1 := GET_EDGES_BETWEEN_FACES(p_topology,
                                            p_face_id_1,
                                            p_face_id_2);
-                                          
+
       IF edge_ids1.COUNT > 1
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001, 'Unexpected, these faces are connected in more than one spot: ' 
+
+         RAISE_APPLICATION_ERROR(-20001, 'Unexpected, these faces are connected in more than one spot: '
                                          || p_face_id_1 || ',' || p_face_id_2);
-                                         
+
       ELSIF edge_ids1.COUNT = 0
       THEN
-      
+
          RETURN FALSE;
-      
+
       END IF;
-      
+
       edge_ids2 := GET_EDGES_BETWEEN_FACES(p_topology,
                                            p_face_id_2,
                                            p_face_id_3);
-                                          
+
       IF edge_ids2.COUNT > 1
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001, 'Unexpected, these faces are connected in more than one spot: ' 
+
+         RAISE_APPLICATION_ERROR(-20001, 'Unexpected, these faces are connected in more than one spot: '
                                          || p_face_id_2 || ',' || p_face_id_3);
-      
+
       ELSIF edge_ids2.COUNT = 0
       THEN
-      
+
          RETURN FALSE;
-      
+
       END IF;
 
-      
+
       edge_ids3 := GET_EDGES_BETWEEN_FACES(p_topology,
                                            p_face_id_1,
                                            p_face_id_3);
-                                          
+
       IF edge_ids3.COUNT > 1
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001, 'Unexpected, these faces are connected in more than one spot: ' 
+
+         RAISE_APPLICATION_ERROR(-20001, 'Unexpected, these faces are connected in more than one spot: '
                                          || p_face_id_1 || ',' || p_face_id_3);
-                                         
+
       ELSIF edge_ids3.COUNT = 0
       THEN
-      
+
          RETURN FALSE;
-      
+
       END IF;
 
-      
+
       IF  ARE_EDGES_CONNECTED(p_topology, edge_ids1(1), edge_ids2(1))
       AND ARE_EDGES_CONNECTED(p_topology, edge_ids2(1), edge_ids3(1))
       AND ARE_EDGES_CONNECTED(p_topology, edge_ids1(1), edge_ids3(1))
       THEN
-      
+
          RETURN TRUE;
-         
+
       ELSE
-      
+
          RETURN FALSE;
-         
-      END IF;   
-   
+
+      END IF;
+
    END ARE_THREE_FACES_AT_A_POINT;
-    
-      
+
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION ARE_3_EDGES_A_SIMPLE_CHAIN (
       p_topology        IN VARCHAR2,
       p_edges           IN GZ_TYPES.NUMBERARRAY
    ) RETURN BOOLEAN
    AS
-     
+
       --Matt! 11/05/12
       --Started writing a generic chainer but its gonna take too long
       --Just assume 3 edges and no more
-      
+
       --Should have 6 total start/end nodes
       --2 nodes are dupes (2 x 2) = 4
       --2 nodes are unique endpoints
-      
+
       --Any kind of funny business, including loops, will return false
-      
+
       psql              VARCHAR2(4000);
       kounts            GZ_TYPES.numberarray;
-      
-   
+
+
    BEGIN
-   
+
       IF p_edges.COUNT <> 3
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Expect three edges, got ' || p_edges.COUNT);
-      
+
       END IF;
-      
+
       psql := 'SELECT count(nodes) '
            || 'FROM ' || p_topology || '_edge$ UNPIVOT (nodes '
            || 'FOR node '
@@ -4718,36 +4782,36 @@ END ELIMINATE_SMALL_POLYS;
            || 'WHERE edge_id IN (SELECT * FROM TABLE(:p1)) '
            || 'GROUP BY nodes '
            || 'ORDER BY COUNT(nodes) ';
-           
+
       --77770   1
       --77769   1
       --77772   2
       --77771   2
-           
-      EXECUTE IMMEDIATE psql BULK COLLECT INTO kounts USING GZ_UTILITIES.NUMARRAY_TO_VARRAY(p_edges);
-      
+
+      EXECUTE IMMEDIATE psql BULK COLLECT INTO kounts USING GZ_BUSINESS_UTILS.NUMARRAY_TO_VARRAY(p_edges);
+
       IF kounts.COUNT = 4
-      AND kounts(1) = 1 
+      AND kounts(1) = 1
       AND kounts(2) = 1
       AND kounts(3) = 2
       AND kounts(4) = 2
       THEN
-                                                    
+
          RETURN TRUE;
-         
+
       ELSE
-      
+
          RETURN FALSE;
-        
+
       END IF;
-   
-   
-   END ARE_3_EDGES_A_SIMPLE_CHAIN;  
-   
+
+
+   END ARE_3_EDGES_A_SIMPLE_CHAIN;
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
-   
+
    FUNCTION IS_AC_BC_AC (
       p_topology        IN VARCHAR2,
       p_face_id_target  IN NUMBER,
@@ -4755,63 +4819,63 @@ END ELIMINATE_SMALL_POLYS;
       p_face_id_3       IN NUMBER
    ) RETURN BOOLEAN
    AS
-   
+
       --Matt! 11/05/12
-      
+
       --  _______________
       --  |  A          |
       --  |    ____     |
       --  |   | B  |    |
       --  ----0----0-----
-      --  |             |      
+      --  |             |
       --  |      C      |
       --  |_____________|
       --
-      
+
       psql              VARCHAR2(4000);
       edge_ids1         GZ_TYPES.numberarray;
       edge_ids2         GZ_TYPES.numberarray;
       all_edges         GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
-   
+
+
       edge_ids1 := GET_EDGES_BETWEEN_FACES(p_topology,
                                            p_face_id_target,
                                            p_face_id_2);
-      
+
       edge_ids2 := GET_EDGES_BETWEEN_FACES(p_topology,
                                            p_face_id_target,
                                            p_face_id_3);
-                                           
+
       IF (edge_ids1.COUNT > 1 AND edge_ids2.COUNT > 1)
       OR (edge_ids1.COUNT = 0 OR edge_ids2.COUNT = 0)
       THEN
-       
+
          --Theres probably a possibility of both counts > 1 being ACBCAC
          --Ie an extra touching section. But Im not allowing it for now
          RETURN FALSE;
-      
+
       END IF;
-      
+
       all_edges := NUMBERARRAY_ADD_UNIQUE(edge_ids1,
                                           edge_ids2);
-                                          
+
       IF GZ_SMPOLY.ARE_3_EDGES_A_SIMPLE_CHAIN(p_topology,
                                               all_edges)
       THEN
-      
+
          RETURN TRUE;
-         
+
       ELSE
-      
+
          RETURN FALSE;
-         
+
       END IF;
 
-   
-   END IS_AC_BC_AC; 
-     
+
+   END IS_AC_BC_AC;
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public----------------------------------------------------------------------------
@@ -4822,20 +4886,20 @@ END ELIMINATE_SMALL_POLYS;
       p_face_id_2       IN NUMBER
    ) RETURN PLS_INTEGER
    AS
-   
+
       --Matt! 11/02/12
-   
+
       psql              VARCHAR2(4000);
       edge_ids          GZ_TYPES.numberarray;
-      
+
    BEGIN
-   
+
       edge_ids := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                     p_face_id_1,
                                                     p_face_id_2);
-                                                    
+
       RETURN edge_ids.COUNT;
-   
+
    END COUNT_EDGES_BETWEEN_FACES;
 
    ------------------------------------------------------------------------------------
@@ -5227,7 +5291,7 @@ END ELIMINATE_SMALL_POLYS;
       --DECLARE
       -- face_ids gz_types.stringarray;
       --BEGIN
-      -- face_ids := GZ_UTILITIES.GZ_GET_FSL_FACES('Z601LS_FSL050',27590310671100);
+      -- face_ids := GZ_SMPOLY.GZ_GET_FSL_FACES('Z601LS_FSL050',27590310671100);
       --END;
 
       psql              VARCHAR2(4000);
@@ -5395,7 +5459,7 @@ END ELIMINATE_SMALL_POLYS;
       p_project_id      IN VARCHAR2,
       p_topology        IN VARCHAR2,
       p_expendable_tab  IN VARCHAR2,
-      p_what            IN VARCHAR2 --DONT_CHECK or WHERE_CLAUSE
+      p_what            IN VARCHAR2 --sliver_exempt or sliver_extinct_clause
    ) RETURN GZ_TYPES.stringhash
    AS
 
@@ -5410,7 +5474,7 @@ END ELIMINATE_SMALL_POLYS;
    BEGIN
 
       --tack on face table first in case theres no explicit expendable table
-      IF p_what = 'DONT_CHECK'
+      IF p_what = 'SLIVER_EXEMPT'
       THEN
 
          --tack on the face table
@@ -5440,13 +5504,13 @@ END ELIMINATE_SMALL_POLYS;
 
       psql := 'SELECT ''' || p_topology || '_FSL'' || a.layer || ''V'', ';
 
-      IF p_what = 'WHERE_CLAUSE'
+      IF p_what = 'SLIVER_EXTINCT_CLAUSE'
       THEN
 
-         psql := psql || 'a.where_clause ';
+         psql := psql || 'a.sliver_extinct_clause ';
 
 
-      ELSIF p_what = 'DONT_CHECK'
+      ELSIF p_what = 'SLIVER_EXEMPT'
       THEN
 
          psql := psql || '''Y'' ';
@@ -5463,14 +5527,14 @@ END ELIMINATE_SMALL_POLYS;
                    || 'a.release = :p1 AND '
                    || 'a.gen_project_id = :p2 AND ';
 
-      IF p_what = 'WHERE_CLAUSE'
+      IF p_what = 'SLIVER_EXTINCT_CLAUSE'
       THEN
 
-          psql := psql || 'a.where_clause IS NOT NULL ';
+          psql := psql || 'a.sliver_extinct_clause IS NOT NULL ';
 
       ELSE
 
-          psql := psql || 'a.dont_check = ''Y''';
+          psql := psql || 'a.sliver_exempt = ''Y''';
 
       END IF;
 
@@ -5537,6 +5601,8 @@ END ELIMINATE_SMALL_POLYS;
               || 'WHERE a.' || p_pkc_col || ' = :p1 AND '
               || '(' || p_where_clause || ')';
 
+         dbms_output.put_line(psql);
+         
          EXECUTE IMMEDIATE psql INTO kount USING p_geoid;
 
          IF kount = 1
@@ -5573,11 +5639,13 @@ END ELIMINATE_SMALL_POLYS;
       p_face_id            IN NUMBER,
       p_fsl_pkc            IN VARCHAR2 DEFAULT 'GEO_ID',
       p_expendable_tab     IN VARCHAR2 DEFAULT NULL,
+      p_only_expendable    IN VARCHAR2 DEFAULT 'N',
       p_debug              IN NUMBER DEFAULT NULL
    ) RETURN VARCHAR2
    AS
 
       --Matt!  10/09/12
+      --Matt!  8/12/13 Added only expendable flag.  For use in coastal sliver tracking
       --Tell me if a primitive face ID represents the last living territory in a feature summary level record
 
       --p_release            Standard GZ release.  Only tie in at present is to the expendable table
@@ -5588,17 +5656,20 @@ END ELIMINATE_SMALL_POLYS;
       --p_expendable_tab     Helper table containing layers and whereclauses for ugly critters that we dont mind going extinct
       --                     Or where we just dont want to bother checking (like NATION)
       --                     For example all water School Districts and Nation might look like
-      --                     RELEASE   GEN_PROJECT_ID   LAYER   DONT_CHECK   WHERECLAUSE
-      --                     ACS12     Z6               976                  a.sduni IN ('00000','99999');
+      --                     RELEASE   GEN_PROJECT_ID   LAYER   SLIVER_EXEMPT   SLIVER_EXTINCT_CLAUSE
+      --                     ACS12     Z6               976                     a.sduni IN ('00000','99999');
       --                     ACS12     Z6               010     Y
+      --p_only_expendable    Instead of returning the important stuff that might go extinct without this face
+      --                     return the opposite - the water remainders and whatnot
 
       --sample:
       --select gz_smpoly.fsls_endangered('ACS12','Z6','Z699IN',2959,'GEO_ID','Z699IN_EXPENDABLE_FSLS') from dual
-      --returns --> Z699IN_FSL160V  1600000US0954660
+      --returns --> Z699IN_FSL160V | 1600000US0954660
 
       --For now:
-      --create table Z699IN_EXPENDABLE_FSLS
-      --(release VARCHAR2(64), gen_project_id VARCHAR2(4), layer varchar2(30), dont_check varchar2(1), where_clause VARCHAR2(4000));
+      --begin
+      --gz_business_utils.create_gz_face_merge('Z699IN_EXPENDABLE_FSLS');
+      --end;
 
       --Find me some endangered FLSs quicklike:
       --select a.geo_id, count(t.topo_id) from z699in_fsl160v a,
@@ -5636,13 +5707,13 @@ END ELIMINATE_SMALL_POLYS;
                                                        p_project_id,
                                                        p_topology,
                                                        p_expendable_tab,
-                                                       'DONT_CHECK');
+                                                       'SLIVER_EXEMPT');
 
       expendable_hash := GZ_SMPOLY.GET_EXPENDABLE_FSLS(p_release,
                                                        p_project_id,
                                                        p_topology,
                                                        p_expendable_tab,
-                                                       'WHERE_CLAUSE');
+                                                       'SLIVER_EXTINCT_CLAUSE');
 
       FOR i IN 1 .. feature_tables.COUNT
       LOOP
@@ -5700,8 +5771,11 @@ END ELIMINATE_SMALL_POLYS;
                   dbms_output.put_line('expendable is ' || expendable);
                END IF;
 
-               IF expendable = 'FALSE'  --either no where clause at all to check out, or we checked and its not an expendable record
-               THEN                     --so continue to the face count check
+               IF (expendable = 'FALSE')  --either no where clause at all to check out, or we checked and its not an expendable record
+               OR (expendable = 'TRUE' AND p_only_expendable = 'Y') --special flag meaning we only want expendables returned.  For tracking
+               THEN
+
+                  --so continue to the face count check
 
                   current_facez := GZ_SMPOLY.GZ_GET_FSL_FACES(p_topology,
                                                               feature_tables(i),
@@ -5720,16 +5794,17 @@ END ELIMINATE_SMALL_POLYS;
 
                   IF current_facez.COUNT = 1
                   AND current_facez(1) = p_face_id
-                  THEN
-
+                  AND NOT (expendable = 'FALSE' AND p_only_expendable = 'Y')  --<-- that ones a teaser
+                  THEN                                                        --english attempt: This is a record that can not be removed
+                                                                              --but we only want going extinct records that *are* allowed
                      IF output IS NULL
                      THEN
 
-                        output := feature_tables(i) || '  ' || current_key;
+                        output := feature_tables(i) || '|' || current_key;
 
                      ELSE
 
-                       output := output || ' | ' || feature_tables(i) || '  ' || current_key;
+                       output := output || ';' || feature_tables(i) || '|' || current_key;
 
                      END IF;
 
@@ -5792,13 +5867,13 @@ END ELIMINATE_SMALL_POLYS;
          --check if table exists first, otherwise user creates and drops tracking table
          --over and over on each face merge
 
-         IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_topo || '_MERGEFACE_TRACKING')
+         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_topo || '_MERGEFACE_TRACKING')
          THEN
 
-            GZ_UTILITIES.CREATE_GEN_XTEND_TRACKING_LOG(SYS_CONTEXT('USERENV', 'CURRENT_USER'),
+            GZ_BUSINESS_UTILS.CREATE_GEN_XTEND_TRACKING_LOG(SYS_CONTEXT('USERENV', 'CURRENT_USER'),
                                                        p_topo || '_MERGEFACE_TRACKING');
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                    p_topo,
                                                    transaction_id,
                                                    NULL,
@@ -5806,7 +5881,7 @@ END ELIMINATE_SMALL_POLYS;
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                    p_topo,
                                                    transaction_id,
                                                    NULL,
@@ -5817,7 +5892,7 @@ END ELIMINATE_SMALL_POLYS;
 
          --insert the first record for some production module
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                 p_topo,
                                                 transaction_id,
                                                 NULL,
@@ -5904,7 +5979,7 @@ END ELIMINATE_SMALL_POLYS;
                                                          p_child_key_col,
                                                          p_child_key);
 
-            parent_tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topology,
+            parent_tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topology,
                                                                parent_tables(i),
                                                                'TOPOGEOM',
                                                                'POLYGON');
@@ -6064,7 +6139,7 @@ END ELIMINATE_SMALL_POLYS;
 
          output := 1;
 
-         tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topology,
+         tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topology,
                                                      p_feature_table,
                                                      'TOPOGEOM',
                                                      'POLYGON');
@@ -6168,7 +6243,7 @@ END ELIMINATE_SMALL_POLYS;
 
    BEGIN
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topology,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topology,
                                                   p_feature_table,
                                                   'TOPOGEOM',
                                                   'POLYGON');
@@ -6349,122 +6424,122 @@ END ELIMINATE_SMALL_POLYS;
      big_face_kount3       PLS_INTEGER;
 
    BEGIN
-      
+
       IF p_big_face_id_3 IS NOT NULL
       AND p_big_face_id_2 IS NULL
       THEN
-      
+
          IF p_debug <> 1
          THEN
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
                                                    'Got a big face 3 but no big face 2.  What gives?');
          END IF;
-                                                   
+
          RAISE_APPLICATION_ERROR(-20001,'Got a big face 3 but no big face 2.  What gives?');
-      
+
       END IF;
-      
-      
+
+
       IF p_big_face_id_2 IS NULL
       AND p_big_face_id_3 IS NULL
       THEN
-         
+
          ----------------------------------------------------------------------
          --simple Config I, II (becomes I after obsolete node removal), or  III
          ----------------------------------------------------------------------
-         
+
          IF GZ_SMPOLY.IS_OBSOLETE_NODE_BETWEEN_FACES(p_topology,
                                            p_small_face_id,
                                            p_big_face_id_1)
          THEN
-               
-            --Config II. Merge module is making obsolete nodes it seems. 
+
+            --Config II. Merge module is making obsolete nodes it seems.
             --Remove them and this should turn into config I
             --If its some other config with an obsolete we may be in troubl
-            
+
             IF p_debug <> 1
             THEN
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
-                                                   'This looks like config II.  Theres an obsolete node between ' 
-                                                   || p_small_face_id || ' and ' || p_big_face_id_1);    
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+                                                   'This looks like config II.  Theres an obsolete node between '
+                                                   || p_small_face_id || ' and ' || p_big_face_id_1);
             END IF;
-                                                      
+
             GZ_SMPOLY.REMOVE_OBSOLETE_BETWEEN_FACES(p_topology,
                                                     p_small_face_id,
                                                     p_big_face_id_1);
-                  
-                                                
+
+
             IF GZ_SMPOLY.IS_OBSOLETE_NODE_BETWEEN_FACES(p_topology,
                                                         p_small_face_id,
                                                         p_big_face_id_1)
             THEN
-            
+
                IF p_debug <> 1
                THEN
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
-                                                         'Failed to remove the obsolete between ' || p_small_face_id || ' and ' 
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+                                                         'Failed to remove the obsolete between ' || p_small_face_id || ' and '
                                                          || p_big_face_id_1 || '. Bailing');
                END IF;
-                                                      
-               RAISE_APPLICATION_ERROR(-20001,'Failed to remove the obsolete between ' || p_small_face_id || ' and ' 
-                                              || p_big_face_id_1 || '. Bailing');  
-            
+
+               RAISE_APPLICATION_ERROR(-20001,'Failed to remove the obsolete between ' || p_small_face_id || ' and '
+                                              || p_big_face_id_1 || '. Bailing');
+
             ELSE
-            
+
                IF p_debug <> 1
                THEN
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
                                                          'Removed the obsolete node.  Will figure out a configuration now');
-               END IF;          
-            
+               END IF;
+
             END IF;
 
-         
+
          END IF;
-         
+
          IF GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                 p_small_face_id,
                                                 p_big_face_id_1) = 1
-                                      
+
          THEN
-         
+
             --Mr. Popularity is here. Config 1
-            output := 'I';               
-         
+            output := 'I';
+
          ELSIF GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                    p_small_face_id,
                                                    p_big_face_id_1) = 2
-         THEN                         
-         
+         THEN
+
             --Indicates likely III, lollipop style
             --Dont need to check for obsolete nodes, did that above
             --But what if the 2 edges are non-connected, like the big face snakes around and taps
             --the small face on its back?  Check that
-            
+
             IF GZ_SMPOLY.ARE_EDGES_BTWN_FACES_CONNECTED(p_topology,
                                                         p_small_face_id,
                                                         p_big_face_id_1)
             THEN
-            
+
                output := 'III';
-               
+
             ELSE
-            
+
                RAISE_APPLICATION_ERROR(-20001, 'Need eyeballs on this configuration');
-            
-            END IF;  
-            
+
+            END IF;
+
          ELSE
-         
-            RAISE_APPLICATION_ERROR(-20001, ' Unknown configuration');    
-         
+
+            RAISE_APPLICATION_ERROR(-20001, ' Unknown configuration');
+
          END IF;
-         
-      
+
+
       ELSIF p_big_face_id_2 IS NOT NULL
       AND p_big_face_id_3 IS NULL
       THEN
-      
+
          -------------------------------------------------------
          --           Configs IV, V, or VI                    --
          -------------------------------------------------------
@@ -6472,135 +6547,135 @@ END ELIMINATE_SMALL_POLYS;
          big_face_kount1 := GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                                 p_small_face_id,
                                                                 p_big_face_id_1);
-                                                                
+
          big_face_kount2 := GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                                 p_small_face_id,
                                                                 p_big_face_id_2);
-                                                                 
+
          IF  big_face_kount1 = 1
          AND big_face_kount2 = 1
          THEN
-         
+
             --IV or VI
             IF ARE_THREE_FACES_AT_A_POINT(p_topology,
                                           p_small_face_id,
                                           p_big_face_id_1,
                                           p_big_face_id_2)
             THEN
-            
+
                output := 'IV';
-               
+
             ELSE
-            
+
                output := 'VI';
-            
-            END IF;                              
-                                         
-         
+
+            END IF;
+
+
          ELSIF (big_face_kount1 = 1 AND big_face_kount2 = 2)
          OR    (big_face_kount1 = 2 AND big_face_kount2 = 1)
          THEN
-         
+
             --hopefully V
             IF GZ_SMPOLY.IS_AC_BC_AC(p_topology,
                                      p_small_face_id,
                                      p_big_face_id_1,
                                      p_big_face_id_2)
             THEN
-            
+
                output := 'V';
-               
+
             ELSE
-            
+
                RAISE_APPLICATION_ERROR(-20001,'unknown config, please investigate');
-            
-            END IF;                         
-                                    
-         
+
+            END IF;
+
+
          ELSE
-         
-         
+
+
             RAISE_APPLICATION_ERROR(-20001,'Uknown configuration');
-            
+
          END IF;
-      
-      
+
+
       ELSIF p_big_face_id_2 IS NOT NULL
       AND p_big_face_id_3 IS NOT NULL
       THEN
-      
+
          -------------------------------------------------------
-         -- Configs VII or VIII or something totally new     
+         -- Configs VII or VIII or something totally new
          -------------------------------------------------------
-      
+
          big_face_kount1 := GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                                 p_small_face_id,
                                                                 p_big_face_id_1);
-                                                                
+
          big_face_kount2 := GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                                 p_small_face_id,
                                                                 p_big_face_id_2);
-                                                                
+
          big_face_kount3 := GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                                 p_small_face_id,
                                                                 p_big_face_id_2);
-                                                                
-         
-                                                                 
+
+
+
          IF  big_face_kount1 = 1
          AND big_face_kount2 = 1
          AND big_face_kount3 = 1
          THEN
-         
-            --VII or VIII 
-            
+
+            --VII or VIII
+
             IF ARE_THREE_FACES_AT_A_POINT(p_topology,
                                           p_small_face_id,
                                           p_big_face_id_1,
                                           p_big_face_id_2)
             THEN
-            
+
                output := 'VII';
-               
+
             ELSE
-            
+
                output := 'VIII';
-            
-            END IF;                              
-                                         
-         
+
+            END IF;
+
+
          ELSE
-         
+
             --This is probably some sort of a 3 face config and II, V, or VI
             --Can be programmed, but I'm not sure if it exists in a meaningful way
             RAISE_APPLICATION_ERROR(-20001,'Unknown configuration: More than 2 edges between a face');
-            
-         END IF;
-      
-      END IF;
-      
-      
 
-      IF output NOT IN ('I','III','IV','V','VI','VII','VII') 
+         END IF;
+
+      END IF;
+
+
+
+      IF output NOT IN ('I','III','IV','V','VI','VII','VII')
       THEN
-      
-         --This is the spec, basically permanent check 
+
+         --This is the spec, basically permanent check
          RAISE_APPLICATION_ERROR(-20001,'Unknown case ' || output);
 
       END IF;
-      
-      
+
+
       --This is the in-progress list of programmed configs we let past this point
-      
+
       IF output IN ('I','IV','V','VII')  --note no II, it gets converted
       THEN
-      
+
          RETURN output;
-         
+
       ELSE
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Bridge out ahead for config ' || output);
-      
+
       END IF;
 
 
@@ -6644,7 +6719,7 @@ END ELIMINATE_SMALL_POLYS;
 
       --create the topomap with window
 
-      create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
+      create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
                                                    p_topo,
                                                    2,
                                                    window_geom.sdo_ordinates(1),
@@ -6657,7 +6732,7 @@ END ELIMINATE_SMALL_POLYS;
       --no error handler here, let the caller trap and release
       SDO_TOPO_MAP.REMOVE_EDGE(NULL,p_edge_id);
 
-      create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+      create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
 
 
    END GZ_REMOVE_EDGE;
@@ -6669,7 +6744,7 @@ END ELIMINATE_SMALL_POLYS;
 
    FUNCTION REMOVE_SHARED_EDGE (
       p_topology        IN VARCHAR2,
-      p_dead_edge       IN NUMBER 
+      p_dead_edge       IN NUMBER
    ) RETURN GZ_TYPES.numberarray
    AS
 
@@ -6684,7 +6759,7 @@ END ELIMINATE_SMALL_POLYS;
 
    BEGIN
 
-      
+
       --must get before removing the edge
       output := GZ_SMPOLY.GET_NODES_FOR_EDGE(p_topology,
                                              p_dead_edge);
@@ -6757,7 +6832,7 @@ END ELIMINATE_SMALL_POLYS;
 
       --create the topomap with window
 
-      create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
+      create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',
                                                    p_topo,
                                                    2,
                                                    window_geom.sdo_ordinates(1),
@@ -6775,14 +6850,14 @@ END ELIMINATE_SMALL_POLYS;
       WHEN OTHERS
       THEN
 
-         create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+         create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
 
          RAISE_APPLICATION_ERROR(-20001,SQLERRM || Chr(10) || DBMS_UTILITY.format_error_backtrace);
 
       END;
 
       --commit and drop temp topomap
-      create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
+      create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topo || 'MAP',p_topo,3);
 
       --not guaranteed buddy
       RETURN 1;
@@ -6869,83 +6944,83 @@ END ELIMINATE_SMALL_POLYS;
       END LOOP;
 
    END REMOVE_OBSOLETE_NODES_LIST;
-   
+
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public-------------------------------------------------------------------------
-   
+
    PROCEDURE REMOVE_OBSOLETE_BETWEEN_FACES (
       p_topology        IN VARCHAR2,
       p_face_id_1       IN NUMBER,
       p_face_id_2       IN NUMBER
    )
    AS
-   
+
       --Matt! 11/07/12
-      
+
       edge_ids             GZ_TYPES.NUMBERARRAY;
       kount                NUMBER := 0;
       node_id              NUMBER;
-   
-   BEGIN  
-   
-   
+
+   BEGIN
+
+
       edge_ids := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                     p_face_id_1,
                                                     p_face_id_2);
-                                                              
+
       IF edge_ids.COUNT = 1
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001, 'Why you pestering bub?  Just 1 edge btwn '
                                       || p_face_id_1 || ' ' || p_face_id_2);
-      
-      END IF;
-      
-         
-      FOR i IN 1 .. edge_ids.COUNT
-      LOOP      
 
-         
+      END IF;
+
+
+      FOR i IN 1 .. edge_ids.COUNT
+      LOOP
+
+
          IF GZ_SMPOLY.IS_EDGE_BOUNDED_BY_OBSOLETE(p_topology,
                                                   edge_ids(i))
          THEN
-            
+
             node_id := GZ_SMPOLY.GET_EDGE_NODE(p_topology,
                                                edge_ids(i),
                                                'START');
-               
+
             kount := GZ_SMPOLY.REMOVE_NODE_KINDLY(p_topology,
                                                   node_id);
-                           
+
             IF kount = 0
             THEN
-                                             
+
                node_id := GZ_SMPOLY.GET_EDGE_NODE(p_topology,
                                                   edge_ids(i),
                                                   'END');
-                  
+
                kount := GZ_SMPOLY.REMOVE_NODE_KINDLY(p_topology,
                                                      node_id);
-                                                     
+
             END IF;
-               
+
          END IF;
-         
-                  
+
+
          IF kount = 1
          THEN
-         
+
             --must exit as soon as we think an obsolete node went bye
             --the edge ids in our loop are bunk at that point
-         
+
             EXIT;
-            
+
          END IF;
-         
+
       END LOOP;
-   
-      
+
+
    END REMOVE_OBSOLETE_BETWEEN_FACES;
 
    ---------------------------------------------------------------------------------
@@ -7005,7 +7080,7 @@ END ELIMINATE_SMALL_POLYS;
       RETURN output;
 
    END GET_FACE_TABLE;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --PUBLIC---------------------------------------------------------------------------------
@@ -7038,14 +7113,14 @@ END ELIMINATE_SMALL_POLYS;
    BEGIN
 
       --We dont trust the geometry we used to create the new nodes
-      
+
       new_node_geom := GZ_SMPOLY.GET_NODE_GEOMETRY(p_topo,
                                                    p_new_node_id);
-         
-      --Get the old boy too                                          
+
+      --Get the old boy too
       old_node_geom := GZ_SMPOLY.GET_NODE_GEOMETRY(p_topo,
                                                    p_old_node_id);
-                                                   
+
       --Figure out tippy tip
       tip := GZ_SMPOLY.GET_NODE_TIP(p_topo,
                                     p_extend_edge,
@@ -7055,7 +7130,7 @@ END ELIMINATE_SMALL_POLYS;
       --In clip we maintain direction since we have the edge attribute table with L/R values
       --I like this here too, since it means the L/R info for the big face will match our new
       --sliver face split
-      
+
       IF tip = 'START'
       THEN
 
@@ -7100,7 +7175,7 @@ END ELIMINATE_SMALL_POLYS;
       --      -------0--------
       --             |<-- New edge, doesnt exist in topo yet
       --             |
-      --           --|--------   <-- An unexpected edge HERE is bad 
+      --           --|--------   <-- An unexpected edge HERE is bad
       --             |
       --      -------0-------
       --            / \  <-- More edges I dont care about
@@ -7124,7 +7199,7 @@ END ELIMINATE_SMALL_POLYS;
            || 'WHERE e.edge_id NOT IN (SELECT * FROM TABLE(:p1)) AND '
            || 'SDO_RELATE(e.geometry,:p2,:p3) = :p4 ';
 
-      EXECUTE IMMEDIATE psql INTO kount USING GZ_UTILITIES.NUMARRAY_TO_VARRAY(connect_edges),
+      EXECUTE IMMEDIATE psql INTO kount USING GZ_BUSINESS_UTILS.NUMARRAY_TO_VARRAY(connect_edges),
                                               new_edge_geom,
                                               'mask=ANYINTERACT',
                                               'TRUE';
@@ -7132,50 +7207,50 @@ END ELIMINATE_SMALL_POLYS;
       IF kount > 0
       THEN
 
-         RAISE_APPLICATION_ERROR(-20001, 'Got extra connections with ' || TO_CHAR(GZ_UTILITIES.DUMP_SDO(new_edge_geom)));
-         
+         RAISE_APPLICATION_ERROR(-20001, 'Got extra connections with ' || TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(new_edge_geom)));
+
       END IF;
 
 
       --Lets write a book to the log before the inevitable errors
       --Do it
-     
+
       BEGIN
-     
+
          IF tip = 'START'
          THEN
-        
+
             --we want direction of new node to old node
             new_edge_id := SDO_TOPO_MAP.ADD_EDGE(p_topo,
                                                  p_new_node_id,
                                                  p_old_node_id,
                                                  new_edge_geom);
-        
+
          ELSIF tip = 'END'
          THEN
-        
+
             --we want direction of old node to new node
             new_edge_id := SDO_TOPO_MAP.ADD_EDGE(p_topo,
                                                  p_old_node_id,
                                                  p_new_node_id,
                                                  new_edge_geom);
-        
+
          ELSE
-        
+
             RAISE_APPLICATION_ERROR(-20001,'Bad tip ' || tip);
-        
+
          END IF;
-     
+
       EXCEPTION
       WHEN OTHERS
       THEN
-        
+
          IF SQLCODE = -29532
          THEN
 
             --Lets see what we scare up here
             RAISE_APPLICATION_ERROR(-20001, 'Old node: ' || p_old_node_id || ' New node: ' || p_new_node_id
-                                            || ' Edge geom: ' || TO_CHAR(GZ_UTILITIES.DUMP_SDO(new_edge_geom)) 
+                                            || ' Edge geom: ' || TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(new_edge_geom))
                                             || ' ' || SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
 
          ELSE
@@ -7183,17 +7258,17 @@ END ELIMINATE_SMALL_POLYS;
             RAISE;
 
          END IF;
-     
+
       END;
 
      RETURN new_edge_id;
 
    END ADD_NEW_EDGE;
-   
+
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public-------------------------------------------------------------------------
-   
+
     FUNCTION ADD_NEW_NODE (
       p_topo               IN VARCHAR2,
       p_edge               IN NUMBER,
@@ -7241,16 +7316,18 @@ END ELIMINATE_SMALL_POLYS;
                RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
 
             ELSIF SQLERRM LIKE '%is not on the boundary of one or two of the faces it links%'
+            OR SQLERRM LIKE '%an updatable TopoMap object already exists%'
             THEN
 
-               --use an explicit topomap 
+               --use an explicit topomap
+               --or someone else has been using one and we need to clean house
 
                topomap := p_topo || '_TOPOMAP';
 
                edge_mbr := GZ_SMPOLY.GET_EDGE_MBR(p_topo,
                                                   p_edge);
 
-               create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(topomap,
+               create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(topomap,
                                                             p_topo,
                                                             2,
                                                             edge_mbr(1),
@@ -7264,7 +7341,7 @@ END ELIMINATE_SMALL_POLYS;
                                                p_coord_index,
                                                p_is_new_shape_pt);
 
-               create_it := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(topomap,
+               create_it := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(topomap,
                                                             p_topo,
                                                             create_it);
 
@@ -7289,13 +7366,13 @@ END ELIMINATE_SMALL_POLYS;
          ELSE
 
             RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
-             
+
          END IF;
 
 
 
    END ADD_NEW_NODE;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
@@ -7319,13 +7396,13 @@ END ELIMINATE_SMALL_POLYS;
 
       IF p_coord_index = 0
       THEN
-      
+
          psql := psql || 'start';
-         
+
       ELSE
-      
+
          psql := psql || 'end';
-         
+
       END IF;
 
       psql := psql || '_node_id '
@@ -7338,12 +7415,12 @@ END ELIMINATE_SMALL_POLYS;
 
 
    END GET_EXISTING_NODE;
-   
-   
+
+
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public-------------------------------------------------------------------------
-   
+
    FUNCTION ADD_AN_OPPOSITE_NODE (
       p_topology           IN VARCHAR2,
       p_face_id            IN NUMBER,
@@ -7351,28 +7428,28 @@ END ELIMINATE_SMALL_POLYS;
       p_face_table         IN VARCHAR2,
       p_lateral_edge_1     IN NUMBER,
       p_lateral_edge_2     IN NUMBER,
-      p_lateral_edge_3     IN NUMBER DEFAULT NULL,  --For config VII 
+      p_lateral_edge_3     IN NUMBER DEFAULT NULL,  --For config VII
       p_feature_face_id    IN NUMBER DEFAULT NULL,
       p_tolerance          IN NUMBER DEFAULT .05,
       p_testing            IN NUMBER DEFAULT 0
    ) RETURN NUMBER
    AS
-   
+
       --Matt!  11/05/12
-      
+
       --                Node
       --                 |
       --       lateral1  V    lateral2
-      --    -------------0---------------   
-      -- 
+      --    -------------0---------------
+      --
       --         face of interest              /
-      --  |                                   / 
+      --  |                                   /
       --   --------------X--------------------
       --                 ^
       --                 |
       --               target
-      
-      
+
+
       new_node_id          NUMBER;
       psql                 VARCHAR2(4000);
       edge_idz             GZ_TYPES.numberarray;
@@ -7391,68 +7468,68 @@ END ELIMINATE_SMALL_POLYS;
       face_geometry        SDO_GEOMETRY;
       test_edge_geom       SDO_GEOMETRY;
       feature_face_id      NUMBER;
-      
-      
+
+
    BEGIN
-   
+
       --Will use the feature face SDO for some tests below
       --If this is a multipart merge we cant use the small face id since it may be new
       --(ie face$ only, not in feature face table)
       --Caller saves the face for us
-      
+
       IF p_feature_face_id IS NULL
       THEN
-      
+
          feature_face_id := p_face_id;
-         
+
       ELSE
-      
-         feature_face_id := p_feature_face_id;      
-      
+
+         feature_face_id := p_feature_face_id;
+
       END IF;
-      
+
       --need the geoms in memory since we need to go off the grid
       --in terms of srids
       --also I think tends to be faster than sdo_nn against a biggie
-      
+
       old_node_geom := GZ_SMPOLY.GET_NODE_GEOMETRY(p_topology,
                                                    p_node_id);
-          
+
       tucked_srid := old_node_geom.sdo_srid;
-      
-      --get the edge_ids and geoms      
-      
+
+      --get the edge_ids and geoms
+
       IF p_lateral_edge_3 IS NULL
       THEN
-                    
+
          --attempt to connect to universal face if possible
          --This may not always be true, but an alternative use is so far off...
-                             
+
          psql := 'SELECT e.edge_id '
               || 'FROM ' || p_topology || '_edge$ e '
               || 'WHERE '
               || '(e.left_face_id = :p1 OR e.right_face_id = :p2) AND '
               || 'e.edge_id NOT IN (:p3,:p4) AND '
               || '(e.left_face_id = :p5 OR e.right_face_id = :p6)';
-         
+
          EXECUTE IMMEDIATE psql BULK COLLECT INTO edge_idz USING p_face_id,
                                                                  p_face_id,
                                                                  p_lateral_edge_1,
                                                                  p_lateral_edge_2,
                                                                  -1,
                                                                  -1;
-                                                                 
+
       ELSE
-      
+
          --Config VII, add in the other lateral edge off to the side in order to avoid it
-         
+
          psql := 'SELECT e.edge_id '
               || 'FROM ' || p_topology || '_edge$ e '
               || 'WHERE '
               || '(e.left_face_id = :p1 OR e.right_face_id = :p2) AND '
               || 'e.edge_id NOT IN (:p3,:p4,:p5) AND '
               || '(e.left_face_id = :p6 OR e.right_face_id = :p7)';
-         
+
          EXECUTE IMMEDIATE psql BULK COLLECT INTO edge_idz USING p_face_id,
                                                                  p_face_id,
                                                                  p_lateral_edge_1,
@@ -7461,112 +7538,112 @@ END ELIMINATE_SMALL_POLYS;
                                                                  -1,
                                                                  -1;
       END IF;
-      
+
       IF edge_idz.COUNT = 0
       THEN
-      
+
          --No universal face edge to use, probably interior
          --Remove from the SQL
          IF p_lateral_edge_3 IS NULL
          THEN
-                       
+
             --attempt to connect to universal face if possible
             --This may not always be true, but an alternative use is so far off...
-                                
+
             psql := 'SELECT e.edge_id '
                  || 'FROM ' || p_topology || '_edge$ e '
                  || 'WHERE '
                  || '(e.left_face_id = :p1 OR e.right_face_id = :p2) AND '
                  || 'e.edge_id NOT IN (:p3,:p4) ';
-            
+
             EXECUTE IMMEDIATE psql BULK COLLECT INTO edge_idz USING p_face_id,
                                                                     p_face_id,
                                                                     p_lateral_edge_1,
                                                                     p_lateral_edge_2;
-                                                                    
+
          ELSE
-         
+
             --Config VII, add in the other lateral edge off to the side in order to avoid it
-            
+
             psql := 'SELECT e.edge_id '
                  || 'FROM ' || p_topology || '_edge$ e '
                  || 'WHERE '
                  || '(e.left_face_id = :p1 OR e.right_face_id = :p2) AND '
                  || 'e.edge_id NOT IN (:p3,:p4,:p5) ';
-            
+
             EXECUTE IMMEDIATE psql BULK COLLECT INTO edge_idz USING p_face_id,
                                                                     p_face_id,
                                                                     p_lateral_edge_1,
                                                                     p_lateral_edge_2,
                                                                     p_lateral_edge_3;
          END IF;
-      
+
       END IF;
-   
+
       IF edge_idz.COUNT = 1
       THEN
-         
+
          --hopefully here usually
          ordered_edgez(1).number1 := edge_idz(1);
          --distance no matter
          ordered_edgez(1).number2 := 0;
-         
+
       ELSIF edge_idz.COUNT = 0
       THEN
-      
-         RAISE_APPLICATION_ERROR(-20001,'Need to look at this, the only edges bounding ' || p_face_id 
+
+         RAISE_APPLICATION_ERROR(-20001,'Need to look at this, the only edges bounding ' || p_face_id
                                     || ' appear to be our lateral edges ' || p_lateral_edge_1 || ',' || p_lateral_edge_2 || ','
                                     || p_lateral_edge_3);
-                                    
+
       ELSE
-      
+
          --This is a pig sty
          --find the closest edge to our start point
          --save the others as backups
-         
-         old_node_geom.sdo_srid := NULL;         
-         
+
+         old_node_geom.sdo_srid := NULL;
+
          FOR i IN 1 .. edge_idz.COUNT
          LOOP
-         
+
             target_edge_geom := GZ_CLIP.GET_EDGE_GEOMETRY(p_topology,
                                                           edge_idz(i));
             target_edge_geom.sdo_srid := NULL;
-            
+
             current_distance := SDO_GEOM.SDO_DISTANCE(old_node_geom, target_edge_geom, .00000000000000001);
-            
+
             ordered_edgez := GZ_SMPOLY.DUBNUMBERARRAY_ORDER(edge_idz(i),      --key
                                                             current_distance, --val
                                                             ordered_edgez,
                                                             'ASC');           --order low to hi
-                     
+
          END LOOP;
-      
+
       END IF;
-      
+
       FOR i IN 1 .. ordered_edgez.COUNT
       LOOP
-      
+
          --usually the first edge is the one we want, this is not tricksy
          --But sometimes there are problems, and backup edges come into play
-         
-         --ensure null srids         
+
+         --ensure null srids
          target_edge_id := ordered_edgez(i).number1;
          target_edge_geom := GZ_CLIP.GET_EDGE_GEOMETRY(p_topology,
                                                        target_edge_id);
          target_edge_geom.sdo_srid := NULL;
          old_node_geom.sdo_srid := NULL;
-         
+
          new_node_geom := GZ_CLIP.GZ_PROJECT_PT(old_node_geom, target_edge_geom);  --hmm default tolerance?
-         
+
          coord_index := GZ_CLIP.ACCURATE_FIND_COORD_INDEX(new_node_geom,target_edge_geom);
-         
+
          --Tests start here, maybe we can avoid a lot of the clip mess?
          --First, does our new proposed edge fall entirely inside of the feature face we are splitting
          --I got one where the closest edge resulted in splitting across a big face
          --This should always be OK even on multisplit small face configs (ie face sdo doesnt match face$)
          --Since the edges in play at this moment bound part of the original larger face feature
-         
+
          face_geometry := GZ_SMPOLY.GET_FEATURE_FACE_GEOMETRY(p_face_table,
                                                               feature_face_id);
          test_edge_geom := SDO_GEOMETRY(2002,
@@ -7578,54 +7655,54 @@ END ELIMINATE_SMALL_POLYS;
                                                            old_node_geom.sdo_point.X,
                                                            old_node_geom.sdo_point.Y
                                                            ));
-                                                           
-         --dbms_output.put_line(GZ_UTILITIES.DUMP_SDO(face_geometry));
-         --dbms_output.put_line(GZ_UTILITIES.DUMP_SDO(test_edge_geom));
-                                                                                                             
+
+         --dbms_output.put_line(GZ_GEOM_UTILS.DUMP_SDO(face_geometry));
+         --dbms_output.put_line(GZ_GEOM_UTILS.DUMP_SDO(test_edge_geom));
+
          IF SDO_GEOM.RELATE(face_geometry,'mask=contains+covers+overlapbdyintersect',test_edge_geom,p_tolerance) <> 'FALSE'
          THEN
-          
+
             EXIT;
-            
+
          ELSIF i = ordered_edgez.COUNT
          THEN
-         
-            RAISE_APPLICATION_ERROR(-20001, 'Couldnt find a propah edge! Proposed new node ' 
-                                            || TO_CHAR(GZ_UTILITIES.DUMP_SDO(new_node_geom)) );
-         
+
+            RAISE_APPLICATION_ERROR(-20001, 'Couldnt find a propah edge! Proposed new node '
+                                            || TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(new_node_geom)) );
+
          END IF;
 
-      
-      END LOOP;
-      
 
-      
+      END LOOP;
+
+
+
       ---------------------------------------------------------
       --TEST1: (well not exactly a test) Are we close to an existing shape point or node?
-      --At least need to see if we are projecting to an existing shape point 
+      --At least need to see if we are projecting to an existing shape point
       --or to an existing node (within tolerance)
       ----------------------------------------------------------
-      
-      
+
+
       --get x1,y1,x2,y2 for this index value
       target_segment := GZ_CLIP.GET_SEGMENT_FROM_INDEX(target_edge_geom, coord_index);
-      
-      
+
+
       --start side
       test_node_geom := SDO_GEOMETRY(2001,
                                      tucked_srid,
                                      SDO_POINT_TYPE(target_segment(1), target_segment(2), NULL),
                                      NULL,
                                      NULL);
-                              
+
       new_node_geom.sdo_srid := tucked_srid;
-             
+
       IF SDO_GEOM.RELATE(test_node_geom,'mask=EQUAL',new_node_geom,p_tolerance) <> 'FALSE'
-      THEN    
-      
+      THEN
+
          --Wont create a new vertex, go with the existing one
-         is_new_shape_pt := 'FALSE';                          
-                            
+         is_new_shape_pt := 'FALSE';
+
          IF coord_index <> 0
          THEN
 
@@ -7633,36 +7710,36 @@ END ELIMINATE_SMALL_POLYS;
             --our new node is going right on this vertex we found
             new_node_geom := test_node_geom;
 
-         ELSE 
-      
+         ELSE
+
             --Picked the start node of the edge
             new_node_geom := test_node_geom;  --same as above but...
-            existing_node_flag := 1;                
-            
+            existing_node_flag := 1;
+
          END IF;
-         
+
       ELSE
-      
+
          --Check the end end of the segment if the beginning didnt match
          test_node_geom := SDO_GEOMETRY(2001,
                                         tucked_srid,
                                         SDO_POINT_TYPE(target_segment(3), target_segment(4), NULL),
                                         NULL,
                                         NULL);
-                                        
+
          IF SDO_GEOM.RELATE(test_node_geom,'mask=EQUAL',new_node_geom, p_tolerance) <> 'FALSE'
-         THEN                
-       
+         THEN
+
             coord_index := coord_index + 1; --dont forget!
                                             --we are actually incrementing onto the next index
 
             is_new_shape_pt := 'FALSE';
-            
+
             IF (SDO_UTIL.GETNUMVERTICES(target_edge_geom) - 1 ) <> coord_index
             THEN
 
                --usually here. Somewhere in the middle of the edge
-               new_node_geom := test_node_geom; 
+               new_node_geom := test_node_geom;
 
             ELSE   --ie (edge vertex count - 1 ) = coord_index
 
@@ -7675,17 +7752,17 @@ END ELIMINATE_SMALL_POLYS;
 
 
          END IF;
-           
+
       END IF;
-      
+
       --Clip has a verify coord index step here
       --could also check for intersections with other edges
-      
+
       IF p_testing = 0
       THEN
-      
+
          --Actually add the new node
-         
+
          IF is_new_shape_pt = 'TRUE'                                --Just a totally new spot for this node
          OR (is_new_shape_pt = 'FALSE' AND existing_node_flag = 0)  --OR an existing vertex on an edge
          THEN
@@ -7704,28 +7781,28 @@ END ELIMINATE_SMALL_POLYS;
                                                        target_edge_id,
                                                        coord_index);
          ELSE
-         
+
             RAISE_APPLICATION_ERROR(-20001, 'Shouldnt get here');
-            
+
          END IF;
-               
+
       ELSE
-      
+
          --just playin
          --lets see it first
-         
+
          dbms_output.put_line('is_new_shape_pt ' || is_new_shape_pt);
          dbms_output.put_line('existing_node_flag ' || existing_node_flag);
          dbms_output.put_line('target_edge_id ' || target_edge_id);
          dbms_output.put_line('coord_index ' || coord_index);
-         dbms_output.put_line(TO_CHAR(GZ_UTILITIES.DUMP_SDO(new_node_geom)));         
-      
+         dbms_output.put_line(TO_CHAR(GZ_GEOM_UTILS.DUMP_SDO(new_node_geom)));
+
          new_node_id := 0;
-         
+
       END IF;
-      
+
       RETURN new_node_id;
-   
+
    END ADD_AN_OPPOSITE_NODE;
 
    ---------------------------------------------------------------------------------
@@ -7752,7 +7829,7 @@ END ELIMINATE_SMALL_POLYS;
 
       --Matt! 10/16/12
       --IT WAS COMMANDED: THERE SHALT BE NO SQL IN THIS PROCEDURE
-      
+
       lateral_edge_1       NUMBER;
       lateral_edge_2       NUMBER;
       lateral_edge_3       NUMBER;
@@ -7774,400 +7851,400 @@ END ELIMINATE_SMALL_POLYS;
 
       IF p_merge_case = 'I'
       THEN
-      
+
          ---------------------------------------------
-         -- I I I I I I I I I I I I I I I I I I I I I 
+         -- I I I I I I I I I I I I I I I I I I I I I
          ---------------------------------------------
 
          p_small_faces(1) := small_face_id;
          p_big_faces(1)   := p_big_face_id_1;
-         
+
          p_dead_edges(1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                              small_face_id,
                                                              p_big_face_id_1);
-         
+
          --no new edges
          --no nodes that are dead, just eventually obsolete
-         
+
       ELSIF p_merge_case = 'IV'
       THEN
-      
+
          ---------------------------------------------
-         -- IV IV IV IV IV IV IV IV IV IV IV IV IV IV 
+         -- IV IV IV IV IV IV IV IV IV IV IV IV IV IV
          ---------------------------------------------
-               
+
          lateral_edge_1 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                             small_face_id,
                                                             p_big_face_id_1);
-                                                   
+
          lateral_edge_2 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                             small_face_id,
                                                             p_big_face_id_2);
-                                                            
+
          extending_edges(1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                 p_big_face_id_1,
                                                                 p_big_face_id_2);
-                                                            
+
          extend_node := GZ_SMPOLY.GET_NODE_BETWEEN_EDGES(p_topology,
                                                          lateral_edge_1,
                                                          lateral_edge_2);
-           
+
          --while we got it. Will be dead after the lateral edges are removed
          p_dead_nodes(p_dead_nodes.COUNT + 1) := extend_node;
-                                                     
+
          new_node_id := GZ_SMPOLY.ADD_AN_OPPOSITE_NODE(p_topology,
                                                        small_face_id,
                                                        extend_node,
                                                        p_face_table,
                                                        lateral_edge_1,
                                                        lateral_edge_2);
-                                                    
+
          new_edge_id := GZ_SMPOLY.ADD_NEW_EDGE(p_topology,
                                                extend_node,
                                                new_node_id,
                                                extending_edges(1));
-                                               
+
          p_new_edges(p_new_edges.COUNT + 1) := new_edge_id;
-         
+
          --Geometry work is done, just figure out matching biggie smalls
-         
-         p_small_faces(1) := small_face_id;         
-         
+
+         p_small_faces(1) := small_face_id;
+
          p_small_faces(2) := GZ_SMPOLY.GET_OPPOSITE_FACE(p_topology,
                                                          small_face_id,
                                                          new_edge_id);
-                        
-         --is there an edge between original small face and big 1?                                 
+
+         --is there an edge between original small face and big 1?
          temp_num_array := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                              small_face_id,
                                                              p_big_face_id_1);
-          
+
          IF temp_num_array.COUNT = 1
          THEN
-            
+
             --yes, original small face is with big face 1
             p_big_faces(1)  := p_big_face_id_1;
             --new small face is with big face 2
             p_big_faces(2)  := p_big_face_id_2;
-            
+
             p_dead_edges(1) := lateral_edge_1;
             p_dead_edges(2) := lateral_edge_2;
-            
+
          ELSIF temp_num_array.COUNT = 0
          THEN
-         
+
             --original small face is with big 2
             p_big_faces(1) := p_big_face_id_2;
             --new small face is with big 1
             p_big_faces(2) := p_big_face_id_1;
-            
+
             --yes, this switches too
             p_dead_edges(1) := lateral_edge_2;
             p_dead_edges(2) := lateral_edge_1;
-            
+
          ELSE
-         
-            RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces ' 
+
+            RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces '
                                             || small_face_id || ' and ' || p_big_face_id_1 || '?');
-         
+
          END IF;
-          
-         
+
+
       ELSIF p_merge_case = 'V'
-      THEN  
-      
+      THEN
+
          ---------------------------------------------
-         -- V V V V V V V V V V V V V V V V V V V V V  
+         -- V V V V V V V V V V V V V V V V V V V V V
          ---------------------------------------------
-      
+
          --This one is tricky
          --should be golden after we figure out which of the 2 big faces is in the middle
          --General rule for all that follows: Middle face is the one with only one edge shared with the small face
          --This will not change during looping, even after geometry modifications and face id changes
          --Can always stay grounded by the middle face<-->sliver boundary
-         
+
          IF GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                                 small_face_id,
                                                 p_big_face_id_1) = 1
          THEN
-         
+
             inner_big_face_id := p_big_face_id_1;
             outer_big_face_id := p_big_face_id_2;
-         
+
          ELSE
-            
+
             inner_big_face_id := p_big_face_id_2;
             outer_big_face_id := p_big_face_id_1;
-         
+
          END IF;
-         
-         
+
+
          --should be single edge
          --maybe would be better to call this the "middle edge"
          lateral_edge_1 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                             small_face_id,
                                                             inner_big_face_id);
-              
-            
+
+
          --same, could be lots between inner and outer
          --Get just the edges(s) that extend into the interior
-         --away from the inner-sliver joint edge                              
+         --away from the inner-sliver joint edge
          extending_edges := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES_HINTED(p_topology,
                                                                     inner_big_face_id,
                                                                     outer_big_face_id,
                                                                     lateral_edge_1);
          IF extending_edges.COUNT = 1
          THEN
-         
+
             --its the same edge and it loops around without interruption
             --must extend this looping edge on both its start and end
             extending_edges(2) := extending_edges(1);
             looping_extend_edge := 'Y';
-            
+
          ELSIF extending_edges.COUNT = 2
          THEN
-         
+
             --simpler
             looping_extend_edge := 'N';
-         
+
          ELSIF extending_edges.COUNT > 2
          THEN
-         
-            RAISE_APPLICATION_ERROR(-20001, 'Couldnt resolve the extending edges. Instead of 2 ' 
+
+            RAISE_APPLICATION_ERROR(-20001, 'Couldnt resolve the extending edges. Instead of 2 '
                                             || ' got ' || extending_edges.COUNT);
-         
-         END IF;   
-         
-         
+
+         END IF;
+
+
          FOR i IN 1 .. extending_edges.COUNT
          LOOP
-         
+
             --2X for config V
-            
+
             IF looping_extend_edge = 'N'
             THEN
-            
+
                --can easily get the 2 lateral edge uniquely on each loop
                lateral_edge_2 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES_HINTED(p_topology,
                                                                          small_face_id,
                                                                          outer_big_face_id,
                                                                          lateral_edge_1,
-                                                                         extending_edges(i));    
-                                                                   
+                                                                         extending_edges(i));
+
             ELSE
-            
+
                IF lateral_edge_2 IS NULL
                THEN
-               
-                  --first time through, get the 2 edges on either side 
+
+                  --first time through, get the 2 edges on either side
                   lateral_edges_sto := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES_HINTED(p_topology,
                                                                                 small_face_id,
                                                                                 outer_big_face_id,
                                                                                 lateral_edge_1,
-                                                                                extending_edges(i)); 
-                                                                               
+                                                                                extending_edges(i));
+
                   IF lateral_edges_sto.COUNT <> 2
                   THEN
-                  
+
                      RAISE_APPLICATION_ERROR(-20001,'Bomba! Should only be 2 edges, got ' || lateral_edges_sto.COUNT);
-                  
+
                   END IF;
-                  
+
                   lateral_edge_2 := lateral_edges_sto(1);
-                                                                               
+
                ELSE
-               
+
                   --second time, process the other side
                   lateral_edge_2 := lateral_edges_sto(2);
-               
+
                END IF;
-            
-            END IF;                                                                     
+
+            END IF;
 
             extend_node := GZ_SMPOLY.GET_NODE_BETWEEN_EDGES(p_topology,
                                                             lateral_edge_1,
                                                             lateral_edge_2);
-                                                            
+
             --while we gots it. Will be dead after the lateral edges are removed
             p_dead_nodes(p_dead_nodes.COUNT + 1) := extend_node;
-            
+
             new_node_id := GZ_SMPOLY.ADD_AN_OPPOSITE_NODE(p_topology,
                                                           small_face_id,
                                                           extend_node,
                                                           p_face_table,
                                                           lateral_edge_1,
                                                           lateral_edge_2);
-                                                          
+
             new_edge_id := GZ_SMPOLY.ADD_NEW_EDGE(p_topology,
                                                   extend_node,
                                                   new_node_id,
                                                   extending_edges(i));
-                           
-            --this is an output                    
+
+            --this is an output
             p_new_edges(p_new_edges.COUNT + 1) := new_edge_id;
-            
+
             --have to sort this out each time through the loop
             --since the face that is the original small face can flip to either side of new edge
-            
+
             new_face_id := GZ_SMPOLY.GET_OPPOSITE_FACE(p_topology,
                                                        small_face_id,
                                                        new_edge_id);
-                                                       
-            --is there an edge between the inner big face and what we are calling the original small face    
-            --must test with the inner face since it should always be 1:1 edgewise. Or not, on a flip. Binary      
+
+            --is there an edge between the inner big face and what we are calling the original small face
+            --must test with the inner face since it should always be 1:1 edgewise. Or not, on a flip. Binary
             temp_num_array := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                                 small_face_id,
-                                                                inner_big_face_id);                                 
+                                                                inner_big_face_id);
             IF i = 1
-            THEN     
-                                                
+            THEN
+
                IF temp_num_array.COUNT = 1
                THEN
-                  
+
                   --the original small face is still under the inner face
                   --set this first chopped off pair, outer face -- new face
                   p_small_faces(p_small_faces.COUNT + 1) := new_face_id;
                   p_big_faces(p_big_faces.COUNT + 1) := outer_big_face_id;
-                  
+
                   --lets not try to track this, just get the edge between the faces
-                  --We need to get this edge now because the face ids will start mutating in the 
+                  --We need to get this edge now because the face ids will start mutating in the
                   --remove_edge code later
                   p_dead_edges(p_dead_edges.COUNT + 1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                                            new_face_id,
                                                                                            outer_big_face_id);
-                  
+
                ELSIF temp_num_array.COUNT = 0
                THEN
-               
+
                   --switched with the new edge insertion.  Freshly generated face is on the inside
                   --set this pair, outer face -- small face
                   p_small_faces(p_small_faces.COUNT + 1) := small_face_id;
                   p_big_faces(p_big_faces.COUNT + 1) := outer_big_face_id;
-                  
+
                   p_dead_edges(p_dead_edges.COUNT + 1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                                            small_face_id,
                                                                                            outer_big_face_id);
-                  
+
                   --set the small face id to be the new face id for the next loop
                   small_face_id := new_face_id;
-                                                               
+
                ELSE
-            
-                  RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces ' 
+
+                  RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces '
                                                || small_face_id || ' and inner ' || inner_big_face_id || '?');
-            
+
 
                END IF;
-               
+
             ELSIF i = 2
             THEN
-            
+
                --theres gotta be a clever way to combine this section with i=1
-            
+
                IF temp_num_array.COUNT = 1
                THEN
-                  
+
                   --the original small face is still under the inner face
                   --set the final 2 pairs inner face -- small face and outer face -- new face
                   p_small_faces(p_small_faces.COUNT + 1) := small_face_id;
                   p_big_faces(p_big_faces.COUNT + 1) := inner_big_face_id;
-                  
+
                   --set the matching edge between them
                   p_dead_edges(p_dead_edges.COUNT + 1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                                            small_face_id,
                                                                                            inner_big_face_id);
-                  --outer face -- new face                                                             
+                  --outer face -- new face
                   p_small_faces(p_small_faces.COUNT + 1) := new_face_id;
                   p_big_faces(p_big_faces.COUNT + 1) := outer_big_face_id;
-                  
+
                   --set the matching edge between them
                   p_dead_edges(p_dead_edges.COUNT + 1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                                            new_face_id,
                                                                                            outer_big_face_id);
-                  
+
                ELSIF temp_num_array.COUNT = 0
                THEN
-               
+
                   --switched with the new edge insertion.  Freshly generated face is on the inside
                   --set this pair, inner face -- new face, and outer face -- small face
                   p_small_faces(p_small_faces.COUNT + 1) := new_face_id;
                   p_big_faces(p_big_faces.COUNT + 1) := inner_big_face_id;
-                  
+
                   --set edge between
                   p_dead_edges(p_dead_edges.COUNT + 1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                                            new_face_id,
                                                                                            inner_big_face_id);
-                                                                                           
-                  --outer face -- small face                                                                      
+
+                  --outer face -- small face
                   p_small_faces(p_small_faces.COUNT + 1) := small_face_id;
                   p_big_faces(p_big_faces.COUNT + 1) := outer_big_face_id;
-                  
+
                   --set edge between
                   p_dead_edges(p_dead_edges.COUNT + 1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                                            small_face_id,
                                                                                            outer_big_face_id);
-                                                               
+
                ELSE
-            
-                  RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces ' 
+
+                  RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces '
                                                || small_face_id || ' and inner ' || inner_big_face_id || '?');
-            
+
 
                END IF;
-               
+
             ELSE
-            
+
                RAISE_APPLICATION_ERROR(-20001,'Shouldnt be 3 extending edges!');
-            
+
             END IF;
-            
-         
+
+
          END LOOP;
-                                                      
-         
+
+
          --Result is 3 face pairs
          --and 2 new edge - dead nodes combos
-         --Do the faces and edge/nodes need to be tied somehow?  Dont think so                                                   
-         
+         --Do the faces and edge/nodes need to be tied somehow?  Dont think so
+
       ELSIF p_merge_case = 'VII'
-      THEN  
-         
+      THEN
+
          ---------------------------------------------
-         -- VII VII VII VII VII VII VII VII VII VII VII   
+         -- VII VII VII VII VII VII VII VII VII VII VII
          ---------------------------------------------
-         
+
          --the beginning here is almost  the same as IV
-         
+
          lateral_edge_1 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                             small_face_id,
                                                             p_big_face_id_1);
-                                                   
+
          lateral_edge_2 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                             small_face_id,
                                                             p_big_face_id_2);
-          
+
          --not going to touch this territory yet
-         --But we need to the edge ID to ensure that we dont accidentally connect to it                                                 
+         --But we need to the edge ID to ensure that we dont accidentally connect to it
          lateral_edge_3 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                             small_face_id,
                                                             p_big_face_id_3);
-                                         
-         --tuck this away for later use    
+
+         --tuck this away for later use
          --As the face$ face ids change we use the feature face sdo in some of the
-         --add_an_opposite_node tests               
+         --add_an_opposite_node tests
          feature_face_id := small_face_id;
-                                                            
+
          extending_edges(1) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                 p_big_face_id_1,
                                                                 p_big_face_id_2);
-                                                            
+
          extend_node := GZ_SMPOLY.GET_NODE_BETWEEN_EDGES(p_topology,
                                                          lateral_edge_1,
                                                          lateral_edge_2);
-                                                         
+
          --while we got it. Will be dead after the lateral edges are removed
          p_dead_nodes(p_dead_nodes.COUNT + 1) := extend_node;
-         
+
          --add the first new node
          new_node_id := GZ_SMPOLY.ADD_AN_OPPOSITE_NODE(p_topology,
                                                        small_face_id,
@@ -8177,76 +8254,76 @@ END ELIMINATE_SMALL_POLYS;
                                                        lateral_edge_2,
                                                        lateral_edge_3,
                                                        feature_face_id);
-                                                       
+
          new_edge_id := GZ_SMPOLY.ADD_NEW_EDGE(p_topology,
                                                extend_node,
                                                new_node_id,
                                                extending_edges(1));
-                                               
+
          p_new_edges(p_new_edges.COUNT + 1) := new_edge_id;
-         
-         --first half of geometry work is complete, 
+
+         --first half of geometry work is complete,
          --figure out the face ids and edges to be passed out
-         
+
          p_big_faces(1)  := p_big_face_id_1;
          p_dead_edges(1) := lateral_edge_1;
-                                                         
-         --is there an edge between original small face and big 1?                                 
+
+         --is there an edge between original small face and big 1?
          temp_num_array := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                              small_face_id,
                                                              p_big_face_id_1);
-          
+
          IF temp_num_array.COUNT = 1
          THEN
-            
+
             --yes, original small face is cordoned off with big face 1
             p_small_faces(1) := small_face_id;
-            
+
             --assign new face id to the continuing onward small face id variable
             small_face_id := GZ_SMPOLY.GET_OPPOSITE_FACE(p_topology,
                                                          small_face_id,
                                                          new_edge_id);
-            
+
          ELSIF temp_num_array.COUNT = 0
          THEN
-         
+
             --original small face has flipped.  New face is opposite big 1
             p_small_faces(1) := GZ_SMPOLY.GET_OPPOSITE_FACE(p_topology,
                                                             small_face_id,
                                                             new_edge_id);
-            
+
             --no need to assign the small_face_id variable, its still set correctly
-            
+
          ELSE
-         
-            RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces ' 
+
+            RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces '
                                             || small_face_id || ' and ' || p_big_face_id_1 || '?');
-         
-         END IF;     
-         
-         
+
+         END IF;
+
+
          --finish the geometry work, add one more node and edge
          --call again in case of mutation
          lateral_edge_3 := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                             small_face_id,
                                                             p_big_face_id_3);
-                                                            
-                                                            
+
+
          extending_edges(2) := GZ_SMPOLY.GET_EDGE_BETWEEN_FACES(p_topology,
                                                                 p_big_face_id_2,
                                                                 p_big_face_id_3);
-                                                            
+
          extend_node := GZ_SMPOLY.GET_NODE_BETWEEN_EDGES(p_topology,
                                                          lateral_edge_2,
                                                          lateral_edge_3);
-                                                         
+
          --NO. Node on this side will not be dead.  A piece of the small face lives on, as does this node
          --to another call to face_merge (config I)
          --Wont this vertex live on even after the subsequent call??
          --p_dead_nodes(p_dead_nodes.COUNT + 1) := extend_node;
-         
+
          --add the second new node
-         
+
          --ONLY 2 LATERALS?  Think so, its cordoned off
          new_node_id := GZ_SMPOLY.ADD_AN_OPPOSITE_NODE(p_topology,
                                                        small_face_id,
@@ -8256,48 +8333,48 @@ END ELIMINATE_SMALL_POLYS;
                                                        lateral_edge_3,
                                                        NULL,             --no 3rd lateral
                                                        feature_face_id); --tucked away to get feature SDO
-         --second new edge                                       
+         --second new edge
          new_edge_id := GZ_SMPOLY.ADD_NEW_EDGE(p_topology,
                                                extend_node,
                                                new_node_id,
                                                extending_edges(2));
-                                               
+
          p_new_edges(p_new_edges.COUNT + 1) := new_edge_id;
-         
+
          --Geometry work is complete
          --figure out the face ids and edges to be passed out
-         
+
          p_big_faces(2)  := p_big_face_id_2;
          p_dead_edges(2) := lateral_edge_2;
-                                                         
-         --is there an edge between current "small face" and big 2?                                 
+
+         --is there an edge between current "small face" and big 2?
          temp_num_array := GZ_SMPOLY.GET_EDGES_BETWEEN_FACES(p_topology,
                                                              small_face_id,
                                                              p_big_face_id_2);
-          
+
          IF temp_num_array.COUNT = 1
          THEN
-            
+
             --yes, current small face is cordoned off with big face 2
             p_small_faces(2) := small_face_id;
-            
+
             --No need to assign new face id, we are done
 
          ELSIF temp_num_array.COUNT = 0
          THEN
-         
+
             --current small face has flipped.  New face is opposite big 2
             p_small_faces(2) := GZ_SMPOLY.GET_OPPOSITE_FACE(p_topology,
                                                             small_face_id,
                                                             new_edge_id);
-            
+
          ELSE
-         
-            RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces ' 
+
+            RAISE_APPLICATION_ERROR(-20001, 'Got ' || temp_num_array.COUNT || ' edges between faces '
                                             || small_face_id || ' and ' || p_big_face_id_1 || '?');
-         
-         END IF;     
-                                                
+
+         END IF;
+
       ELSE
 
          --for any new edge
@@ -8308,62 +8385,62 @@ END ELIMINATE_SMALL_POLYS;
          RAISE_APPLICATION_ERROR(-20001,'No program');
 
       END IF;
-      
+
       --LOG IT TO HECK
       log_message := 'After geometry work, Small face, Big face pairs with death row edges are ';
-      
+
       FOR i IN 1 .. p_small_faces.COUNT
       LOOP
-      
+
          log_message := log_message || '|' || p_small_faces(i) || ',' || p_big_faces(i) || ',' || ' edge ' || p_dead_edges(i);
-      
+
       END LOOP;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
-                                             log_message);  
-                                             
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+                                             log_message);
+
       IF p_new_edges.count > 0
       THEN
-      
+
          log_message := 'New edges ';
-         
+
          FOR i IN 1 .. p_new_edges.COUNT
          LOOP
-         
+
             log_message := log_message || p_new_edges(i) || ',';
-         
+
          END LOOP;
-         
+
       ELSE
-      
+
          log_message := 'No new edges';
-      
-      END IF;
-      
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
-                                             log_message);
-         
-      IF p_dead_nodes.COUNT > 0
-      THEN         
-                                 
-         log_message := 'Dead nodes ';
-         
-         FOR i IN 1 .. p_dead_nodes.COUNT
-         LOOP
-         
-            log_message := log_message || p_dead_nodes(i) || ',';
-         
-         END LOOP;
-         
-      ELSE
-      
-         log_message := 'No dead nodes';
-         
+
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
                                              log_message);
-                                             
+
+      IF p_dead_nodes.COUNT > 0
+      THEN
+
+         log_message := 'Dead nodes ';
+
+         FOR i IN 1 .. p_dead_nodes.COUNT
+         LOOP
+
+            log_message := log_message || p_dead_nodes(i) || ',';
+
+         END LOOP;
+
+      ELSE
+
+         log_message := 'No dead nodes';
+
+      END IF;
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+                                             log_message);
+
    END MERGE_FACE_GEOMETRY_WORK;
 
    ---------------------------------------------------------------------------------
@@ -8379,13 +8456,13 @@ END ELIMINATE_SMALL_POLYS;
    AS
 
       --Ditching this mess for UPDATE_FEATURE_FACE 11/27/12
-       
+
       --Matt! 10/16/12
       --we removed an edge between two faces
       --All of the topogeoms are correct, including the face feature table topogeom
       --But the surviving face_id itself in the face feature table may be incorrect
       --   if the remove_edge call caused primitive face flippage
-      --Set the feature face id to match the primitive face 
+      --Set the feature face id to match the primitive face
 
       psql                 VARCHAR2(4000);
       kount                PLS_INTEGER;
@@ -8395,7 +8472,7 @@ END ELIMINATE_SMALL_POLYS;
 
       --first verify that only one face feature survived
 
-      
+
       /*
       --Why?  The big should always be the suriving feature face
       --Except confusingly in VII and VIII both feature faces survive
@@ -8406,17 +8483,17 @@ END ELIMINATE_SMALL_POLYS;
       EXECUTE IMMEDIATE psql INTO feature_face_id USING p_face_1,
                                                         p_face_2;
       */
-      
+
       psql := 'SELECT COUNT(*) FROM '
             || p_face_table || ' a '
             || 'WHERE a.face_id = :p1 ';
 
       EXECUTE IMMEDIATE psql INTO kount USING p_big_face;
-                                                        
+
       IF kount = 1
       THEN
 
-         --SOP 
+         --SOP
 
          --get the primitive face id for whatever the surviving feature face is
          psql := 'SELECT t.topo_id FROM '
@@ -8438,7 +8515,7 @@ END ELIMINATE_SMALL_POLYS;
          COMMIT;
 
          --do measurments here since we have all that we need
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_face_table,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_face_table,
                                                'FACE_ID',
                                                'ALL',           --Face table has all the junk
                                                'ALL',
@@ -8446,74 +8523,74 @@ END ELIMINATE_SMALL_POLYS;
                                                NULL,
                                                'FACE_ID',
                                                p_big_face);
-                                               
-      ELSIF kount = 0 
+
+      ELSIF kount = 0
       AND p_merge_case = 'V'
       THEN
-      
+
          --Case V has a big face small face pair like
-         -- Asmall - Bbig 
+         -- Asmall - Bbig
          -- Csmall - Bbig
-         
+
          --Where the big face is the same.  As a result, after two merges against the big face
          --we might end up with something like
          -- Asmall - Bbig --> Abig
          -- Csmall - (now Abig) --> Abig
-         
+
          --when we look for the surviving face between original Asmall - Bbig our work is done
-         --when we look for the surviving face between original Csmall - Bbig neither ID has survived 
-         
+         --when we look for the surviving face between original Csmall - Bbig neither ID has survived
+
          NULL;
-      
+
       ELSE
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Didnt find a feature face left using ' || p_big_face || ','
                                         || p_small_face || ', ' || psql);
-      
+
       END IF;
 
 
    END UPDATE_SURVIVING_FACE;
-   
+
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public-------------------------------------------------------------------------
-   
+
    PROCEDURE UPDATE_FEATURE_FACE (
       p_face_table         IN VARCHAR2,
       p_feature_face_id    IN NUMBER
    )
    AS
-   
+
       --Matt! 11/27/12
-      
+
       psql                 VARCHAR2(4000);
       kount                PLS_INTEGER;
       primitive_face_id    NUMBER;
-      
-      
+
+
    BEGIN
-   
+
       psql := 'SELECT COUNT(*) FROM '
             || p_face_table || ' a '
             || 'WHERE a.face_id = :p1 ';
 
       EXECUTE IMMEDIATE psql INTO kount USING p_feature_face_id;
-   
+
       IF kount = 1
       THEN
- 
+
          --This feature face is alive.  The primitive face underneath it may have changed
          --we want feature face ids to match the primitive face ids 1:1 like
          --get the primitive face id for whatever the surviving feature face is
-         
+
          psql := 'SELECT t.topo_id FROM '
               || p_face_table || ' a, '
               || 'TABLE(a.topogeom.get_topo_elements()) t '
               || 'WHERE a.face_id = :p1 ';
 
          EXECUTE IMMEDIATE psql INTO primitive_face_id USING p_feature_face_id;
-         
+
          IF primitive_face_id <> p_feature_face_id
          THEN
 
@@ -8528,13 +8605,13 @@ END ELIMINATE_SMALL_POLYS;
                                          p_feature_face_id;
 
             COMMIT;
-            
+
          END IF;
 
          --do measurements here since we have all that we need
-         --This is usually a big face that has reshaped, but in some configs the 
+         --This is usually a big face that has reshaped, but in some configs the
          --little face also survives and reshapes
-         GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_face_table,
+         GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_face_table,
                                                'FACE_ID',
                                                'ALL',           --Face table has all the junk
                                                'ALL',
@@ -8542,20 +8619,20 @@ END ELIMINATE_SMALL_POLYS;
                                                NULL,
                                                'FACE_ID',
                                                primitive_face_id);  --primitive now is guaranteed to be feature
-                                               
+
       ELSIF kount > 1
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001,'Yo, got ' || kount || ' feature faces with face_id ' || p_feature_face_id);
-      
+
       ELSE
-      
+
          --in most cases this is the sliver face.  Dont think theres anything we need to do
          NULL;
-      
+
       END IF;
-      
-   END UPDATE_FEATURE_FACE;  
+
+   END UPDATE_FEATURE_FACE;
 
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -8589,14 +8666,14 @@ END ELIMINATE_SMALL_POLYS;
          EXIT WHEN NOT p_fsl_hash.EXISTS(mykey);
 
          --split off geoid array using ; delimiter
-         geoid_array := GZ_UTILITIES.SPLIT(p_fsl_hash(mykey),';');
+         geoid_array := GZ_BUSINESS_UTILS.SPLIT(p_fsl_hash(mykey),';');
 
          IF mykey <> p_face_table --dont log face table
          THEN
-         
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,p_transaction_id,NULL,
                                                   'Updating measurements for ' || geoid_array.COUNT || ' record(s) in ' || mykey);
-                                                  
+
          END IF;
 
          FOR i IN 1 .. geoid_array.COUNT
@@ -8605,7 +8682,7 @@ END ELIMINATE_SMALL_POLYS;
             IF mykey <> p_face_table  --face table updates in update_surviving_face
             THEN
 
-               GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(mykey,
+               GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(mykey,
                                                      p_fsl_pkc_col,
                                                      'SDOGEOMETRY',  --feature tables only have SDO
                                                      'ALL',
@@ -9049,15 +9126,15 @@ END ELIMINATE_SMALL_POLYS;
 
          big_face_id_1  := p_big_face_id;
          transaction_id := p_small_face_id || '|' || big_face_id_1;
-      
+
       ELSE
-      
+
          --single opposite face is the implied big face
          big_face_id_1 := GZ_SMPOLY.GET_SINGLE_OPPOSITE_FACE(p_topology,
                                                              p_small_face_id);
-                                                             
-         transaction_id := p_small_face_id || '|' || big_face_id_1;                                        
-      
+
+         transaction_id := p_small_face_id || '|' || big_face_id_1;
+
       END IF;
 
       IF p_big_face_id_2 IS NOT NULL
@@ -9082,7 +9159,7 @@ END ELIMINATE_SMALL_POLYS;
          --insert all the inputs into the tracker if in standalone mode
          --if part of a bigger module we will assume the module is managing inputs
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Inputs are (' || p_release || ',' || p_project_id || ','
                                                 || p_topology || ',' || p_log_type || ','
                                                 || p_small_face_id || ',' || big_face_id_1 || ',' || p_big_face_id_2 || ','
@@ -9099,7 +9176,7 @@ END ELIMINATE_SMALL_POLYS;
       AND p_big_face_id_2 IS NULL
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Got a big face 3 but not a big face 2. Check inputs');
 
          RAISE_APPLICATION_ERROR(-20001,'Got a big face 3 but not a big face 2. Check inputs ');
@@ -9109,7 +9186,7 @@ END ELIMINATE_SMALL_POLYS;
       IF p_allow_extinction NOT IN ('Y','N')
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Sorry, we key off of Y or N for p_allow_extinction.  Input is ' || p_allow_extinction);
 
          RAISE_APPLICATION_ERROR(-20001,'Sorry, we key off of Y or N for p_allow_extinction.  Input is ' || p_allow_extinction);
@@ -9121,7 +9198,7 @@ END ELIMINATE_SMALL_POLYS;
       AND p_expendable_tab IS NOT NULL
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Got a table of expendable FSLs but allow extinction is set to Y. This is confusing');
 
          RAISE_APPLICATION_ERROR(-20001,'Got a table of expendable FSLs but allow extinction is set to Y. This is confusing');
@@ -9130,32 +9207,32 @@ END ELIMINATE_SMALL_POLYS;
 
 
       IF p_expendable_tab IS NOT NULL
-      AND NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_expendable_tab)
+      AND NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_expendable_tab)
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Expendable table ' || p_expendable_tab || ' doesnt exist or is empty');
 
          RAISE_APPLICATION_ERROR(-20001,'Expendable table ' || p_expendable_tab || ' doesnt exist or is empty');
 
       END IF;
-      
+
       --check for mistaken inputs and give a helpful message
       --I do this all the time, mistype a face id or whatever
       --small and big should touch
-      
+
       IF GZ_SMPOLY.COUNT_EDGES_BETWEEN_FACES(p_topology,
                                              p_small_face_id,
                                              big_face_id_1) = 0
       THEN
-      
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Looks like bad inputs, small face ' || p_small_face_id || ' and big face '
                                                 || big_face_id_1 || ' dont even touch ');
 
          RAISE_APPLICATION_ERROR(-20001,'Looks like bad inputs, small face ' || p_small_face_id || ' and big face '
                                         || big_face_id_1 || ' dont even touch ');
-         
+
       END IF;
 
       ------------------
@@ -9180,6 +9257,7 @@ END ELIMINATE_SMALL_POLYS;
                                                       p_small_face_id,
                                                       p_fsl_pkc,
                                                       p_expendable_tab,
+                                                      'N',
                                                       p_debug);
 
          --call FSLS_ENDANGERED to get a friendly text output
@@ -9188,14 +9266,14 @@ END ELIMINATE_SMALL_POLYS;
          IF fsls_endangered IS NOT NULL
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                    'Exiting with FALSE. FSLS_ENDANGERED returned: ' || fsls_endangered);
 
             RETURN output;
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                    'Merging face ' || p_small_face_id || ' endangers no important FSLs');
 
          END IF;
@@ -9215,7 +9293,7 @@ END ELIMINATE_SMALL_POLYS;
                                                p_big_face_id_2,
                                                p_big_face_id_3);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                              'Determined that this is configuration ' || merge_case);
 
       -------------------------------------------------------------------------------------
@@ -9228,7 +9306,7 @@ END ELIMINATE_SMALL_POLYS;
                                                     p_fsl_pkc);
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                              'Small face ' || p_small_face_id || ' reps ' || fsl_small_hash.COUNT || ' FSL records');
 
 
@@ -9261,13 +9339,13 @@ END ELIMINATE_SMALL_POLYS;
                                             new_edges,       --in out  nothing using this yet, maybe other cases
                                             dead_nodes,      --in out  truly dead, not just obsolete
                                             p_log_type);
-                                            
-         IF big_faces.COUNT <> small_faces.COUNT 
+
+         IF big_faces.COUNT <> small_faces.COUNT
          OR small_faces.COUNT <> dead_edges.COUNT
          THEN
-         
+
             RAISE_APPLICATION_ERROR(-20001,'Got a mismatched count on big face, small face, dead edge ');
-         
+
          END IF;
 
       ELSE
@@ -9291,7 +9369,7 @@ END ELIMINATE_SMALL_POLYS;
                                                      p_fsl_pkc);
 
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                'Big face ' || big_faces(i) || ' reps ' || fsl_big_hash.COUNT || ' FSL records');
 
          ----------------------------------------------------------------
@@ -9330,7 +9408,7 @@ END ELIMINATE_SMALL_POLYS;
       ----------------------------------------------------------
       --8. Delete the edge between big face(s) and small face(s)
       ----------------------------------------------------------
-      
+
 
       FOR i IN 1 .. big_faces.COUNT
       LOOP
@@ -9339,7 +9417,7 @@ END ELIMINATE_SMALL_POLYS;
          --only edge ids are solid ground
 
          --The nodes at the start and end of the edge being removed may become obsolete, get passed back
-         removed_edge_nodes := GZ_SMPOLY.REMOVE_SHARED_EDGE(p_topology, 
+         removed_edge_nodes := GZ_SMPOLY.REMOVE_SHARED_EDGE(p_topology,
                                                             dead_edges(i));
 
          --The nodes on either end of the removed edge may be obsolete, but not necessarily so
@@ -9348,7 +9426,7 @@ END ELIMINATE_SMALL_POLYS;
          all_removed_edge_nodes := GZ_SMPOLY.NUMBERARRAY_ADD_UNIQUE(all_removed_edge_nodes,
                                                                     removed_edge_nodes);
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                'Removed edge between faces ' || big_faces(i) || ' and ' || small_faces(i) ||
                                                ' bounded by nodes ' || removed_edge_nodes(1) || ',' ||  removed_edge_nodes(2));
 
@@ -9363,12 +9441,12 @@ END ELIMINATE_SMALL_POLYS;
       IF dead_nodes.COUNT > 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Deadening ' || dead_nodes.COUNT || ' dead nodes, includes edge reshape');
-             
+
          --This calls my topofix obsolete node remover which
          --Removes the node and reshapes the edge to not include the vertex
-                                           
+
          GZ_SMPOLY.REMOVE_OBSOLETE_NODES_LIST(p_topology,
                                               dead_nodes,
                                               'ZAP');
@@ -9376,7 +9454,7 @@ END ELIMINATE_SMALL_POLYS;
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                'No dead nodes to remove');
 
 
@@ -9385,7 +9463,7 @@ END ELIMINATE_SMALL_POLYS;
       --some of these nodes may be completely zapped by now
       --or just not obsolete
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                'Taking a crack at removing ' || all_removed_edge_nodes.COUNT ||
                                                ' possibly obsolete nodes');
 
@@ -9404,29 +9482,29 @@ END ELIMINATE_SMALL_POLYS;
       --I believe that in all configs all of the initial big face features still exist as records
       --The small face feature is usually gone, except in VII and VIII when it remains and we must
       --   at least update its measurements.  And its primitive face ID may be different
-        
-         
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Updating face feature face ids and measurements in ' || face_table);
-         
+
       --This subroutine is totally forgiving of feature faces that no longer exist
-      
+
       GZ_SMPOLY.UPDATE_FEATURE_FACE(face_table, p_small_face_id);
       GZ_SMPOLY.UPDATE_FEATURE_FACE(face_table, big_face_id_1);  --dont use p_big_face_id_1 in case its null
-      
+
       IF p_big_face_id_2 IS NOT NULL
       THEN
-      
+
          GZ_SMPOLY.UPDATE_FEATURE_FACE(face_table, p_big_face_id_2);
-      
+
       END IF;
-      
+
       IF p_big_face_id_3 IS NOT NULL
       THEN
-      
+
          GZ_SMPOLY.UPDATE_FEATURE_FACE(face_table, p_big_face_id_3);
-      
+
       END IF;
 
 
@@ -9436,17 +9514,17 @@ END ELIMINATE_SMALL_POLYS;
 
       IF fsls_edited.COUNT > 1
       THEN
-      
+
          --should always include face
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'Updating edited measurements for ' || (fsls_edited.COUNT - 1) || ' fsls');
-                                                
+
       ELSE
-      
-         
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                                 'No FSL measurements to update, only faces impacted');
-      
+
       END IF;
 
       --This is the slowest step, especially when biggies like STATE and REGION are in the mix
@@ -9460,7 +9538,7 @@ END ELIMINATE_SMALL_POLYS;
                                    p_fsl_pkc,
                                    p_log_type);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                              'Completed updating edited measurements');
 
       ----------------------------------------------------------------------------------
@@ -9470,7 +9548,7 @@ END ELIMINATE_SMALL_POLYS;
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,p_topology,transaction_id,NULL,
                                              'Exceptional Success! Exiting with TRUE');
 
       RETURN 'TRUE';
@@ -9482,6 +9560,758 @@ END ELIMINATE_SMALL_POLYS;
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ---------------------------------------------------------------------------------
+
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION PIPE_EDGE_VERTICES (
+      p_tab_name           IN VARCHAR2,
+      p_sdo_col            IN VARCHAR2 DEFAULT 'SDOGEOMETRY'
+   ) RETURN GZ_TYPES.SMALL_POLY_RSUV PIPELINED
+   AS
+
+      --Matt! 12/14/11
+      --WIP, not polished, not production-ready, etc
+      --buddy to REMOVE_SP_UNIVERSAL_VERTICES below
+
+      output         GZ_TYPES.RSUV_REC;
+      kounter        PLS_INTEGER := 0;
+      my_cursor      SYS_REFCURSOR;
+      psql           VARCHAR2(4000);
+      sdo_recs       GZ_TYPES.geomarray;
+      this_pt        SDO_GEOMETRY;
+
+   BEGIN
+
+      psql := 'SELECT a.' || p_sdo_col || ' '
+           || 'FROM '
+           || p_tab_name || ' a ';
+
+      OPEN my_cursor FOR psql;
+
+      LOOP
+
+         FETCH my_cursor BULK COLLECT INTO sdo_recs LIMIT 25;
+         EXIT WHEN sdo_recs.COUNT = 0;
+
+         FOR i IN 1 .. sdo_recs.COUNT
+         LOOP
+
+            FOR j IN 1 .. sdo_recs(i).sdo_ordinates.COUNT/2
+            LOOP
+
+               --build and pipe the ordinate
+               this_pt := SDO_GEOMETRY(2001,
+                                       sdo_recs(i).sdo_srid,
+                                       SDO_POINT_TYPE(sdo_recs(i).sdo_ordinates((j * 2) - 1),
+                                                      sdo_recs(i).sdo_ordinates((j * 2)),
+                                                      NULL),
+                                       NULL,NULL);
+
+               kounter := kounter + 1;
+
+               output.id := kounter;
+               output.sdogeometry := this_pt;
+
+               PIPE ROW(output);
+
+            END LOOP;
+
+         END LOOP;
+
+      END LOOP;
+
+      CLOSE my_cursor;
+
+   END PIPE_EDGE_VERTICES;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION AXE_UNMATCHED_VTXS (
+      p_topo               IN VARCHAR2,
+      p_match_tab          IN VARCHAR2,
+      p_edge_id            IN NUMBER,
+      p_tolerance          IN NUMBER DEFAULT .05
+   ) RETURN NUMBER
+   AS
+
+      --Matt! 12/14/11
+      --WIP, not polished, not production-ready, etc
+      --buddy to REMOVE_SP_UNIVERSAL_VERTICES below
+
+      --returns the total number of vertices it thinks it removed on this edge
+
+      vtx_kount            PLS_INTEGER := 0;
+      edge_geom            SDO_GEOMETRY;
+      temp_pt              SDO_GEOMETRY;
+      new_ordinates        MDSYS.SDO_ORDINATE_ARRAY := MDSYS.SDO_ORDINATE_ARRAY();
+      new_edge_geom        SDO_GEOMETRY;
+      ordkount             PLS_INTEGER := 0;
+      psql                 VARCHAR2(4000);
+      relate_kount         PLS_INTEGER;
+
+   BEGIN
+
+
+      --switch package
+      edge_geom := GZ_CLIP.GET_EDGE_GEOMETRY(p_topo,
+                                            p_edge_id);
+
+
+      --I guess its easier to do the entire edge at once?
+
+      FOR i IN 1 .. edge_geom.sdo_ordinates.COUNT/2
+      LOOP
+
+        IF i = 1
+        OR i = edge_geom.sdo_ordinates.COUNT/2
+        THEN
+
+           --dont touch the nodes
+
+           new_ordinates.EXTEND(2);
+
+           ordkount := ordkount + 1;
+           new_ordinates(ordkount) := edge_geom.sdo_ordinates((i * 2) - 1);
+           ordkount := ordkount + 1;
+           new_ordinates(ordkount) := edge_geom.sdo_ordinates((i * 2));
+
+        ELSE
+
+           temp_pt := SDO_GEOMETRY(2001,
+                                   edge_geom.sdo_srid,
+                                   SDO_POINT_TYPE(edge_geom.sdo_ordinates((i * 2) - 1),
+                                                  edge_geom.sdo_ordinates((i * 2)),
+                                                  NULL),
+                                   NULL,NULL);
+
+           psql := 'SELECT COUNT(*) '
+                || 'FROM '
+                || p_match_tab || ' a '
+                || 'WHERE '
+                || 'SDO_RELATE(a.sdogeometry, :p1, :p3 ) = :p4 ';
+
+           EXECUTE IMMEDIATE psql INTO relate_kount USING temp_pt,
+                                                          'mask=ANYINTERACT',
+                                                          'TRUE';
+
+           IF relate_kount > 0
+           THEN
+
+              --this is a keeper
+              new_ordinates.EXTEND(2);
+
+              ordkount := ordkount + 1;
+              new_ordinates(ordkount) := edge_geom.sdo_ordinates((i * 2) - 1);
+              ordkount := ordkount + 1;
+              new_ordinates(ordkount) := edge_geom.sdo_ordinates((i * 2));
+
+           ELSE
+
+              --this is a chucker
+              vtx_kount := vtx_kount + 1;
+
+           END IF;
+
+
+        END IF;
+
+      END LOOP;
+
+      --change edge coords if necessary
+
+      IF vtx_kount > 0
+      THEN
+
+         new_edge_geom := SDO_GEOMETRY(2002,
+                                       edge_geom.sdo_srid,
+                                       NULL,
+                                       SDO_ELEM_INFO_ARRAY(1,2,1),
+                                       new_ordinates
+                                       );
+
+
+         BEGIN
+
+            GZ_TOPO_UTIL.GZ_CHANGE_EDGE_COORDS(p_topo,
+                                               p_edge_id,
+                                               new_edge_geom);
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            --one option here would be to go through each vertex one by one
+            --not gonna bother yet unless this is happening too much
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                                p_sqlstmt=>'Change edge ' || p_edge_id || ' error ',
+                                                p_error_msg=>'FAILED with ' || SQLERRM);
+            vtx_kount := 0;
+
+         END;
+
+      END IF;
+
+      RETURN vtx_kount;
+
+   END AXE_UNMATCHED_VTXS;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION REMOVE_SP_UNIVERSAL_VERTICES (
+      p_topo            IN VARCHAR2,
+      p_clip_tab        IN VARCHAR2,
+      p_drop_work_tab   IN VARCHAR2 DEFAULT 'N',
+      p_tolerance       IN NUMBER DEFAULT .05
+   ) RETURN NUMBER
+   AS
+
+      --Matt! 12/14/11
+      --Returns total number of vertices I think we axed
+      --1/24/11 ! Attempt at making production-ready
+
+      psql              VARCHAR2(4000);
+      kount             PLS_INTEGER;
+      srid              NUMBER;
+      universal_edges   GZ_TYPES.stringarray;
+      axed_vtxs         NUMBER := 0;
+      total_axed        NUMBER := 0;
+
+
+   BEGIN
+
+      ----------------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      DBMS_APPLICATION_INFO.SET_ACTION('Step 10');
+      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('REMOVE_SP_UNIVERSAL_VERTICES: Starting');
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      ----------------------------------------------------------------------------------
+
+      --basic verification
+
+      IF NOT GZ_BUSINESS_UTILS.TABLE_EXISTS(p_clip_tab)
+      THEN
+
+          RAISE_APPLICATION_ERROR(-20001,'Cuz, table ' || p_clip_tab || ' doesnt exist');
+
+      END IF;
+
+
+      --kind of want to check for valid sdo at real tolerance, but maybe thats overkill
+
+      --Check that all state edges inputs are 2002s
+      psql := 'SELECT count(*) '
+           || 'FROM ' || p_clip_tab || ' a '
+           || 'WHERE '
+           || 'a.sdogeometry.sdo_gtype != :p1 ';
+
+      EXECUTE IMMEDIATE psql INTO kount USING 2002;
+
+      IF kount != 0
+      THEN
+
+         RAISE_APPLICATION_ERROR(-20001,'Cuz, I expect 2002 gtype geometries in ' || p_clip_tab);
+
+      END IF;
+
+
+      --make a table with all of the important vertices around the universal face
+      --source is the state edges table
+
+      GZ_BUSINESS_UTILS.CREATE_SMALL_POLY_RSUV( SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') ,
+                                           p_topo || '_RSUV'
+                                         );
+
+      --insert each vertex from the state edges table into the work table
+      --as its own sdo_geometry
+
+      psql := 'INSERT /*+ APPEND */ '
+           || 'INTO ' || p_topo || '_RSUV '
+           || 'SELECT * FROM TABLE(GZ_SMPOLY.PIPE_EDGE_VERTICES(:p1)) ';
+
+      EXECUTE IMMEDIATE psql USING p_clip_tab;
+      COMMIT;
+
+      --check that this worked
+      psql := 'SELECT COUNT(*) '
+           || 'FROM '
+           || p_topo || '_RSUV ';
+
+      EXECUTE IMMEDIATE psql INTO kount;
+
+      IF kount = 0
+      THEN
+
+         RAISE_APPLICATION_ERROR(-20001, 'Sorry cuz, failed to extract vertices from ' || p_clip_tab);
+
+      END IF;
+
+      --get an srid
+      psql := 'SELECT a.sdogeometry.sdo_srid '
+           || 'FROM '
+           || p_topo || '_rsuv a '
+           || 'WHERE rownum = 1 ';
+
+      EXECUTE IMMEDIATE psql INTO srid;
+
+      --spatial index the new work table
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_topo || '_RSUV',
+                                    'SDOGEOMETRY',
+                                    srid,
+                                    p_tolerance);
+
+      --Get all the unversal faces and throw each at a sub to remove vertices
+      --distinct just in case, should never really happen I think
+      psql := 'SELECT DISTINCT e.edge_id '
+           || 'FROM '
+           || p_topo || '_edge$ e '
+           || 'WHERE '
+           || 'e.left_face_id = :p1 OR '
+           || 'e.right_face_id = :p2 ';
+
+      --maybe should cursor, not sure how big this array could get
+      EXECUTE IMMEDIATE psql BULK COLLECT INTO universal_edges USING -1, -1;
+
+      FOR i IN 1 .. universal_edges.COUNT
+      LOOP
+
+         axed_vtxs := GZ_SMPOLY.AXE_UNMATCHED_VTXS(p_topo,
+                                                      p_topo || '_RSUV ',
+                                                      universal_edges(i),
+                                                      p_tolerance);
+
+         total_axed := total_axed + axed_vtxs;
+
+      END LOOP;
+
+      IF UPPER(p_drop_work_tab) != 'N'
+      THEN
+
+         psql := 'DELETE FROM user_sdo_geom_metadata WHERE table_name = :p1 ';
+         EXECUTE IMMEDIATE psql USING UPPER(p_topo) || '_RSUV';
+         COMMIT;
+
+         psql := 'DROP TABLE ' || p_topo || '_RSUV ';
+         EXECUTE IMMEDIATE psql;
+
+      END IF;
+
+      ----------------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      DBMS_APPLICATION_INFO.SET_ACTION('');
+      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('REMOVE_SP_UNIVERSAL_VERTICES: Peace out');
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      ----------------------------------------------------------------------------------
+
+      RETURN total_axed;
+
+   END REMOVE_SP_UNIVERSAL_VERTICES;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   PROCEDURE UPDATE_SP_THINNED_FACES (
+      p_topo            IN VARCHAR2,
+      p_face_tab        IN VARCHAR2,
+      p_tolerance       IN NUMBER DEFAULT .05
+   )
+   AS
+
+      --Matt! 1/24/12
+
+      psql              VARCHAR2(4000);
+
+   BEGIN
+
+      --update all geometries touching the universal face to NULL
+      --some of these may not have been edited, but many have
+
+      psql := 'UPDATE ' || p_face_tab || ' a '
+           || 'SET a.sdogeometry = NULL '
+           || 'WHERE a.face_id IN '
+           || '(SELECT DISTINCT e.right_face_id face_id '
+           || 'FROM '
+           || p_topo || '_edge$ e '
+           || 'WHERE '
+           || 'e.left_face_id = :p1 '
+           || 'UNION '
+           || 'SELECT DISTINCT e.left_face_id face_id '
+           || 'FROM '
+           || p_topo || '_edge$ e '
+           || 'WHERE '
+           || 'e.right_face_id = :p2) ';
+
+      EXECUTE IMMEDIATE psql USING -1, -1;
+      COMMIT;
+
+
+      GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_face_tab,
+                                            'FACE_ID',
+                                            'SDOGEOMETRY',  --just update sdo.  Not sure if this should be ALL instead
+                                            'NULL');        --only where face sdo is null
+
+   END UPDATE_SP_THINNED_FACES;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION SP_VERTEX_THINNER (
+      p_topo            IN VARCHAR2,
+      p_clip_tab        IN VARCHAR2,
+      p_face_tab        IN VARCHAR2 DEFAULT NULL,
+      p_validate_sdo    IN VARCHAR2 DEFAULT 'N',
+      p_validate_topo   IN VARCHAR2 DEFAULT 'N',
+      p_tolerance       IN NUMBER DEFAULT .05,
+      p_drop_work_tab   IN VARCHAR2 DEFAULT 'N'
+   ) RETURN NUMBER
+   AS
+
+      --Matt! 12/15/11
+      --Entry point for state outline vertex thinning
+      --Wrapper for REMOVE_SP_UNIVERSAL_VERTICES
+      --Returns number of vertices removed
+      --throws error if any faces are invalid or topo is invalid
+
+      --1/24/12 ! Updates to incorporate into small poly production
+
+      --Anticipated sample call from Small Poly
+      --vtxkount := GZ_UTILITIES.SP_VERTEX_THINNER('Z666SP','Z666CL_STEDZ6V4','Z666SP_CLIP_FACE')
+      --Though some of the flags, esp validate sdo, depend on workflow decisions
+
+      output            NUMBER;
+      val_ret           VARCHAR2(4000);
+      psql              VARCHAR2(4000);
+      kount             PLS_INTEGER;
+
+   BEGIN
+
+      ----------------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      DBMS_APPLICATION_INFO.SET_ACTION('Step 10');
+      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('SP_VERTEX_THINNER: Starting');
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      ----------------------------------------------------------------------------------
+
+      --log template
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                          p_sqlstmt=>'SP_VERTEX_THINNER',
+                                          p_error_msg=>'Starting');
+
+      --check for existence of feature face table if caller has one
+      --existence of p_clip_tab is checked in sub
+
+      IF p_face_tab IS NOT NULL
+      THEN
+
+         IF NOT GZ_BUSINESS_UTILS.TABLE_EXISTS(p_face_tab)
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                                p_sqlstmt=>'Input verification',
+                                                p_error_msg=>'Failed, ' || p_face_tab || ' doesnt exist');
+
+             RAISE_APPLICATION_ERROR(-20001,'Cuz, table ' || p_face_tab || ' doesnt exist');
+
+         END IF;
+
+      END IF;
+
+      --------------------
+      --do the actual work
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                          p_sqlstmt=>'Calling REMOVE_SP_UNIVERSAL_VERTICES on ' || p_topo,
+                                          p_error_msg=>'Starting');
+
+      output := GZ_SMPOLY.REMOVE_SP_UNIVERSAL_VERTICES(p_topo,
+                                                          p_clip_tab,
+                                                          p_drop_work_tab,
+                                                          p_tolerance);
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                          p_sqlstmt=>'REMOVE_SP_UNIVERSAL_VERTICES removed ' || output || ' vertices',
+                                          p_error_msg=>'Complete');
+
+      --/all the actual work
+      ----------------------
+
+      IF p_validate_topo = 'Y'
+      THEN
+
+         --will throw an error and kill us if invalid. Allow this
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                             p_sqlstmt=>'Validating ' || p_topo,
+                                             p_error_msg=>'Starting');
+         BEGIN
+
+            val_ret := GZ_TOPO_UTIL.VALIDATE_TOPOLOGY(p_topo);
+
+         EXCEPTION
+            WHEN OTHERS
+            THEN
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                                   p_sqlstmt=>'Validating ' || p_topo,
+                                                   p_error_msg=>'FAILED with ' || SQLERRM);
+
+               RAISE_APPLICATION_ERROR(-20001,'Validation failed: ' || SQLERRM || Chr(10) || DBMS_UTILITY.format_error_backtrace);
+
+         END;
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                             p_sqlstmt=>'Validating ' || p_topo,
+                                             p_error_msg=>'Finished - Sweet ' || p_topo || ' is valid');
+
+      END IF;
+
+      IF p_face_tab IS NOT NULL
+      AND output > 0
+      THEN
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                             p_sqlstmt=>'Updating sdogeometry in ' || p_face_tab,
+                                             p_error_msg=>'Starting');
+         GZ_SMPOLY.UPDATE_SP_THINNED_FACES(p_topo,
+                                              p_face_tab,
+                                              p_tolerance);
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                             p_sqlstmt=>'Updating sdogeometry in ' || p_face_tab,
+                                             p_error_msg=>'Finished');
+
+      ELSIF p_face_tab IS NOT NULL
+      AND output = 0
+      THEN
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                             p_sqlstmt=>'Not updating sdogeometry in ' || p_face_tab,
+                                             p_error_msg=>'0 faces changed. ');
+
+      END IF;
+
+      IF p_validate_sdo = 'Y'
+      THEN
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                             p_sqlstmt=>'Validating sdogeometry in ' || p_face_tab,
+                                             p_error_msg=>'Starting');
+
+         psql := 'SELECT COUNT(*) '
+              || 'FROM '
+              || p_face_tab || ' a '
+              || 'WHERE '
+              || 'sdo_geom.validate_geometry_with_context(a.sdogeometry, :p1) != :p2 ';
+
+         EXECUTE IMMEDIATE psql INTO kount USING p_tolerance,
+                                                 'TRUE';
+
+         IF kount > 0
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                                p_sqlstmt=>'Validating sdogeometry in ' || p_face_tab,
+                                                p_error_msg=>'Failure - ' || kount || ' are invalid');
+
+            RAISE_APPLICATION_ERROR(-20001,'Sorry cuz, ' || kount || ' faces in ' || p_face_tab || ' are invalid ');
+
+         END IF;
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                             p_sqlstmt=>'Validating sdogeometry in ' || p_face_tab,
+                                             p_error_msg=>'Finished - all valid');
+
+      END IF;
+
+
+      ----------------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      DBMS_APPLICATION_INFO.SET_ACTION('');
+      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('SP_VERTEX_THINNER: Peace out');
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      ----------------------------------------------------------------------------------
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo,'SP_VERTEX_THINNER',
+                                          p_sqlstmt=>'SP_VERTEX_THINNER',
+                                          p_error_msg=>'Complete, returning ' || output);
+
+
+      RETURN output;
+
+
+   END SP_VERTEX_THINNER;
+
+   ----------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ----------------------------------------------------------------------------
+
+   FUNCTION UPDATE_SPE_RESULTS (p_area_tolerance   IN NUMBER,
+                                p_spe_table        IN VARCHAR2,
+                                p_topo             IN VARCHAR2,
+                                p_process          IN VARCHAR2,
+                                p_stepnum          IN VARCHAR2 
+                               )
+      RETURN VARCHAR2
+   AS
+      -- July 12, 2013, Stephanie
+      -- M@! 8/20/13 pushed logging down here to avoid exceeding note varchar2(4000)
+
+      --------------------------------------------------------------------------
+      -- Purpose
+      --------------------------------------------------------------------------
+
+      -- This function takes a small poly edges table and looks for errors
+      -- if it finds errors, it corrects the table, and returns a varchar
+      -- explaining what it did for logging.
+
+      -- Erorrs this looks for and corrects... (there is just one right now)
+      --   1) If a small polygon absorbs others to become larger than the
+      --      threshold,  it is removed from teh univers of small polygons to
+      --      delete.
+
+
+      -- Errors should probably be fixed in the orignal small polygon
+      -- identification program (ELIMINATE SMALL POLYS), but since that
+      -- belongs to Sidey, we are doing it here.
+
+      --------------------------------------------------------------------------
+      -- Variables
+      --------------------------------------------------------------------------
+
+      -- a list of face ids that might be an issue
+
+      vfacelist            GZ_TYPES.numberarray;
+
+      -- the name of the small polygon identification
+      -- output / result table (before it gets copied to a delete
+      -- edges input table)
+
+      vspetab              VARCHAR2 (4000);
+
+      -- to store SQL qieries to execute
+      vsql                 VARCHAR2 (4000);
+
+      -- original area of a face
+
+      varea1               NUMBER;
+
+      -- the combined areas of all smaller faces absorbed into a small face
+
+      varea_merged_faces   VARCHAR2 (4000);
+
+      -- final area of the face when combined with any smaller faces it may
+      -- absorb
+
+      varea2               NUMBER;
+
+      -- a place to hold log info about what the function did to the SPE table.
+
+      vnote                VARCHAR2 (4000);
+      
+      --dummy return val. replace with something meaningful if necessary
+      --just put in the log by the caller
+      vnote_return         VARCHAR2(32) := 'FINISHED';
+      
+   BEGIN
+
+     vspetab := UPPER(p_spe_table);
+
+      -- select small polygons that absorb other small polygons
+
+      vsql :=
+            'SELECT distinct a.keep_face FROM '
+         || vspetab
+         || ' a WHERE a.keep_face IN (SELECT not_keep FROM '
+         || vspetab
+         || ')';
+
+      EXECUTE IMMEDIATE vsql BULK COLLECT INTO vfacelist;
+
+      -- loop through the list of possible problem faces to figure out the
+      -- final area of the face after is absorbs any smaller polygons
+
+      vnote :=
+            'UPDATE_SPE_RESULTS: Found '
+         || vfacelist.COUNT
+         || ' faces to examine. ';
+         
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_process,
+                                                  p_step=>p_stepnum, p_error_msg=>vNote);
+
+      FOR i IN 1 .. vfacelist.COUNT
+      LOOP
+         vsql :=
+               'SELECT a.areatotal FROM '
+            || vspetab
+            || ' a WHERE a.not_keep  = :p1';
+
+         EXECUTE IMMEDIATE vsql INTO varea1 USING vfacelist (i);
+
+         vsql :=
+               'select SUM(a.areatotal) from '
+            || vspetab
+            || ' a WHERE A.KEEP_FACE = :p1';
+
+         EXECUTE IMMEDIATE vsql INTO varea_merged_faces USING vfacelist (i);
+
+         varea2 := varea_merged_faces + varea1;
+
+         IF varea2 > p_area_tolerance
+         THEN
+
+            -- Notes for the log table
+
+            vnote := 'The area of face '
+               || vfacelist (i)
+               || ' becomes '
+               || varea2
+               || ' after absorbing smaller polygons and should not be removed. '
+               || 'Dropping face '
+               || vfacelist (i)
+               || ' from SPE table. ';
+
+            -- actually drop the row where face is a not_keep
+
+            vsql := 'DELETE FROM ' || vspetab || ' a WHERE a.not_keep  = :p1';
+            
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_process,
+                                                  p_step=>p_stepnum, p_sqlstmt => vsql, p_error_msg=>vNote);
+
+            EXECUTE IMMEDIATE vsql USING vfacelist (i);
+
+         ELSE
+
+            vnote := 'Face ' || vfacelist (i) || ' can be removed.';
+            
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_process,
+                                                         p_step=>p_stepnum, p_error_msg=>vNote);
+
+         END IF;
+
+      END LOOP;
+
+      RETURN vnote_return;
+
+   EXCEPTION
+
+      WHEN OTHERS
+      THEN
+         vnote := 'ERROR in UPDATE_SPE_RESULTS: SQL Error Code: ' ||
+         SQLCODE || CHR(10)
+         || ' SQLERRM: ' || SQLERRM || CHR(10)
+         || ' Backtrace: ' || DBMS_UTILITY.format_error_backtrace;
+
+         RAISE_APPLICATION_ERROR (-20001,vnote);
+
+   END UPDATE_SPE_RESULTS;
 
 END GZ_SMPOLY;
 /

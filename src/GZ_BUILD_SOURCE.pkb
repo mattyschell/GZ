@@ -27,10 +27,10 @@ AS
 
    BEGIN
 
-      GZ_UTILITIES.CREATE_GEN_XTEND_TRACKING_LOG(p_schema,
+      GZ_BUSINESS_UTILS.CREATE_GEN_XTEND_TRACKING_LOG(p_schema,
                                                  p_topo_out || '_BUILD_TRACKING');
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',
                                              p_topo_out,
                                              'START_BUILD_LOGGING',
                                              'STARTING JOB: ' || p_topo_out);
@@ -88,19 +88,19 @@ AS
 
       --note procedure name and table name mismatch
       --made it BUILD_LAYERS to be consistent
-      GZ_UTILITIES.CREATE_GZ_LAYER_INFO(p_schema, p_output_topology || '_BUILD_LAYERS');
+      GZ_BUSINESS_UTILS.CREATE_GZ_LAYER_INFO(p_schema, p_output_topology || '_BUILD_LAYERS');
 
       --this one gets created in advance, its columns are fixed
-      GZ_UTILITIES.CREATE_GZ_BUILD_POLY(p_schema, p_output_topology || '_BUILD_POLY');
+      GZ_BUSINESS_UTILS.CREATE_GZ_BUILD_POLY(p_schema, p_output_topology || '_BUILD_POLY');
 
       --this one gets created in advance, its columns are fixed
-      GZ_UTILITIES.CREATE_GZ_BUILD_EDGE(p_schema, p_output_topology || '_BUILD_EDGE');
+      GZ_BUSINESS_UTILS.CREATE_GZ_BUILD_EDGE(p_schema, p_output_topology || '_BUILD_EDGE');
 
       --this one gets created in advance, its columns are fixed
-      GZ_UTILITIES.CREATE_GZ_BUILD_TILE(p_schema, p_output_topology || '_BUILD_TILE');
+      GZ_BUSINESS_UTILS.CREATE_GZ_BUILD_TILE(p_schema, p_output_topology || '_BUILD_TILE');
 
       --ditto
-      GZ_UTILITIES.CREATE_GZ_BUILD_GEOM(p_schema, p_output_topology || '_BUILD_GEOM');
+      GZ_BUSINESS_UTILS.CREATE_GZ_BUILD_GEOM(p_schema, p_output_topology || '_BUILD_GEOM');
 
 
       --probably some more...
@@ -130,6 +130,7 @@ AS
    AS
 
       --Matt 2/6/12
+      --! 8/2/13 added check that layer name doesnt match add_to_face on gz_layers_out
 
       psql              VARCHAR2(4000);
       output            VARCHAR2(4000);
@@ -137,6 +138,7 @@ AS
       ref_tables        GZ_TYPES.stringarray;
       kount             PLS_INTEGER;
       measurements      GZ_TYPES.stringarray;
+      add_to_face       VARCHAR2(32);
 
    BEGIN
 
@@ -147,9 +149,9 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'VERIFY_BUILD_INPUTS',NULL,'STARTING ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'VERIFY_BUILD_INPUTS',NULL,'STARTING ' || p_output_topology);
 
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS('GZ_LAYERS_IN')
+      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS('GZ_LAYERS_IN')
       THEN
 
          output := output || 'Dude, GZ_LAYERS_IN doesnt exist or is empty | ';
@@ -175,7 +177,7 @@ AS
       FOR i IN 1 .. ref_tables.COUNT
       LOOP
 
-         IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(ref_tables(i))
+         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(ref_tables(i))
          THEN
 
             output := output || 'Dude, reference table ' || ref_tables(i) || ' doesnt exist | ';
@@ -190,7 +192,7 @@ AS
       BEGIN
 
          --throws an error
-         measurements := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+         measurements := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                                 p_project_id,
                                                                'MEASUREMENT',
                                                                'REFERENCE_FACE_FIELDS');
@@ -278,6 +280,37 @@ AS
 
       END IF;
 
+      --check that none of the layer names match the add_to_face value on gz_layers_out
+      --this can happen if there is a STATE layer and we want to add a statefp value to
+      --the face table in a column also called STATE, for example
+      --The add_to_face column ends up replacing the input layer in the output build module
+
+      psql := 'SELECT a.add_to_face FROM gz_layers_out a '
+           || 'WHERE '
+           || 'a.release = :p1 AND '
+           || 'a.gen_project_id = :p2 AND '
+           || 'a.add_to_face IS NOT NULL ';
+
+      EXECUTE IMMEDIATE psql INTO add_to_face USING p_release,
+                                                    p_project_id;
+
+      IF add_to_face IS NOT NULL
+      THEN
+
+         FOR i IN 1 .. build_layers.COUNT
+         LOOP
+
+            IF UPPER(build_layers(i).layer) = UPPER(add_to_face)
+            THEN
+
+               output := output || 'Dude, initial layer ' || build_layers(i).layer || ' will get wiped from the face table '
+                                || 'by the output build gz_layers_out.add_to_face value of the same name ';
+
+            END IF;
+
+         END LOOP;
+
+      END IF;
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -287,7 +320,7 @@ AS
       ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'VERIFY_BUILD_INPUTS',NULL,'FINISHED ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'VERIFY_BUILD_INPUTS',NULL,'FINISHED ' || p_output_topology);
 
       IF output IS NULL
       THEN
@@ -661,18 +694,18 @@ AS
       bkount               PLS_INTEGER := 1;
 
    BEGIN
-   
+
       IF p_sdo_filter IS NOT NULL
       AND p_rigorous_filter = 1
       THEN
-      
+
          --almost hard coded for the development only filter option
          filter_masks(1) := 'INSIDE+COVEREDBY';
          filter_masks(2) := 'COVERS';
          filter_masks(3) := 'OVERLAPBDYINTERSECT';
          filter_masks(4) := 'OVERLAPBDYDISJOINT';
-         filter_masks(5) := 'EQUAL';         
-      
+         filter_masks(5) := 'EQUAL';
+
       END IF;
 
 
@@ -686,7 +719,7 @@ AS
 
          IF p_boundary_definition <> 'TOPOGEOM'
          THEN
-         
+
             --This should be boundaryedges in a benchmark.  But I suppose the column
             --could be called anything and still work
             --sample
@@ -704,15 +737,15 @@ AS
 
             IF p_sdo_filter IS NULL
             THEN
-            
+
                --SOP
                OPEN my_cursor FOR psql;
-            
+
             ELSIF p_sdo_filter IS NOT NULL
             AND p_rigorous_filter = 0
             THEN
-            
-               --standard development use filter.  
+
+               --standard development use filter.
 
                psql := psql || q'~AND SDO_RELATE(a.sdogeometry, :p5, :p6) = :p7 ~';
 
@@ -724,50 +757,50 @@ AS
             AND p_rigorous_filter = 1
             THEN
 
-               --unused exact filter          
+               --unused exact filter
                --Use UNION ALL on each mask for slightly better performance
-               
+
                FOR i IN 1 .. filter_masks.COUNT
                LOOP
-               
+
                   IF i <> filter_masks.COUNT
                   THEN
-                     
-                     psql_filtered := psql_filtered || psql 
-                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~' 
+
+                     psql_filtered := psql_filtered || psql
+                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~'
                                                     || q'~:p~' || TO_CHAR(bkount) || q'~, :p~' || TO_CHAR(bkount + 1) || q'~) = :p~' || TO_CHAR(bkount + 2) || q'~ ~'
-                                                    || q'~ UNION ALL ~'; 
-                                                    
+                                                    || q'~ UNION ALL ~';
+
                      bkount := bkount + 3;
-                     
+
                   ELSE
-                  
-                     psql_filtered := psql_filtered || psql 
-                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~' 
+
+                     psql_filtered := psql_filtered || psql
+                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~'
                                                     || q'~:p~' || TO_CHAR(bkount) || q'~, :p~' || TO_CHAR(bkount + 1) || q'~) = :p~' || TO_CHAR(bkount + 2) || q'~ ~';
-                                                    
-                  END IF;                               
-               
+
+                  END IF;
+
                END LOOP;
-               
+
                --switch back for the log
                psql := psql_filtered;
 
                --masks correspond to all polys that have some L or R edges in the build universe
                --Will get further trimmed (if necessary) later
-               
+
                OPEN my_cursor FOR psql USING p_sdo_filter, 'mask=' || filter_masks(1), 'TRUE',
                                              p_sdo_filter, 'mask=' || filter_masks(2), 'TRUE',
                                              p_sdo_filter, 'mask=' || filter_masks(3), 'TRUE',
                                              p_sdo_filter, 'mask=' || filter_masks(4), 'TRUE',
-                                             p_sdo_filter, 'mask=' || filter_masks(5), 'TRUE';   
-               
-            ELSE  
-            
-               RAISE_APPLICATION_ERROR(-20001,'Oops, bad options');        
+                                             p_sdo_filter, 'mask=' || filter_masks(5), 'TRUE';
+
+            ELSE
+
+               RAISE_APPLICATION_ERROR(-20001,'Oops, bad options');
 
             END IF;
-         
+
          ELSIF p_boundary_definition = 'TOPOGEOM'
          THEN
 
@@ -787,12 +820,12 @@ AS
 
             IF p_sdo_filter IS NULL
             THEN
-            
+
                OPEN my_cursor FOR psql USING p_source_schema,
                                              p_source_topology,
                                              p_source_table,
                                              p_source_key;
-                                             
+
             ELSIF p_sdo_filter IS NOT NULL
             AND p_rigorous_filter = 0
             THEN
@@ -810,39 +843,39 @@ AS
             ELSIF p_sdo_filter IS NOT NULL
             AND p_rigorous_filter = 1
             THEN
-            
-               --unused exact filter          
+
+               --unused exact filter
                --Use UNION ALL on each mask for slightly better performance
-               
+
                FOR i IN 1 .. filter_masks.COUNT
                LOOP
-               
+
                   IF i <> filter_masks.COUNT
                   THEN
-                     
-                     psql_filtered := psql_filtered || psql 
-                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~' 
+
+                     psql_filtered := psql_filtered || psql
+                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~'
                                                     || q'~:p~' || TO_CHAR(bkount) || q'~, :p~' || TO_CHAR(bkount + 1) || q'~) = :p~' || TO_CHAR(bkount + 2) || q'~ ~'
-                                                    || q'~ UNION ALL ~'; 
-                                                    
+                                                    || q'~ UNION ALL ~';
+
                      bkount := bkount + 3;
-                     
+
                   ELSE
-                  
-                     psql_filtered := psql_filtered || psql 
-                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~' 
+
+                     psql_filtered := psql_filtered || psql
+                                                    || q'~AND SDO_RELATE(a.sdogeometry, ~'
                                                     || q'~:p~' || TO_CHAR(bkount) || q'~, :p~' || TO_CHAR(bkount + 1) || q'~) = :p~' || TO_CHAR(bkount + 2) || q'~ ~';
-                                                    
-                  END IF;                               
-               
+
+                  END IF;
+
                END LOOP;
-               
+
                --switch back for the log
                psql := psql_filtered;
 
                --masks correspond to all polys that have some L or R edges in the build universe
                --Will get further trimmed (if necessary) later
-               
+
                OPEN my_cursor FOR psql USING p_source_schema,
                                              p_source_topology,
                                              p_source_table,
@@ -851,17 +884,17 @@ AS
                                              p_sdo_filter, 'mask=' || filter_masks(2), 'TRUE',
                                              p_sdo_filter, 'mask=' || filter_masks(3), 'TRUE',
                                              p_sdo_filter, 'mask=' || filter_masks(4), 'TRUE',
-                                             p_sdo_filter, 'mask=' || filter_masks(5), 'TRUE';   
-            
+                                             p_sdo_filter, 'mask=' || filter_masks(5), 'TRUE';
+
             ELSE
-            
+
                RAISE_APPLICATION_ERROR(-20001,'oops, bad options');
 
-            END IF;           
+            END IF;
 
          END IF;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'PIPE_BUILD_POLY',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'PIPE_BUILD_POLY',NULL,
                                                 'Opened pipe_build_poly with sql--> ',NULL,NULL,NULL,psql,NULL,NULL);
 
       EXCEPTION
@@ -870,7 +903,7 @@ AS
 
          stack := DBMS_UTILITY.format_error_backtrace;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'PIPE_BUILD_POLY',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'PIPE_BUILD_POLY',NULL,
                                                 'ERROR--> see SQL and ERRM ',NULL,NULL,NULL,psql,NULL,SQLERRM);
 
          RAISE_APPLICATION_ERROR(-20001,stack);
@@ -917,7 +950,7 @@ AS
       layers            GZ_TYPES.GZ_LAYERS_IN_INFO;
       psql              VARCHAR2(4000);
       kount             PLS_INTEGER;
-      
+
       --bad form!  change to 1 to get slower, exact filter
       rigorous_filter   PLS_INTEGER := 0;
 
@@ -930,7 +963,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
       ---------------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                              'Starting ' || p_output_topology || '_build_poly ');
 
       --get input layers
@@ -942,7 +975,7 @@ AS
       FOR i IN 1 .. layers.COUNT
       LOOP
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                 'Starting ' || layers(i).layer || ' insert into ' || p_output_topology || '_build_poly ');
 
          psql := 'INSERT INTO ' || p_output_topology || '_build_poly '
@@ -969,7 +1002,7 @@ AS
             THEN
 
                --log us a clue
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                       'INSERT SQL to reproduce error -->', NULL,NULL,NULL,
                                                        psql || ' ' || layers(i).layer || ',' || layers(i).source_schema || ','
                                                        || layers(i).source_table || ',' || p_source_topology || ','
@@ -988,7 +1021,7 @@ AS
 
          COMMIT;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                 'Completed ' || layers(i).layer || ' insert into ' || p_output_topology || '_build_poly ');
 
       END LOOP;
@@ -1006,7 +1039,7 @@ AS
       IF kount > 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                 'Complete ' || p_output_topology || '_build_poly ');
 
       ELSE
@@ -1015,57 +1048,59 @@ AS
 
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                              'Gathering stats on ' || p_output_topology || '_build_poly',
                                              NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.GATHER_TABLE_STATS(p_output_topology || '_BUILD_POLY');
+      GZ_BUSINESS_UTILS.GATHER_TABLE_STATS(p_output_topology || '_BUILD_POLY');
 
       --create the gz_build_geom table
       --probably deserves its own module, or at least a sub
       --I have concerns about doing this in one SQL
+      --the 0 is "processed" -> Default 0 is no
 
       psql := 'INSERT /*+ APPEND */ INTO '
            || p_output_topology || '_build_geom '
-           || 'SELECT e.edge_id, e.geometry '
+           || 'SELECT e.edge_id, e.geometry, 0 '
            || 'FROM '
            || p_source_schema || '.' || p_source_topology || '_edge$ e '
            || 'WHERE e.edge_id IN ('
            || 'SELECT DISTINCT edge_id FROM ' || p_output_topology || '_build_poly) ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                              'Inserting data into ' || p_output_topology || '_build_geom',
                                              NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
-                                             'Committing insert into ' || p_output_topology || '_build_geom',
-                                             NULL,NULL,NULL,NULL);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+                                                  'Committing insert into ' || p_output_topology || '_build_geom',
+                                                  NULL,NULL,NULL,NULL);
 
       COMMIT;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
-                                             'Building spatial index on ' || p_output_topology || '_build_geom',
-                                             NULL,NULL,NULL,NULL);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+                                                  'Building spatial index on ' || p_output_topology || '_build_geom',
+                                                  NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(p_output_topology || '_BUILD_GEOM',
+      --no index on "processed" access will be entirely by primary key or spatial.  Processed is secondary
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_output_topology || '_BUILD_GEOM',
                                      'GEOMETRY',
                                       8265,
                                       .05);
-                                      
+
       IF p_sdo_filter IS NOT NULL
       AND rigorous_filter= 1
       THEN
-      
-         --This code not really used      
+
+         --This code not really used
          --development mode, running with a filter and I want a precise filter
          --this isnt parameterized, just hard coded in the declaration above
-         
-         --in order to get everything exactly correct inside the filter the build_poly code inserts 
+
+         --in order to get everything exactly correct inside the filter the build_poly code inserts
          --   polygon records and all associated edges for polygons that are partially inside the filter
          --Now further prune out edges to just those edges that are truly in play
-         
+
          --Im aware that it makes far more sense to prune in the initial SQL above against edge$
          --But the performance of the relate with detailed masks against mt_edge$ is absurd
          --As a general rule I learnding to makes relates against the smallest set possible, like in a local work table
@@ -1078,8 +1113,8 @@ AS
               || 'SELECT a.rowid FROM ' || p_output_topology || '_build_geom a '
               || 'WHERE SDO_RELATE(a.geometry, :p4, :p5 ) = :p6 '
               || ')';
-         
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                 'Deleting filtered out edge geometries from ' || p_output_topology || '_build_geom',
                                                 NULL,NULL,NULL,psql,NULL,NULL,p_sdo_filter);
 
@@ -1090,34 +1125,34 @@ AS
                                       'mask=ON',                --hater
                                       'TRUE';
          COMMIT;
-         
+
          --Now delete any outside-the-filter records from the build_poly table
          --It definitely makes logical sense to do this differently, like with two sdo_relates in the initial
          --insert into the build_poly table.  Not performative though
-         
-         psql := 'DELETE FROM ' || p_output_topology || '_build_poly ' 
+
+         psql := 'DELETE FROM ' || p_output_topology || '_build_poly '
               || 'WHERE edge_id NOT IN '
               || '(SELECT edge_id from ' || p_output_topology || '_build_geom) ';
-         
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                 'Deleting any outside the filter edges from ' || p_output_topology || '_build_poly',
                                                 NULL,NULL,NULL,NULL);
-                                                
+
          EXECUTE IMMEDIATE psql;
-         
-         COMMIT;         
-      
+
+         COMMIT;
+
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                              'Completed populating ' || p_output_topology || '_build_geom',
                                              NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                              'Gathering stats on ' || p_output_topology || '_build_geom',
                                              NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.GATHER_TABLE_STATS(p_output_topology || '_BUILD_GEOM');
+      GZ_BUSINESS_UTILS.GATHER_TABLE_STATS(p_output_topology || '_BUILD_GEOM');
 
       --lets make sure theres something in there
 
@@ -1127,8 +1162,6 @@ AS
            || 'WHERE rownum = 1';
 
       EXECUTE IMMEDIATE psql INTO kount;
-
-
 
 
       ---------------------------------------------------------------------------------------
@@ -1276,7 +1309,7 @@ AS
       ----------------------------------------------------------------------------------
 
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
    END BUILD_CREATE_TABLE;
@@ -1468,7 +1501,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
                                              'Starting ' || p_output_topology);
 
       --Purger will error if topo doesnt exist
@@ -1528,11 +1561,11 @@ AS
 
       --relation$ doesnt exist at this point
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_output_topology || '_EDGE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_output_topology || '_EDGE$');
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_output_topology || '_FACE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_output_topology || '_FACE$');
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_output_topology || '_NODE$');
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_output_topology || '_NODE$');
 
 
       ----------------------------------------------------------------------------------
@@ -1542,7 +1575,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
                                              'Completed ' || p_output_topology);
 
       RETURN output;
@@ -1585,20 +1618,20 @@ AS
          psql := psql || 'AND a.edge_id NOT IN  '
                       || '(SELECT e.edge_id FROM ' || p_output_topology || '_edge$ e) ';
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_number,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_number,NULL,
                                                 'Cleaning on restart all ' || p_output_topology ||
                                                 '_build_edge recs for tile ' || p_tile_number,NULL,NULL,NULL,psql);
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_number,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_number,NULL,
                                                 'Error, deleting all ' || p_output_topology ||
                                                  '_build_edge recs for tile ' || p_tile_number,NULL,NULL,NULL,psql);
 
       END IF;
 
       EXECUTE IMMEDIATE psql USING p_tile_number;
-      COMMIT;
+      COMMIT;  --THIS MUST REMAIN
 
    END ROLL_BACK_A_TILE;
 
@@ -1699,7 +1732,9 @@ AS
    AS
 
        --Matt! 2/14/12
-       --8/22/12 Additional wack-a-code for dateline crossing
+       --8/22/12  Additional wack-a-code for dateline crossing
+       --6/19/13  reworked to not add the <topo>_build_edge records until after the topomap is committed
+       --11/26/13 Moved obsolete node removal into this step
 
        psql                   VARCHAR2(4000);
        newtopomap             VARCHAR2(4000) := p_output_topology || '_TOPOMAP';
@@ -1709,13 +1744,13 @@ AS
        p_window               SDO_GEOMETRY;
        p_window_eastern       SDO_GEOMETRY;
        TYPE toporec           IS RECORD (
-                                 id NUMBER,
-                                 sdogeometry SDO_GEOMETRY );
+                                         id NUMBER,
+                                         sdogeometry SDO_GEOMETRY);
        TYPE topot             IS TABLE OF toporec;
        topotab                topot;
        insert_id              PLS_INTEGER := 0;
-       feature_ids            GZ_TYPES.stringarray;
-       edge_ids               GZ_TYPES.stringarray;
+       feature_ids            GZ_TYPES.numberarray;
+       edge_ids               GZ_TYPES.numberarray;
        src_srid               NUMBER;
        topo_window            SDO_GEOMETRY;
        topo_window_eastern    SDO_GEOMETRY;
@@ -1758,7 +1793,6 @@ AS
       END IF;
 
 
-
       --figure out topomap
       --REMEMBER: edges can slop over the tile boundaries, and the topology cares about this
       --this is a repeat of below, maybe consolidate later
@@ -1786,10 +1820,14 @@ AS
            || p_output_topology || '_build_geom a '
            || 'WHERE '
            || 'SDO_RELATE(a.geometry, :p1,:p2) = :p3 AND '
-           || 'NOT EXISTS '
-           || '(SELECT source_edge_id FROM ' || p_output_topology || '_build_edge b where b.source_edge_id = a.edge_id) ';
+           || 'a.processed = :p4 ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+           --old pre-obsolete node overhaul method
+           --AND '
+           --|| 'NOT EXISTS '
+           --|| '(SELECT source_edge_id FROM ' || p_output_topology || '_build_edge b where b.source_edge_id = a.edge_id) ';
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                              'Get MBR of edges slopping over tile',
                                              NULL,NULL,NULL,psql,NULL,NULL,p_window);
 
@@ -1800,8 +1838,8 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                'Using special mask override: ' || p_mask_override);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                     'Using special mask override: ' || p_mask_override);
 
          --special override mask to deal with flakey sdo_relate
          --probably 'mask=OVERLAPBDYDISJOINT+OVERLAPBDYINTERSECT'
@@ -1811,15 +1849,16 @@ AS
 
       EXECUTE IMMEDIATE psql INTO topo_window USING p_window,
                                                     mask,
-                                                    'TRUE';
+                                                    'TRUE',
+                                                    0;
 
 
       IF topo_window IS NULL
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                'No slopping, either a rerun or an island in a tile',
-                                                NULL,NULL,NULL,psql,NULL,NULL,topo_window);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                     'No slopping, either a rerun or an island in a tile',
+                                                     NULL,NULL,NULL,psql,NULL,NULL,topo_window);
 
          --this window is clean, its from the tiler
          topo_window := p_window;
@@ -1839,7 +1878,7 @@ AS
 
             topo_window := SDO_UTIL.RECTIFY_GEOMETRY(topo_window, p_tolerance);
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                    'Topo window from sdo_aggr_mbr was invalid. Maybe rectified--> ',
                                                     NULL,NULL,NULL,NULL,NULL,NULL,topo_window);
 
@@ -1875,17 +1914,22 @@ AS
                 || p_output_topology || '_build_geom a '
                 || 'WHERE '
                 || 'SDO_RELATE(a.geometry, :p1,:p2) = :p3 AND '
-                || 'NOT EXISTS '
-                || '(SELECT source_edge_id FROM ' || p_output_topology || '_build_edge b where b.source_edge_id = a.edge_id) ';
+                || 'a.processed = :p4 ';
 
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                -- AND '
+                --|| 'NOT EXISTS '
+                --|| '(SELECT source_edge_id FROM ' || p_output_topology || '_build_edge b where b.source_edge_id = a.edge_id) ';
+
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                    'Calling bespoke sdo aggr mbr utility near dateline',
                                                    NULL,NULL,NULL,psql,NULL,NULL,p_window);
 
             EXECUTE IMMEDIATE psql BULK COLLECT INTO mbr_special_edges USING p_window,
                                                                              'mask=OVERLAPBDYDISJOINT',
-                                                                             'TRUE';
+                                                                             'TRUE',
+                                                                             0;
 
             topo_window := GZ_BUILD_SOURCE.AGGR_MBR_NEAR_DATELINE(p_input_schema || '.' || p_input_topology || '_edge$',
                                                                   'EDGE_ID',
@@ -1893,7 +1937,7 @@ AS
                                                                   'GEOMETRY',
                                                                   p_tolerance);
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                    'Bespoke sdo aggr mbr is',NULL,NULL,NULL,NULL,NULL,NULL,topo_window);
 
             --special dateline MBR handling
@@ -1902,7 +1946,7 @@ AS
                                                                  p_window,
                                                                  p_tolerance);
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                    'Bespoke topo window is',NULL,NULL,NULL,NULL,NULL,NULL,topo_window);
 
             --now all window mitosis to handle each side of the dateline
@@ -1924,8 +1968,8 @@ AS
             --then add the original window in case no slopping on one or more sides
             topo_window := SDO_GEOM.SDO_MBR(SDO_GEOM.SDO_UNION(topo_window, p_window, p_tolerance));
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                   'Window after union',NULL,NULL,NULL,NULL,NULL,NULL,topo_window);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                        'Window after union',NULL,NULL,NULL,NULL,NULL,NULL,topo_window);
 
             IF (topo_window.sdo_ordinates(1) > 0 AND topo_window.sdo_ordinates(1) < 180)
             AND topo_window.sdo_ordinates(3) < 0
@@ -1941,11 +1985,11 @@ AS
                --make all negative since my code expects it
                topo_window := gz_build_source.shift_at_dateline(topo_window);
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                       'Splitting into two windows at dateline, heres topo window post shift',
                                                       NULL,NULL,NULL,NULL,NULL,NULL,topo_window);
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                       'Splitting into two windows at dateline, the starter pwindow again',
                                                       NULL,NULL,NULL,NULL,NULL,NULL,p_window);
 
@@ -1965,8 +2009,6 @@ AS
                window_kount := 1;
 
             END IF;
-
-
 
          END IF;
 
@@ -2028,26 +2070,36 @@ AS
               || p_output_topology || '_build_geom a '
               || 'WHERE '
               || 'SDO_RELATE(a.geometry, :p1,:p2) = :p3 AND '
-              || 'NOT EXISTS ('
-              || 'SELECT source_edge_id FROM ' || p_output_topology || '_build_edge b where b.source_edge_id = a.edge_id) ';
+              || 'a.processed = :p4 ';
+
+              --pre obsolete node overhaul strategy
+              -- AND '
+              --|| 'NOT EXISTS ('
+              --|| 'SELECT source_edge_id FROM ' || p_output_topology || '_build_edge b where b.source_edge_id = a.edge_id) ';
 
          IF jj = 1
          THEN
 
             --SOP
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                   'Opening cursor with SQL and TILE window-->',NULL,NULL,NULL,psql,NULL,NULL,p_window);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                        'Opening cursor with SQL and TILE window-->',NULL,NULL,NULL,psql,NULL,NULL,p_window);
 
             --original window
-            OPEN my_cursor FOR psql USING p_window, 'mask=INSIDE+COVEREDBY+OVERLAPBDYDISJOINT+ON','TRUE';
+            OPEN my_cursor FOR psql USING p_window,
+                                          'mask=INSIDE+COVEREDBY+OVERLAPBDYDISJOINT+ON',
+                                          'TRUE',
+                                          0;
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                   'Opening cursor with SQL and EASTERN TILE window-->',NULL,NULL,NULL,psql,NULL,NULL,p_window_eastern);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                        'Opening cursor with SQL and EASTERN TILE window-->',NULL,NULL,NULL,psql,NULL,NULL,p_window_eastern);
 
             --original window
-            OPEN my_cursor FOR psql USING p_window_eastern, 'mask=INSIDE+COVEREDBY+OVERLAPBDYDISJOINT+ON','TRUE';
+            OPEN my_cursor FOR psql USING p_window_eastern,
+                                          'mask=INSIDE+COVEREDBY+OVERLAPBDYDISJOINT+ON',
+                                          'TRUE',
+                                          0;
 
          END IF;
 
@@ -2069,11 +2121,12 @@ AS
                      --tuck this in here
                      --in case of reruns with no edges to process, dont want to open a pointless topomap
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                            'Opening topomap with expanded TOPO window-->',NULL,NULL,NULL,psql,NULL,NULL,topo_window);
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                                 'Opening topomap with expanded TOPO window-->',
+                                                                 NULL,NULL,NULL,psql,NULL,NULL,topo_window);
 
                      --potentially expanded topo window
-                     ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,
+                     ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,
                                                                     p_output_topology,
                                                                     2,
                                                                     topo_window.sdo_ordinates(1),
@@ -2084,11 +2137,12 @@ AS
 
                   ELSE
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                            'Opening topomap with expanded EASTERN TOPO window-->',NULL,NULL,NULL,psql,NULL,NULL,topo_window_eastern);
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                                 'Opening topomap with expanded EASTERN TOPO window-->'
+                                                                 ,NULL,NULL,NULL,psql,NULL,NULL,topo_window_eastern);
 
                      --potentially expanded topo window
-                     ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,
+                     ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,
                                                                     p_output_topology,
                                                                     2,
                                                                     topo_window_eastern.sdo_ordinates(1),
@@ -2102,8 +2156,8 @@ AS
 
                   opened := 1;
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                         'Topomap opened. Starting calls to add_linear_geometry Zzz...');
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                              'Topomap opened. Starting calls to add_linear_geometry Zzz...');
 
                END IF;
 
@@ -2123,9 +2177,9 @@ AS
                   --none of the edges that we added to the build_edge table will actually be added to the topology
                   --since the topomap cant be committed.  We consider the topomap to be hosed for this tile
                   --remove them from the build_edge table for easier debugging and restart
-
-                  GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
-                                                   p_tile_kount);
+                  --NO! shouldnt be added in the first place unless the topomap and its commit below succeed
+                  --GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
+                                                   --p_tile_kount);
 
                   IF (UPPER(SQLERRM) LIKE '%OUTOFMEMORYERROR%'
                   OR UPPER(SQLERRM) LIKE '%JAVA OUT OF MEMORY CONDITION%')  --WTF causes this instead of the first?
@@ -2133,25 +2187,32 @@ AS
 
                      --handle?
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                             'ADD_LINEAR_GEOMETRY error on ' || topotab(i).id,
                                                              NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
+
+                     CLOSE my_cursor;
+                     COMMIT;
 
                      RAISE_APPLICATION_ERROR(-20001,'MEMORY');
 
                   ELSE
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                            'ADD_LINEAR_GEOMETRY error on ' || topotab(i).id ,
-                                                            NULL,NULL,NULL,NULL,NULL,SQLERRM);
+                     --this is where '...Attempted to add linear geometry outside the update window..' throws
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                                 'ADD_LINEAR_GEOMETRY error on ' || topotab(i).id ,
+                                                                 NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                            'ADD_LINEAR_GEOMETRY error on ' || topotab(i).id ,
-                                                            NULL,NULL,NULL,NULL,NULL,DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                                 'ADD_LINEAR_GEOMETRY error on ' || topotab(i).id ,
+                                                                 NULL,NULL,NULL,NULL,NULL,DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
 
-                     RAISE;
+                     CLOSE my_cursor;
+                     COMMIT;
+
+                     RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
 
                   END IF;
 
@@ -2174,10 +2235,15 @@ AS
                   --We consider the topomap to be hosed for this tile
                   --remove edges from the build_edge table for easier debugging and restart
 
-                  GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
-                                                   p_tile_kount);
+                  --I think this only applies on a double loop dateline tile??  Who wrote this
+                  --Dangerous now
+                  --GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
+                                                   --p_tile_kount);
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                  CLOSE my_cursor;
+                  COMMIT;
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
                                                          'Error - got ' || stupid_number_array.COUNT || ' primitives for edge_id ' || topotab(i).id);
 
                   RAISE_APPLICATION_ERROR(-20001,'Error - got ' || stupid_number_array.COUNT || ' primitives for edge_id ' || topotab(i).id);
@@ -2185,97 +2251,28 @@ AS
 
                END IF;
 
-            END LOOP;
+            END LOOP; --end loop over one bucket of edges
 
-            --insert one bucket (100) worth
-
-            BEGIN
-
-
-               FORALL ii IN 1 .. feature_ids.COUNT
-                  EXECUTE IMMEDIATE 'INSERT INTO ' || p_output_topology || '_build_edge a '
-                                 || 'VALUES (:p1,:p2,:p3) '
-                  USING edge_ids(ii),
-                        feature_ids(ii),
-                        p_tile_kount;
-
-               COMMIT;
-
-               edge_ids.DELETE;
-               feature_ids.DELETE;
-               insert_id := 0;
-
-               --log us a bread crumb trail on really long waits here
-               IF zzztracker < 1000
-               THEN
-
-                  zzztracker := zzztracker + 1;
-
-               ELSE
-
-                  zzztracker := 0;
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                         'Added (another) 1000 edges');
-
-               END IF;
-
-            EXCEPTION
-            WHEN OTHERS
+            --log us a bread crumb trail on really long waits here
+            IF zzztracker < 1000
             THEN
 
-               --attempt to trap the exact edge for informational purposes
+               --as in zzz.....
+               zzztracker := zzztracker + 1;
 
-               IF SQLERRM LIKE '%EDGEPKC%'
-               THEN
+            ELSE
 
-                   --this is my primary key constraint on the primitive edge ids (new topology edge ids)
-                   GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                         'ADD_LINEAR_GEOMETRY PKC exception on forall insert into ' || p_output_topology || '_build_edge',
-                                                         NULL,NULL,NULL,NULL,NULL,SQLERRM);
+               zzztracker := 0;
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                           'Added (another) 1000 edges');
 
-                   FOR j IN 1 .. feature_ids.COUNT
-                   LOOP
+            END IF;
 
-                      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                             'Inserting ' || edge_ids(j) || ' ' || feature_ids(j) || ' ' || p_tile_kount);
-
-                      BEGIN
-
-                         EXECUTE IMMEDIATE 'INSERT INTO ' || p_output_topology || '_build_edge a '
-                                        || 'VALUES (:p1,:p2,:p3) ' USING edge_ids(j),
-                                                                         feature_ids(j),
-                                                                         p_tile_kount;
-                      EXCEPTION
-                      WHEN OTHERS
-                      THEN
-
-                         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                                'THERE: ' || edge_ids(j) || ' ' || feature_ids(j) || ' ' || p_tile_kount);
-
-                         --roll the tile back no topomap commit
-                         GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
-                                                          p_tile_kount);
-
-                      END;
-
-                   END LOOP;
-
-               ELSE
-
-                  --whatever happened roll back the tile, we wont be committing the topo map
-                  GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
-                                                   p_tile_kount);
-
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                         'ADD_LINEAR_GEOMETRY unhandled exception on forall insert into ' || p_output_topology || '_build_edge',
-                                                         NULL,NULL,NULL,NULL,NULL,SQLERRM);
-
-                  RAISE_APPLICATION_ERROR(-20001,DBMS_UTILITY.format_error_backtrace);
-
-               END IF;
-
-            END;
-
+            --Magic commit, moved to within each error handler
+            --Avoids "fetch out of sequence error" on catch and retries, never really got to the bottom of the cause
+            --Overkill version on all loops would be here
+            --COMMIT;
+            --------------
 
          END LOOP;  --end loop over entire cursor of edges for this tile
 
@@ -2284,19 +2281,62 @@ AS
          IF opened = 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                   'Didnt add anything on tile ' || p_tile_kount || '. Hopefully a rerun');
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                        'Didnt add anything on tile ' || p_tile_kount || '. Skipping obsolete node removal');
 
          ELSE
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                      'Completed add_linear_geometry, committing topomap');
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                        'Completed add_linear_geometry, removing obsolete nodes');
+
+            --------------------------------
+            --Obsolete node removal
+            --------------------------------
+
+            BEGIN
+
+               SDO_TOPO_MAP.REMOVE_OBSOLETE_NODES(NULL);
+
+            EXCEPTION
+            WHEN OTHERS
+            THEN
+            
+              IF UPPER(SQLERRM) LIKE '%JAVA.LANG.OUTOFMEMORYERROR%'
+              THEN
+              
+                 --call the magic java memory manager!
+                 --should voodoo the unused user memory and set_max_memory_size
+                 --if I see this on the regular should consider sub-tiling the tile
+                 
+                 GZ_BUSINESS_UTILS.JAVA_MEMORY_MANAGER(p_output_topology || '_edge$', --not used
+                                                       'GEOMETRY', --not used
+                                                       SQLERRM);
+                                                       
+                 SDO_TOPO_MAP.REMOVE_OBSOLETE_NODES(NULL);
+              
+              ELSE
+
+                  --All of the other obsolete node removal error poop goes here if we still see it
+                  
+                  RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+                  
+              END IF;
+
+            END;
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                        'Completed removing obsolete nodes');
 
          END IF;
 
+
+
          BEGIN
 
-            ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(newtopomap,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                        'Committing topomap');
+
+            ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(newtopomap,
                                                            p_output_topology,
                                                            3);
 
@@ -2306,25 +2346,149 @@ AS
 
             --Seen the edge x is not on the boundary of one or two of the faces it links here
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
-                                                   'ADD_LINEAR_GEOMETRY unhandled topomap commit exception. Rolling back the tile ',
-                                                    NULL,NULL,NULL,NULL,NULL,SQLERRM);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount, NULL,
+                                                        'ADD_LINEAR_GEOMETRY unhandled topomap commit exception',
+                                                        NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
 
-            --If the topomap doesnt commit we are in a state here where the build_edge table is populated
-            --But the topology doesnt match
-            GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
-                                             p_tile_kount);
+            --I dont think this is true dude, maybe an old workflow
+            --Potentially dangerous on a partially processed dateline-crossing tile
+            --xxIf the topomap doesnt commit we are in a state here where the build_edge table is populated
+            --xxBut the topology doesnt match
+            --GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
+                                             --p_tile_kount);
 
             --make sure to include the SQLERRM in my thrown error or else no error message to scan in the caller
             RAISE_APPLICATION_ERROR(-20001,SQLERRM || chr(10) || DBMS_UTILITY.format_error_backtrace);
 
          END;
 
+         --If the topomap commit succeeded, deal with the work tables
+         --There should be a 1:1 relationship between all work successfully completed in the topomap
+         --and the processing in the work tables, including on dateline-split tiles
+         --If the topomap work fails, in either add_linear_geometry or remove_obsolete_nodes
+         --Then none of the below should happen
+         -- xx_build_edge output: insert everything processed
+         -- xx_build_geom input : update processed to 1
+         -- xx_build_edge output: delete obsolete node removed edges
+
+         BEGIN
+
+            --insert all the edge_ids, source_edge_ids, and tile_numbers processed in add_linear_geometry
+            --Many of these disappeared in remove obsolete nodes, they are added here for just a sec
+
+            FORALL ii IN 1 .. feature_ids.COUNT
+               EXECUTE IMMEDIATE 'INSERT INTO ' || p_output_topology || '_build_edge a '
+                              || 'VALUES (:p1,:p2,:p3) '
+               USING edge_ids(ii),     --new edge ids
+                     feature_ids(ii),  --original maftiger edge_ids
+                     p_tile_kount;
+
+            COMMIT;
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            --attempt to trap the exact edge for informational purposes
+
+            IF SQLERRM LIKE '%EDGEPKC%'
+            THEN
+
+                --this is my primary key constraint on the primitive edge ids (new topology edge ids)
+                GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                            'ADD_LINEAR_GEOMETRY PKC exception on forall insert into ' || p_output_topology || '_build_edge',
+                                                            NULL,NULL,NULL,NULL,NULL,SQLERRM);
+
+                FOR j IN 1 .. feature_ids.COUNT
+                LOOP
+
+                   GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                               'Inserting ' || edge_ids(j) || ' ' || feature_ids(j) || ' ' || p_tile_kount);
+
+                   BEGIN
+
+                      EXECUTE IMMEDIATE 'INSERT INTO ' || p_output_topology || '_build_edge a '
+                                     || 'VALUES (:p1,:p2,:p3) ' USING edge_ids(j),
+                                                                      feature_ids(j),
+                                                                      p_tile_kount;
+                   EXCEPTION
+                   WHEN OTHERS
+                   THEN
+
+                      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                                  'THERE: ' || edge_ids(j) || ' ' || feature_ids(j) || ' ' || p_tile_kount);
+
+                      --roll the tile back no topomap commit
+                      --   but it is committed???
+                      --just rollback the one at a time insert
+                      ROLLBACK;
+                      --GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
+                                                       --p_tile_kount);
+
+                   END;
+
+                END LOOP;
+
+            ELSE
+
+               --This shouldn't do anything, unless Im forgetting a weird reason. No edges for this tile are committed
+               --GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
+                                                --p_tile_kount);
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                           'ADD_LINEAR_GEOMETRY unhandled exception on forall insert into ' || p_output_topology || '_build_edge',
+                                                           NULL,NULL,NULL,NULL,NULL,SQLERRM);
+
+               RAISE_APPLICATION_ERROR(-20001,SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+            END IF;
 
 
+         END;
 
-      END LOOP;
+         --Now update the input xx_build_geom table all the benchmark
+         --edges added in this topomap. Processed = 1
+         --faster? where a.edge_id IN (select edge_id from  z899in_build_edge)
+
+         psql := 'UPDATE ' || p_output_topology || '_build_geom a '
+              || 'SET a.processed = :p1 '
+              || 'WHERE a.edge_id = :p2 ';
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                     'Deleting processed recs from ' || p_output_topology || '_build_geom',
+                                                     p_sqlstmt => psql);
+
+         FORALL ii IN 1 .. feature_ids.COUNT
+            EXECUTE IMMEDIATE psql
+            USING 1,
+                  feature_ids(ii);
+
+         COMMIT;
+
+         --Now delete from build_edge any that disappeared in remove_obsolete nodes
+         --Well not really disappeared, they joined with a neighboring edge and are now rep'd by it
+
+         --dont use tile number since obsoletes can merge across tiles
+         psql := 'DELETE FROM ' || p_output_topology || '_build_edge a '
+              || 'WHERE NOT EXISTS '
+              || '(SELECT e.edge_id FROM '
+              || p_output_topology || '_edge$ e '
+              || 'WHERE e.edge_id = a.edge_id) ';
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_TOPO_TILE ' || p_tile_kount,NULL,
+                                                     'Deleting obsolete node absorbed recs from ' || p_output_topology || '_build_edge',
+                                                     p_sqlstmt => psql);
+
+         EXECUTE IMMEDIATE psql;
+         COMMIT;
+
+         --must do this because of dateline code that does two loops thru here
+         edge_ids.DELETE;
+         feature_ids.DELETE;
+         insert_id := 0;
+
+      END LOOP;  --end loop over very rare double dateline split tile
 
 
       ----------------------------------------------------------------------------------
@@ -2336,7 +2500,444 @@ AS
 
    END LOAD_TOPO_TILE;
 
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
 
+   FUNCTION GET_GENESIS_EDGE_ID (
+      p_topology           IN VARCHAR2,
+      p_current_edge_geom  IN SDO_GEOMETRY,
+      p_dbug               IN NUMBER DEFAULT 0
+   ) RETURN NUMBER
+   AS
+
+      --Matt! 12/23/13
+      --Sub of FIX_MYSTERY_FACE
+      --Return 0 for fails
+
+      psql                 VARCHAR2(4000);
+      genesis_edges        GZ_TYPES.NUMBERARRAY;
+      genesis_geoms        GZ_TYPES.geomarray;
+      current_edge_geom    SDO_GEOMETRY;
+      lrs_geom             SDO_GEOMETRY;
+      start_measure        NUMBER;
+      end_measure          NUMBER;
+      best_edge            NUMBER := 0;
+
+
+   BEGIN
+
+      psql := 'SELECT e.edge_id, e.geometry FROM '
+           || p_topology || '_build_geom e '
+           || 'WHERE SDO_RELATE(e.geometry, :p1, :p2) = :p3 '
+           || 'UNION ALL '
+           || 'SELECT e.edge_id, e.geometry FROM '
+           || p_topology || '_build_geom e '
+           || 'WHERE SDO_RELATE(e.geometry, :p4, :p5) = :p6 '
+           || 'UNION ALL '
+           || 'SELECT e.edge_id, e.geometry FROM '
+           || p_topology || '_build_geom e '
+           || 'WHERE SDO_RELATE(e.geometry, :p7, :p8) = :p9 ';
+
+      --get all edges from the <topo>_build_geom table that align with our mystery edge
+      --most come back as INSIDE
+
+      EXECUTE IMMEDIATE psql BULK COLLECT INTO genesis_edges,
+                                               genesis_geoms USING p_current_edge_geom, 'mask=EQUAL', 'TRUE',
+                                                                   p_current_edge_geom, 'mask=INSIDE', 'TRUE',
+                                                                   p_current_edge_geom, 'mask=COVEREDBY', 'TRUE';
+
+      IF genesis_edges.COUNT = 0
+      THEN
+
+         --never actually seen this but who knows, protect ya neck
+         RETURN 0;
+
+      END IF;
+
+
+      FOR i IN 1 .. genesis_edges.COUNT
+      LOOP
+
+         IF p_dbug = 1
+         THEN
+            dbms_output.put_line('genesis ' || genesis_edges(i));
+         END IF;
+
+         --find an edge with direction that matches the current mystery edge
+
+         --use start and end of the genesis edge candidate
+         --my find measure wrapper builds measures in range 0 to 1000 for the current big mystery edge
+         ---   (second input)
+
+         start_measure := GZ_GEOM_UTILS.GZ_FIND_MEASURE(SDO_GEOMETRY(2001,
+                                                                     p_current_edge_geom.SDO_SRID,
+                                                                     SDO_POINT_TYPE (genesis_geoms(i).sdo_ordinates(1),
+                                                                                     genesis_geoms(i).sdo_ordinates(2),
+                                                                                     NULL),
+                                                                      NULL,
+                                                                      NULL),
+                                                         p_current_edge_geom
+                                                         );
+
+         end_measure := GZ_GEOM_UTILS.GZ_FIND_MEASURE(SDO_GEOMETRY(2001,
+                                                                   p_current_edge_geom.SDO_SRID,
+                                                                   SDO_POINT_TYPE (genesis_geoms(i).sdo_ordinates(genesis_geoms(i).sdo_ordinates.COUNT - 1),
+                                                                                   genesis_geoms(i).sdo_ordinates(genesis_geoms(i).sdo_ordinates.COUNT),
+                                                                                   NULL),
+                                                                   NULL,
+                                                                   NULL),
+                                                      p_current_edge_geom
+                                                      );
+
+
+
+         IF p_dbug = 1
+         THEN
+            dbms_output.put_line('start measure ' || start_measure);
+            dbms_output.put_line('end_measure ' || end_measure);
+            --sample for the cluephone. This is a troubling one with
+            --two starter edges that are untrustworthy since they mis-measure
+            --at the head/tail of the loop
+            --genesis 58884378
+            --start measure 183.43076038674
+            --end_measure 999.99999987449
+            --genesis 99286336
+            --start measure 974.090043878689
+            --end_measure 999.99999987449
+            --genesis 58885610
+            --start measure 549.241786935728
+            --end_measure 568.992470076802
+         END IF;
+
+         IF start_measure < end_measure  --ordinarily this is what we want
+         THEN
+
+            --Having problems with loops
+            --the base edge is a loop
+            --the test edge, which in reality has wrong dir from 500 -back-> 0 is actually getting the end measure. 500 -> 1000.
+            --Looks like the correct dir
+
+            --If a measure is too close to 1000 this is not an ideal edge candidate
+            --only accept it at the end if no others are better
+
+            IF start_measure > 10 AND start_measure < 990
+            AND end_measure > 10 AND end_measure < 990
+            THEN
+
+                --somewhere in the middle, trust it, go with it
+                RETURN genesis_edges(i);
+
+            ELSE
+
+               --dont trust it
+               --only use if nothing better
+               best_edge := genesis_edges(i);
+
+            END IF;
+         
+         ELSIF start_measure > end_measure  --backwards!
+         AND ROUND(end_measure,0) = 0       --measures are 0 to 1000, ignore decimal places. But do round ordinates just in case 
+         AND ROUND(genesis_geoms(i).sdo_ordinates(1),6) = ROUND(genesis_geoms(i).sdo_ordinates(genesis_geoms(i).sdo_ordinates.COUNT - 1),6)
+         AND ROUND(genesis_geoms(i).sdo_ordinates(2),6) = ROUND(genesis_geoms(i).sdo_ordinates(genesis_geoms(i).sdo_ordinates.COUNT),6)
+         THEN
+         
+            --dont like it but just in case its our only option
+            --probably a loop like
+            --start measure 570.037815125252
+            --end_measure   .00000000246232752670853
+            --where the end measure is basically 1000 but getting fudged past the top of the dial
+            best_edge := genesis_edges(i);
+         
+         END IF;
+
+      END LOOP;
+
+      IF best_edge = 0
+      THEN
+
+         --Getting here is a fail. Found no edges with the correct direction
+         --not even an untrustworthy one at the head or tail
+         RETURN 0;
+
+      ELSE
+
+         --this is potentially dangerous, but Ive never seen this reached
+         --The only way we even get into this rabbit hole is if the mystery edge
+         --is some V6/Z8 etc topology where 10-100 edges in the input get merged
+         --always plenty of candidates above
+         RETURN best_edge;
+
+      END IF;
+
+   END GET_GENESIS_EDGE_ID;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION FIX_MYSTERY_FACE (
+      p_topology           IN VARCHAR2,
+      p_mystery_face       IN NUMBER,
+      p_tolerance          IN NUMBER DEFAULT .05
+   ) RETURN NUMBER
+   AS
+
+      --Matt! Unassailable documentation of IQ in freefall as of 12/23/13
+
+      --Return edge_id of the current topo chosen to bound the face. Or 0 for fail
+
+      --In the process of loading the topology and *simultaneously* removing obsolete nodes (same cache)
+      --   Oracle has completely made up an edge_id in obsolete node removal. Example
+      --
+      --    0---34----->0------35------>0<-----36----0
+      --
+      --usually, 99.9+% of the time we aren't in this fixer and the result is something like
+      --
+      --    0----------------34--------------------->0
+      --
+      --... where one of the edges wins with maintained direction.
+      --But in this rare case Oracle has generated a new edge_id.
+      --Direction does appear to be maintained for some edge_id however
+      --
+      --    0<---------------99234-------------------0
+      --
+      --(In all cases of these shenanigans I believe the mystery edge is a full loop around a face)
+      --(and the loop touches some other edge/face at a point)
+      --
+      --The goal of this function, in an example like the one above, is to determine that
+      --edge_id 36 is the genesis edge for 99234
+      --And insert this into the <topo>_build_edge table
+      --   edge_id  source_edge_id   tile_number
+      --    99234     36              xx
+
+      output                  NUMBER := 0;
+      candidate_edge_ids      GZ_TYPES.NUMBERARRAY;
+      candidate_edge_geoms    GZ_TYPES.GEOMARRAY;
+      source_edge_id          NUMBER := 0;
+      tile_number             NUMBER;
+      psql                    VARCHAR2(4000);
+      the_edge_id             NUMBER;
+
+
+   BEGIN
+
+      --Find the primitive edges in our working topo that bound the face with no known source edges
+
+      psql := 'SELECT e.edge_id, e.geometry FROM '
+           || p_topology || '_edge$ e WHERE e.left_face_id = :p1 '
+           || 'UNION ALL '
+           || 'SELECT e.edge_id, e.geometry FROM '
+           || p_topology || '_edge$ e WHERE e.right_face_id = :p2 ';
+
+      EXECUTE IMMEDIATE psql BULK COLLECT INTO candidate_edge_ids,
+                                               candidate_edge_geoms USING p_mystery_face,
+                                                                          p_mystery_face;
+
+
+      FOR i IN 1 .. candidate_edge_ids.COUNT
+      LOOP
+
+         --if an island, just one candidate
+
+         --return 0 when nothing found
+         source_edge_id := GZ_BUILD_SOURCE.GET_GENESIS_EDGE_ID(p_topology,
+                                                               candidate_edge_geoms(i));
+
+         IF source_edge_id <> 0
+         THEN
+
+            the_edge_id := candidate_edge_ids(i);
+
+            EXIT;
+
+         END IF;
+
+      END LOOP;
+
+
+      IF source_edge_id <> 0
+      THEN
+
+         --insert
+
+         --get tile number.  Not too important which one.  No sidx on tile table, not great
+         psql := 'SELECT a.tile_number FROM ' || p_topology || '_build_tile a '
+              || 'WHERE '
+              || 'SDO_GEOM.RELATE(a.sdogeometry, :p1, (SELECT geometry FROM  ' || p_topology || '_build_geom WHERE edge_id = :p2), :p3) <> :p4 '
+              || 'AND rownum = 1 ';
+
+         EXECUTE IMMEDIATE psql INTO tile_number USING 'mask=ANYINTERACT',
+                                                       source_edge_id,
+                                                       p_tolerance,
+                                                       'FALSE';
+
+         psql := 'INSERT INTO ' || p_topology || '_build_edge VALUES (:p1,:p2,:p3)';
+
+         EXECUTE IMMEDIATE psql USING the_edge_id,
+                                      source_edge_id,
+                                      tile_number;
+
+         COMMIT;
+
+         RETURN the_edge_id;
+
+      ELSE
+
+         --if we get here return 0
+         RETURN output;
+
+      END IF;
+
+
+   END FIX_MYSTERY_FACE;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION FACE_HAS_KNOWN_EDGES (
+      p_topology           IN VARCHAR2,
+      p_mystery_face       IN NUMBER,
+      p_mystery_edges      IN GZ_TYPES.numberarray
+   ) RETURN VARCHAR2
+   AS
+
+      --Matt! 11/27/13
+      --Silly helper to determine that a face still has bounding edges with known attributes
+      --This test is used in LOAD_OUTPUT_TOPOLOGY below where we get a few edges in edge$ that
+      --   dont appear in the xx_build_edge work table (after obsolete node removal)
+      --Returns 'TRUE' or 'FALSE'
+
+      psql              VARCHAR2(4000);
+      kount             PLS_INTEGER;
+
+   BEGIN
+
+      psql := 'SELECT COUNT(edge_id) FROM '
+           || '(SELECT e.edge_id FROM ' || p_topology || '_edge$ e '
+           || 'WHERE e.left_face_id = :p1 '
+           || 'UNION '
+           || 'SELECT e.edge_id FROM ' || p_topology || '_edge$ e '
+           || 'WHERE e.right_face_id = :p2) '
+           || 'WHERE edge_id NOT IN (SELECT * FROM TABLE(:p3)) ';
+
+      EXECUTE IMMEDIATE psql INTO kount USING p_mystery_face,
+                                              p_mystery_face,
+                                              GZ_BUSINESS_UTILS.NUMARRAY_TO_VARRAY(p_mystery_edges);
+
+      IF kount = 0
+      THEN
+
+         RETURN 'FALSE';
+
+      ELSE
+
+         RETURN 'TRUE';
+
+      END IF;
+
+   END FACE_HAS_KNOWN_EDGES;
+   
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Private--------------------------------------------------------------------------------
+   
+   FUNCTION LIQUIDATE_MIGRATED_EDGES (
+      p_topo               IN VARCHAR2,
+      p_tolerance          IN NUMBER DEFAULT .05
+   ) RETURN NUMBER
+   AS
+   
+      output               NUMBER;
+      psql                 VARCHAR2(4000);
+      delete_psql          VARCHAR2(4000);
+      tilez                GZ_TYPES.numberarray;
+      edge_idz             GZ_TYPES.numberarray;
+      total_liquidated     PLS_INTEGER := 0;
+   
+   BEGIN
+   
+      psql := 'SELECT a.tile_number '
+           || 'FROM ' || p_topo || '_build_tile a ';
+      
+      EXECUTE IMMEDIATE psql BULK COLLECT INTO tilez;
+      
+      --use sdo_geom.relate with no spatial index
+      --know which edge geom <--> edge geom to compare already
+      
+      --current edges should be the same as or bigger than genesis edges
+      
+      --    0---34----->0------35------>0<-----36----0  before obs node removal, 1:1 between my edge$ and mt_edge$
+      --
+      --
+      --    0----------------34--------------------->0  after obs node removal, my 34 still has a source edge_id
+      --                                                of size in the 1st diagram, aka COVERS
+      
+      psql := 'SELECT e.edge_id FROM '
+           || p_topo || '_build_edge e, '
+           || p_topo || '_build_geom g, '
+           || p_topo || '_edge$ ee '
+           || 'WHERE '
+           || 'e.tile_number = :p1 AND '
+           || 'e.source_edge_id = g.edge_id AND '
+           || 'e.edge_id = ee.edge_id AND '
+           || 'SDO_GEOM.RELATE(ee.geometry, :p2, g.geometry, :p3) <> :p4 ';
+           
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topo,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Calling this SQL for each tile ', p_sqlstmt => psql);
+                                                  
+      --set this once
+      delete_psql := 'DELETE FROM ' || p_topo || '_build_edge e '
+                  || 'WHERE e.edge_id IN (SELECT * FROM TABLE(:p1))';
+      
+      FOR i IN 1 .. tilez.COUNT
+      LOOP
+      
+         --processing tile by tile with indexes seems to be faster
+         --than letting exadata table access storage full do its dumb $hit
+  
+         EXECUTE IMMEDIATE psql BULK COLLECT INTO edge_idz USING tilez(i),
+                                                                 'MASK=COVERS+CONTAINS+EQUAL',
+                                                                 p_tolerance,
+                                                                 'MASK=COVERS+CONTAINS+EQUAL';
+
+         IF edge_idz.COUNT > 0
+         THEN
+         
+            total_liquidated := total_liquidated + edge_idz.COUNT;
+            
+            IF edge_idz.COUNT > 1
+            THEN
+            
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topo,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                           'Deleting ' ||  edge_idz.COUNT || ' edge ids from ' 
+                                                           || p_topo || '_build_edge for tile ' || tilez(i),
+                                                           p_sqlstmt => delete_psql);
+                                                           
+            ELSE
+            
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topo,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                           'Deleting edge_id ' ||  edge_idz(1) || ' from '
+                                                           || p_topo || '_build_edge for tile ' || tilez(i),
+                                                           p_sqlstmt => delete_psql);
+            
+            END IF;
+                                                        
+            EXECUTE IMMEDIATE delete_psql USING GZ_BUSINESS_UTILS.NUMARRAY_TO_VARRAY(edge_idz);
+            COMMIT;
+         
+         END IF;
+      
+         --may want some sort of mod(i) tracker in here
+         --hopefully the delete log will kick in enough
+      
+      END LOOP;   
+   
+      RETURN total_liquidated;
+      
+   END LIQUIDATE_MIGRATED_EDGES;
+   
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
@@ -2355,19 +2956,32 @@ AS
    AS
 
       --Matt! 2/13/12
+      --6/17/13  Marked bad tiles incomplete on
+      --         'is not on the boundary of one or two of the faces it links' wack-a-errors
+      --         Was not getting caught on full job restarts
+      --6/19/13  Added recurring loop over tiles instead of failure when any tile cant be processed
+      --11/26/13 Moved obsolete node removal into this module
 
       psql                    VARCHAR2(4000);
       kount                   PLS_INTEGER;
       output                  VARCHAR2(4000) := '0';
       extent_layer            GZ_TYPES.GZ_LAYERS_IN_INFO_REC;
       tiles                   GZ_TYPES.geomarray;
+      tiles_active            GZ_TYPES.geomarray;
       input_edge_kount        PLS_INTEGER;
       output_edge_kount       PLS_INTEGER;
       output_work_kount       PLS_INTEGER;
+      build_geom_kount        PLS_INTEGER;
       raise_the_roof          NUMBER := 2147483648;
       src_srid                NUMBER;
       tile_rerun              NUMBER;
-      first_restart           PLS_INTEGER := 0;
+      deadman                 PLS_INTEGER := 0;
+      restart_flag            VARCHAR2(1);
+      mystery_edges           GZ_TYPES.numberarray;
+      mystery_faces           GZ_TYPES.numberarray;
+      added_edge              NUMBER;
+      liquidated_edges        NUMBER;
+
 
    BEGIN
 
@@ -2378,23 +2992,34 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                             'Starting ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Starting ' || p_output_topology);
 
 
-      --get input layers
+      --get inputs
       extent_layer := GZ_BUILD_SOURCE.GET_EXTENT_LAYER(p_output_topology);
 
+      IF p_restart_flag = 'Y'
+      THEN
 
-      IF p_restart_flag = 'N'
-      OR NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_output_topology || '_BUILD_TILE')
+         restart_flag := p_restart_flag;
+
+      ELSE
+
+         restart_flag := 'N';
+
+      END IF;
+
+
+      IF restart_flag = 'N'
+      OR NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_output_topology || '_BUILD_TILE')
       THEN
 
          IF extent_layer.source_table IS NOT NULL
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                   'Getting tiles for ' || p_output_topology || ' using ' || extent_layer.source_table);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                        'Getting tiles for ' || p_output_topology || ' using ' || extent_layer.source_table);
 
             tiles := GZ_BUILD_SOURCE.GZ_TILE_TABLE(extent_layer.source_schema || '.' || extent_layer.source_table,
                                                    p_tile_kount,
@@ -2426,14 +3051,17 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                'Getting tiles for ' || p_output_topology || ' using tile table');
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                     'Getting tiles for ' || p_output_topology || ' using tile table');
 
          --restart, but still get all tiles here, skip later
          tiles := GZ_BUILD_SOURCE.GET_BUILD_TILE(p_output_topology);
 
       END IF;
 
+
+      --set this so the looping will work
+      tiles_active := tiles;
 
        --get source srid just once
       psql := 'SELECT a.srid '
@@ -2448,178 +3076,332 @@ AS
                                                  p_input_topology,
                                                  p_source_schema;
 
-      FOR i IN 1 .. tiles.COUNT
       LOOP
 
-         --all the work in here
+         EXIT WHEN tiles_active.COUNT = 0;
 
-         IF p_restart_flag = 'Y'
-         AND GZ_BUILD_SOURCE.IS_TILE_PROCESSED(p_output_topology,i,'4')
+         --roll through all the tiles, hopefully just one time
+
+         FOR i IN 1 .. tiles.COUNT
+         LOOP
+
+            --all the work in here
+
+            IF restart_flag = 'Y'
+            AND GZ_BUILD_SOURCE.IS_TILE_PROCESSED(p_output_topology,i,'4')
+            THEN
+
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                           'Already loaded tile ' || i);
+
+            ELSE
+
+
+               BEGIN
+
+                  GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
+                                                 p_input_topology,
+                                                 p_output_topology,
+                                                 tiles(i),
+                                                 i,
+                                                 tiles.COUNT,
+                                                 p_srid,
+                                                 src_srid,
+                                                 p_tolerance);
+
+                  --no error? Mark tile cool
+                  GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
+                                                   i,
+                                                   '4'); --module 4
+
+               EXCEPTION
+               WHEN OTHERS
+               THEN
+
+                  IF SQLERRM LIKE '%MEMORY%' --my error
+                  THEN
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                'Got a memory error on tile ' || i
+                                                             || ' Dont like this (consider smaller tiles) but Im gonna raise the roof');
+
+                      --Sidey voodoo first
+                      --This may not work - ORA-29550: Java session state cleared
+                      --If the out of memory is ORA-29554: unhandled Java out of memory condition
+                     dbms_session.free_unused_user_memory;
+                     SDO_TOPO_MAP.SET_MAX_MEMORY_SIZE(raise_the_roof);  --applies to session even with no topomap open?
+
+                     --any work in tile(i) should be cleaned up in lower error handlers
+
+                     BEGIN
+
+                        GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
+                                                       p_input_topology,
+                                                       p_output_topology,
+                                                       tiles(i),
+                                                       i,
+                                                       p_srid,
+                                                       src_srid,
+                                                       p_tolerance);
+
+                        --no error? Mark tile cool
+                        GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
+                                                         i,
+                                                         '4'); --module 4
+
+                     EXCEPTION
+                     WHEN OTHERS
+                     THEN
+
+                        --tile is dead to me, continue to next
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                    'Retry after memory error on tile ' || i || ' got another error (see error_msg). Skipping tile ',
+                                                                    p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+
+                     END;
+
+                  ELSIF UPPER(SQLERRM) LIKE UPPER('%Attempted to add linear geometry outside the update window%')
+                  THEN
+
+                     --I think this handler always handles this error these days
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                 'Got a bogus add linear geometry outside the update window on tile ' || i
+                                                              || ' Gonna call with a funky relate mask and double delta');
+
+                     --Oracle is a little buggy with the overlapbdyintersect mask
+                     --seeing cases where sdo_geom.relate (and eyes) see an edge that overlaps the window
+                     --But sdo_relate misses it.  Result is a short topo window
+                     --Here we will add additional masks that seem to trick sdo_relate into giving the right answer
+                     --Adding OVERLAPBDYINTERSECT to the mask seems to usually resolve the problem. Slows down a bit
+                     --Found 1 case requiring expanding the window in addition to mask change was necessary
+
+                     BEGIN
+
+                        GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
+                                                       p_input_topology,
+                                                       p_output_topology,
+                                                       tiles(i),
+                                                       i,
+                                                       tiles.COUNT,
+                                                       p_srid,
+                                                       src_srid,
+                                                       p_tolerance,
+                                                       (p_tolerance * 2),  --double the delta
+                                                       'mask=OVERLAPBDYDISJOINT+OVERLAPBDYINTERSECT');
+
+                        --no error? Mark tile cool
+                        GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
+                                                         i,
+                                                         '4'); --module 4
+
+                     EXCEPTION
+                     WHEN OTHERS
+                     THEN
+
+                        --tile is dead to me, continue to next
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                    'Retry on tile ' || i || ' got another error (see error_msg). Skipping tile ',
+                                                                    p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+
+                     END;
+
+                  ELSIF UPPER(SQLERRM) LIKE UPPER('%is not on the boundary of one or two of the faces it links%')
+                  THEN
+
+                     --Havent seen this error for a while
+                     --This approach will work with obsolete node removal incorporated
+                     --So just skip the tile for now
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                 'Got an -is not on the boundary- error (see error_msg). Skipping tile(s) ',
+                                                                  p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+                     /* Remove this junk soon
+
+                     --ORA-20001: ORA-29532: Java call terminated by uncaught Java exception: oracle.spatial.topo.TopoValidationException:
+                     --Edge 3150111 is not on the boundary of one or two of the faces it links
+
+                     --mystery error. Topomap didnt commit, and we rolled back the tile in load_topo_tile
+                     --If the error indicates a bad edge in a neighboring tile
+                     --remove the one baddy edge and rerun its tile.  Should catch just the one missing edge and add back in successfully
+                     --This error occurs frequently, and this workaround usually works
+                     --Sometimes it doesnt, and failure and restarting the job seems to work
+                     --May want to add other trickery here. Like expanding the window, or changing the order of the edges, or setting
+                     --   aside the tiles and returning to them at the end of processing
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                 'Got a bogus is not on the boundary of one or two of the faces it links on tile ' || i
+                                                              || ' Gonna attempt to remove and re-add the offending edge');
+
+                     --remove the edge indicated and get its tile number
+                     tile_rerun := GZ_BUILD_SOURCE.REMOVE_BADDY_EDGE(p_output_topology,
+                                                                     SQLERRM);
+
+                     --Before doing anything mark the baddy tile as incomplete.  If we fail this is important for reruns
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                 'Marking tile ' || tile_rerun || ' incomplete ' );
+
+                     GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
+                                                      tile_rerun,
+                                                      '0');
+
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                 'Removed an edge on tile ' || tile_rerun || '. Gonna rerun the tile we started on');
+
+                     BEGIN
+
+                        --original tile
+                        GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
+                                                       p_input_topology,
+                                                       p_output_topology,
+                                                       tiles(i),
+                                                       i,
+                                                       tiles.COUNT,
+                                                       p_srid,
+                                                       src_srid,
+                                                       p_tolerance);
+
+                        --no error? Mark tile cool
+                        GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
+                                                         i,
+                                                         '4'); --module 4
+
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                               'Finished tile ' || i || ' rerun. Now back to the tile we messed with: ' || tile_rerun);
+
+
+                        GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
+                                                       p_input_topology,
+                                                       p_output_topology,
+                                                       tiles(tile_rerun),
+                                                       tile_rerun,
+                                                       tiles.COUNT,
+                                                       p_srid,
+                                                       src_srid,
+                                                       p_tolerance);
+
+                        --dont forget the rerun tile status (other tile is marked above)
+                        GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
+                                                         tile_rerun,
+                                                         '4');
+
+                     EXCEPTION
+                     WHEN OTHERS
+                     THEN
+
+                        --tiles are dead to me, continue to next
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                               'Retry threw another error (see error_msg). Skipping tile(s) ',
+                                                               p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+
+                     END;
+
+                     */
+
+                     --end handling of is not on the boundary
+
+
+                  ELSIF UPPER(SQLERRM) LIKE UPPER('%links a face but is not on its boundary%')
+                  THEN
+
+                     --bogus, mess with the topomap extent
+                     --this should still work with obsolete nodes in the mix
+                     --consider this approach for other errors too, like
+                     --  '%is not on the boundary of one or two of the faces it links%' directly above
+
+                     BEGIN
+
+                        GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
+                                                       p_input_topology,
+                                                       p_output_topology,
+                                                       tiles(i),
+                                                       i,
+                                                       tiles.COUNT,
+                                                       p_srid,
+                                                       src_srid,
+                                                       p_tolerance,
+                                                       .02);  --smaller delta
+
+                        --no error? Mark tile cool
+                        GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
+                                                         i,
+                                                         '4'); --module 4
+
+                     EXCEPTION
+                     WHEN OTHERS
+                     THEN
+
+                        --tile is dead to me, continue to next
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                               'Retry on tile ' || i || ' with smaller extent threw another error (see error_msg). Skipping tile ',
+                                                               p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+
+                     END;
+
+
+                  ELSIF UPPER(SQLERRM) LIKE UPPER('%fetch out of sequence%')
+                  THEN
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                 'Tile ' || i || ' threw fetch out of sequence ',
+                                                                  p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+                     RAISE_APPLICATION_ERROR(-20001,SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+
+                  ELSE
+
+                     RAISE_APPLICATION_ERROR(-20001,SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
+
+                  END IF;
+
+               END;
+
+
+            END IF;
+
+         END LOOP; --loop over all tiles
+
+         --in case we ditched some that threw errors, get a new batch
+         --this is just for the count, the geometry is wasted overhead
+         tiles_active := GZ_BUILD_SOURCE.GET_BUILD_TILE(p_output_topology, '0');
+
+         IF tiles_active.COUNT > 0
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                   'Already loaded tile ' || i);
+            restart_flag := 'Y';
+
+            --make sure we dont do this forever. 3 times max
+            deadman := deadman + 1;
+
+            IF deadman < 4
+            THEN
+
+               --consider a parameter change here to the topomap delta
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                           'Making another loop to try to load ' || tiles_active.COUNT || ' failed tiles');
+
+            ELSE
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                           'Quitting. Tried three loops and ' || tiles_active.COUNT || ' tiles are still unable');
+
+            END IF;
 
          ELSE
 
-            IF p_restart_flag = 'Y'
-            AND first_restart = 0
-            THEN
-
-               first_restart := 1;
-
-               --on restarts we sometimes get situations where, on the initial run,
-               --the edge_ids got periodically committed to build_edge
-               --but the database plug is pulled before we can commit the active topomap
-               --theres probably no roll back a tile in that case
-               GZ_BUILD_SOURCE.ROLL_BACK_A_TILE(p_output_topology,
-                                                i,
-                                                'Y');
-            END IF;
-
-            BEGIN
-
-               GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
-                                              p_input_topology,
-                                              p_output_topology,
-                                              tiles(i),
-                                              i,
-                                              tiles.COUNT,
-                                              p_srid,
-                                              src_srid,
-                                              p_tolerance);
-
-            EXCEPTION
-            WHEN OTHERS
-            THEN
-
-               IF SQLERRM LIKE '%MEMORY%' --my error
-               THEN
-
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                         'Got a memory error on tile ' || i
-                                                      || ' Dont like this (consider smaller tiles) but Im gonna raise the roof');
-
-                   --Sidey voodoo first
-                   --This may not work - ORA-29550: Java session state cleared
-                   --If the out of memory is ORA-29554: unhandled Java out of memory condition
-                  dbms_session.free_unused_user_memory;
-                  SDO_TOPO_MAP.SET_MAX_MEMORY_SIZE(raise_the_roof);  --applies to session even with no topomap open?
-
-                  --any work in tile(i) should be cleaned up in lower error handlers
-                  GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
-                                                 p_input_topology,
-                                                 p_output_topology,
-                                                 tiles(i),
-                                                 i,
-                                                 p_srid,
-                                                 src_srid,
-                                                 p_tolerance);
-
-               ELSIF UPPER(SQLERRM) LIKE UPPER('%Attempted to add linear geometry outside the update window%')
-               THEN
-
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                         'Got a bogus add linear geometry outside the update window on tile ' || i
-                                                      || ' Gonna call with a funky relate mask and double delta');
-
-                  --Oracle is a little buggy with the overlapbdyintersect mask
-                  --seeing cases where sdo_geom.relate (and eyes) see an edge that overlaps the window
-                  --But sdo_relate misses it.  Result is a short topo window
-                  --Here we will add additional masks that seem to trick sdo_relate into giving the right answer
-                  --Adding OVERLAPBDYINTERSECT to the mask seems to usually resolve the problem. Slows down a bit
-                  --Found 1 case requiring expanding the window in addition to mask change was necessary
-                  GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
-                                                 p_input_topology,
-                                                 p_output_topology,
-                                                 tiles(i),
-                                                 i,
-                                                 tiles.COUNT,
-                                                 p_srid,
-                                                 src_srid,
-                                                 p_tolerance,
-                                                 (p_tolerance * 2),  --double the delta
-                                                 'mask=OVERLAPBDYDISJOINT+OVERLAPBDYINTERSECT');
-
-               ELSIF UPPER(SQLERRM) LIKE UPPER('%is not on the boundary of one or two of the faces it links%')
-               THEN
-
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                         'Got a bogus is not on the boundary of one or two of the faces it links on tile ' || i
-                                                      || ' Gonna attempt to remove and re-add the offending edge');
-
-                  --ORA-20001: ORA-29532: Java call terminated by uncaught Java exception: oracle.spatial.topo.TopoValidationException:
-                  --Edge 3150111 is not on the boundary of one or two of the faces it links
-
-
-                  --mystery error. Topomap didnt commit, and we rolled back the tile in load_topo_tile
-                  --If the error indicates a bad edge in a neighboring tile
-                  --remove the one baddy edge and rerun its tile.  Should catch just the one missing edge and add back in successfully
-                  --This has worked with handholding, havent actually seen this rare trap and restart happen auto, but it should
-                  --May want to add other trickery here. Like expanding the window, or changing the order of the edges
-
-                  --remove the edge indicated and get its tile number
-                  tile_rerun := GZ_BUILD_SOURCE.REMOVE_BADDY_EDGE(p_output_topology,
-                                                                  SQLERRM);
-
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                         'Removed an edge on tile ' || tile_rerun || '. Gonna rerun the tile we started on');
-
-                  GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
-                                                 p_input_topology,
-                                                 p_output_topology,
-                                                 tiles(i),
-                                                 i,
-                                                 tiles.COUNT,
-                                                 p_srid,
-                                                 src_srid,
-                                                 p_tolerance);
-
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                         'Finished tile ' || i || ' rerun. Now back to the tile we messed with: ' || tile_rerun);
-
-                  GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
-                                                 p_input_topology,
-                                                 p_output_topology,
-                                                 tiles(tile_rerun),
-                                                 tile_rerun,
-                                                 tiles.COUNT,
-                                                 p_srid,
-                                                 src_srid,
-                                                 p_tolerance);
-
-               ELSIF UPPER(SQLERRM) LIKE UPPER('%links a face but is not on its boundary%')
-               THEN
-
-                  --bogus, mess with the topomap extent
-                  GZ_BUILD_SOURCE.LOAD_TOPO_TILE(p_source_schema,
-                                              p_input_topology,
-                                              p_output_topology,
-                                              tiles(i),
-                                              i,
-                                              tiles.COUNT,
-                                              p_srid,
-                                              src_srid,
-                                              p_tolerance,
-                                              .02);  --smaller delta
-
-
-               ELSE
-
-                  RAISE_APPLICATION_ERROR(-20001,SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
-
-               END IF;
-
-            END;
-
-            --mark tile cool
-            GZ_BUILD_SOURCE.MARK_TILE_STATUS(p_output_topology,
-                                             i,
-                                             '4'); --module 4
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                        'All tiles appear to have loaded successfully on loop ' || deadman);
 
          END IF;
 
-      END LOOP;
+      END LOOP;  --Outer loop over batches of incomplete tiles, usually just once. EXIT WHEN tiles_active.COUNT = 0
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -2628,11 +3410,56 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                             'Completed load, verifying record counts ');
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Completed load, verifying record counts ');
 
-      --Any checks?  There should be a 1:1:1 relationship between
-      --input primitive edge ids, output build_edges, output primitive edge ids
+      --Checks
+
+      --1st, the build_geom table should show all edges as processed.  Each tile should have sucked records in,
+      --added them to the topology, and set processed to 1
+      psql := 'SELECT COUNT(*) '
+           || 'FROM ' || p_output_topology || '_build_geom a '
+           || 'WHERE a.processed = :p1 ';
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Verifying all recs in ' || p_output_topology || '_build_geom are processed',
+                                                  p_sqlstmt => psql);
+
+      EXECUTE IMMEDIATE psql INTO build_geom_kount USING 0;
+
+      IF build_geom_kount <> 0
+      THEN
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                     'Oops: Some records remain unprocessed in ' || p_output_topology || '_build_geom');
+
+         RAISE_APPLICATION_ERROR(-20001,'Oops: Some records remain unprocessed in ' || p_output_topology || '_build_geom');
+
+      END IF;
+      
+      --obsolete node removal will occasionally bogus up some edges, making the records in xx_build_edge untrustworthy
+      --in addition to the clearly bogus ones discovered and fixed (as necessary) below, that correspond to nothing in build_edge
+      --sometimes the edge ids still match existing values in the universe. But current edge id and source edge id are no longer spatially related
+      --usually the edge id of a new mystery spot migrates to a neighboring face
+      --results in bad face attributes, and worst of all, no way of knowing about it
+      
+      --determine if any are spatially bad and if so delete the records from xx_build_edge
+      --forces them into the mystery universe a moment later
+      
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Remove edges from ' || p_output_topology || 
+                                                  '_build_edge that have no spatial relationship with edge$');
+                                                  
+      liquidated_edges := GZ_BUILD_SOURCE.LIQUIDATE_MIGRATED_EDGES(p_output_topology,
+                                                                   p_tolerance);
+                                                                   
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Removed ' || liquidated_edges || ' edges from ' || p_output_topology || '_build_edge ');
+
+      --There *should* in a rainbows and unicorns world be a 1:1 relationship between
+      --output xx_build_edges and output primitive edge ids in xx_edge$
+      --And thanks to obsolete node removal a less than or equal number of edges in those two tables
+      --    than the input build_poly table
 
       psql := 'SELECT COUNT(*) '
            || 'FROM ' || p_output_topology || '_build_edge ';
@@ -2642,8 +3469,8 @@ AS
       IF output_work_kount = 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                'Oops: no records in ' || p_output_topology || '_build_edge');
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                     'Oops: no records in ' || p_output_topology || '_build_edge');
 
          RAISE_APPLICATION_ERROR(-20001,'Oops: no records in ' || p_output_topology || '_build_edge');
 
@@ -2657,45 +3484,181 @@ AS
       IF output_edge_kount = 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                'Oops: no records in ' || p_output_topology || '_edge$');
+         --This is fatal, no topo edges
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                     'Oops: no records in ' || p_output_topology || '_edge$');
 
          RAISE_APPLICATION_ERROR(-20001,'Oops: no records in ' || p_output_topology || '_edge$');
 
       END IF;
+
+
+      IF output_work_kount != output_edge_kount
+      THEN
+
+         --1:1 between build_edge (as its deleted from due to obsolete nodes) and new edge$
+         --Unfortunately in about .0023% of obsolete node removals along a string of edges, Oracle generates a new
+         --   unknown edge id.  This is not fatal so long as other edges around the face bounded by the mystery edge
+         --   Can continue to represent the geographies and perform the face update in the later module
+
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                     'WARNING: mismatched record counts. Will check each face for good edges '
+                                                     || p_output_topology || '_build_edge:' || output_work_kount || ' '
+                                                     || p_output_topology || '_edge$:' || output_edge_kount);
+
+         IF output_work_kount < output_edge_kount
+         THEN
+
+            --this we can potentially work with so long as each face still has a good known edge
+            --Gonna log the H E hockeysticks outta this
+
+            psql := 'SELECT e.edge_id FROM ' || p_output_topology || '_edge$ e '
+                 || 'MINUS '
+                 || 'SELECT a.edge_id FROM ' || p_output_topology || '_build_edge a ';
+
+            --These are new edges where we know nothing about their L/R geographies
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                        'Getting new edges in ' || p_output_topology || '_edge$ where we know nothing about L/R values',
+                                                        p_sqlstmt => psql);
+
+            EXECUTE IMMEDIATE psql BULK COLLECT INTO mystery_edges;
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                        'Found ' || mystery_edges.COUNT || ' primitive $ edges where we know nothing about L/R values');
+
+            psql := 'WITH mystery_edges '
+                 || '       AS (SELECT edge_id FROM ' || p_output_topology || '_edge$ '
+                 || '          MINUS '
+                 || '          SELECT edge_id FROM ' || p_output_topology || '_build_edge) '
+                 || ' SELECT e.left_face_id '
+                 || '   FROM ' || p_output_topology || '_edge$ e, mystery_edges a '
+                 || '  WHERE e.edge_id = a.edge_id AND e.left_face_id <> :p1 '
+                 || ' UNION '
+                 || ' SELECT e.right_face_id '
+                 || '   FROM ' || p_output_topology || '_edge$ e, mystery_edges a '
+                 || '  WHERE e.edge_id = a.edge_id AND e.right_face_id <> :p2 ';
+
+            --Get faces bound by new questionable edges
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                        'Getting faces bound by at least one new (unknown L/R values) edge id in ' || p_output_topology || '_edge$',
+                                                        p_sqlstmt => psql);
+
+            EXECUTE IMMEDIATE psql BULK COLLECT INTO mystery_faces USING -1, -1;
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                        'Found ' || mystery_faces.COUNT || ' primitive faces bound by a mystery edge_id ');
+
+            FOR i IN 1 .. mystery_faces.COUNT
+            LOOP
+
+               IF GZ_BUILD_SOURCE.FACE_HAS_KNOWN_EDGES(p_output_topology,
+                                                       mystery_faces(i),
+                                                       mystery_edges) = 'FALSE'
+               THEN
+
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                             'Must take evasive maneuvers, face '|| mystery_faces(i) || ' is bounded by '
+                                                          || ' no remaining good edges');
+
+                  --Find an edge in xx_build_geom that can be inserted into xx_build_edge to rep this face
+                  --Returns either the current topo edge (not the _geom edge) added as <topo>_build_edge.edge_id, or 0 for fail
+                  added_edge := GZ_BUILD_SOURCE.FIX_MYSTERY_FACE(p_output_topology,
+                                                                 mystery_faces(i));
+
+                  IF added_edge <> 0
+                  THEN
+
+                     --dont forget, the added edge is no longer a mystery, it now points back to a _geom edge
+                     --with known L/R vals in the bench
+                     mystery_edges := GZ_BUSINESS_UTILS.NUMBERARRAY_SUBTRACT(mystery_edges,
+                                                                             added_edge);
+
+                     --check again
+                     IF GZ_BUILD_SOURCE.FACE_HAS_KNOWN_EDGES(p_output_topology,
+                                                             mystery_faces(i),
+                                                             mystery_edges) = 'FALSE'
+                     THEN
+
+                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                   'After attempted fix, face '|| mystery_faces(i) || ' is bounded by '
+                                                                || ' no remaining good edges');
+
+                        RAISE_APPLICATION_ERROR(-20001,'After attempted fix, mystery face '|| mystery_faces(i) || ' is bounded by '
+                                                    || ' no remaining good edges');
+
+                     END IF;
+
+
+                  ELSE
+
+
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                                'Gotta fail, couldnt fix face '|| mystery_faces(i) || ' which is bounded by '
+                                                             || ' no remaining good edges');
+
+                     RAISE_APPLICATION_ERROR(-20001,'Gotta fail, couldnt fix mystery face '|| mystery_faces(i) || ' which is bounded by '
+                                                 || ' no remaining good edges');
+
+                  END IF;
+
+               ELSE
+
+                  --Tis ok, theres some other edge id that bounds the face and has the necessary L/R values
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                              'Pass: Face ' || mystery_faces(i) || ' is still bound by a known good edge_id ');
+
+               END IF;
+
+
+            END LOOP;
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                        'Will continue, all ' || mystery_faces.COUNT || ' faces bounded by '
+                                                       || mystery_edges.COUNT || ' mystery edges are now bound by at least one good edge ');
+
+         ELSE
+
+            RAISE_APPLICATION_ERROR(-20001,'Gotta Fail, this is unexpected: More edges in '|| p_output_topology || '_build_edge than '
+                                           || p_output_topology || '_edge$.');
+
+         END IF;
+
+      END IF;
+
 
       psql := 'SELECT count(DISTINCT edge_id) '
            || 'FROM ' || p_output_topology || '_build_poly ';
 
       EXECUTE IMMEDIATE psql INTO input_edge_kount;
 
-
-      IF output_work_kount != output_edge_kount
-      OR output_work_kount != input_edge_kount
-      OR output_edge_kount != input_edge_kount
+      IF input_edge_kount <= output_work_kount
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                                'Oops: mismatched record counts. '
-                                              || p_output_topology || '_build_edge:' || output_work_kount || ' '
-                                              || p_output_topology || '_edge$:' || output_edge_kount || ' '
-                                              || p_output_topology || '_build_poly:' || input_edge_kount);
+         --Cant imagine this is really possible
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                     'Oops: somehow more edges in the output than the input. '
+                                                     || p_output_topology || '_build_edge:' || output_work_kount || ' '
+                                                     || p_output_topology || '_build_poly:' || input_edge_kount);
 
-         RAISE_APPLICATION_ERROR(-20001,'Oops: Mismatched record counts. '
-                                              || p_output_topology || '_build_edge:' || output_work_kount || ' '
-                                              || p_output_topology || '_edge$:' || output_edge_kount || ' '
-                                              || p_output_topology || '_build_poly:' || input_edge_kount);
+         RAISE_APPLICATION_ERROR(-20001,'Oops: somehow more edges in the output than the input. '
+                                        || p_output_topology || '_build_edge:' || output_work_kount || ' '
+                                        || p_output_topology || '_build_poly:' || input_edge_kount);
+
 
       END IF;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                             'Gathering stats on ' || p_output_topology || '_build_edge',
-                                             NULL,NULL,NULL,NULL);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Gathering stats on ' || p_output_topology || '_build_edge',
+                                                  NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.GATHER_TABLE_STATS(p_output_topology || '_BUILD_EDGE');
+      --messed with this table a lot
+      GZ_BUSINESS_UTILS.GATHER_TABLE_STATS(p_output_topology || '_BUILD_EDGE');
 
       --que mas?
 
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+                                                  'Load and verification complete ' || p_output_topology);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -2703,9 +3666,6 @@ AS
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('LOAD_OUTPUT_TOPOLOGY: Peace out');
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
-
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
-                                             'Load and verification complete ' || p_output_topology);
 
       RETURN output;
 
@@ -2811,7 +3771,7 @@ AS
                edge_mbr.sdo_ordinates(4) := edge_mbr.sdo_ordinates(4) + p_delta;
 
 
-               ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
+               ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
                                                               p_topology,
                                                               2,
                                                               edge_mbr.sdo_ordinates(1),
@@ -2820,7 +3780,7 @@ AS
                                                               edge_mbr.sdo_ordinates(4)
                                                               );
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE edge_id ' || edge_ids(i),NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE edge_id ' || edge_ids(i),NULL,
                                                       'Removing nodes',NULL,NULL,NULL,NULL,NULL,NULL,NULL);
                BEGIN
 
@@ -2838,7 +3798,7 @@ AS
                      --A portion of the boundary of face ID 31 is unreachable from the face boundary edge or island list
                      --Actually I think the error throws on the topomap commit below
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                             'Edge ' || edge_ids(i) || ' obsolete node removal threw->',
                                                              NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -2857,12 +3817,12 @@ AS
 
                END;
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE edge_id ' || edge_ids(i),NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE edge_id ' || edge_ids(i),NULL,
                                                       'Commit and drop topomap',NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
                BEGIN
 
-                  ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
+                  ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
                                                                  p_topology,
                                                                  3);
 
@@ -2876,7 +3836,7 @@ AS
                      --mystery.  This error is why we are in edge by edge processing to begin with
                      --A portion of the boundary of face ID 31 is unreachable from the face boundary edge or island list
 
-                     GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                     GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                             'Edge ' || edge_ids(i) || ' obsolete node removal threw->',
                                                              NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -2900,7 +3860,7 @@ AS
          IF j < p_tries
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE ',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE ',NULL,
                                                    'Going back for another loop over the edges',NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
          END IF;
@@ -2920,7 +3880,7 @@ AS
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE ' || p_tile_number,NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES_EDGE ' || p_tile_number,NULL,
                                                 'Complete.  Removed ' || (before_kount - after_kount) || ' obsoletes');
 
       END IF;
@@ -2984,11 +3944,11 @@ AS
       EXECUTE IMMEDIATE psql INTO before_kount;
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
                                              'Opening topomap with window-->',NULL,NULL,NULL,NULL,NULL,NULL,p_window);
 
 
-      ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
+      ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
                                                      p_topology,
                                                      2,
                                                      p_window.sdo_ordinates(1),
@@ -2997,15 +3957,15 @@ AS
                                                      p_window.sdo_ordinates(4)
                                                      );
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
                                              'Removing nodes',NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
       SDO_TOPO_MAP.REMOVE_OBSOLETE_NODES(NULL);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
                                              'Commit and drop topomap',NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-      ez_topo_mgr := GZ_UTILITIES.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
+      ez_topo_mgr := GZ_TOPO_UTIL.EZ_TOPOMAP_MANAGER(p_topology || '_MAP',
                                                      p_topology,
                                                      3);
 
@@ -3014,7 +3974,7 @@ AS
 
       EXECUTE IMMEDIATE psql INTO after_kount;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'REMOVE_OBSOLETE_NODES ' || p_tile_number,NULL,
                                              'Complete.  Removed ' || (before_kount - after_kount) || ' obsoletes');
 
 
@@ -3035,9 +3995,13 @@ AS
    AS
 
       --Matt! 2/16/12
-      --1. Check for dangles and isolated
-      --2. remove obsolete nodes
-      --3. delete dead records from build_edge table
+      --! 11/26/13 Moved obsolete node removal to load_output_topology
+
+      --1. Check for dangles
+      --2. Check for isolated nodes
+      --3. Check for obsolete nodes ?and remove if found? For now error
+      --4. Check for 1:1 between xx_build_edge and xx_edge$
+
 
       psql              VARCHAR2(4000);
       kount             PLS_INTEGER;
@@ -3059,125 +4023,79 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                             'Starting ' || p_output_topology || ' checks for isolated nodes or dangles');
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                  'Starting ' || p_output_topology || ' checks for isolated nodes or dangles');
 
       --checks
 
-      --isolated
+      --1. isolated
 
       IF GZ_BUILD_SOURCE.ISOLATED_NODES_EXIST(p_output_topology)
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                'Quitting.  We have isolated nodes in ' || p_output_topology);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                     'Quitting.  We have isolated nodes in ' || p_output_topology);
 
          RAISE_APPLICATION_ERROR(-20001, 'Quitting.  We have isolated nodes in ' || p_output_topology);
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                'Sweet, no isolated nodes in ' || p_output_topology);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                     'Sweet, no isolated nodes in ' || p_output_topology);
 
       END IF;
 
-      --dangles
+      --2. dangles
 
       IF GZ_BUILD_SOURCE.DANGLE_EDGES_EXIST(p_output_topology)
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                'Quitting.  We have dangling edges in ' || p_output_topology);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                     'Quitting.  We have dangling edges in ' || p_output_topology);
 
          RAISE_APPLICATION_ERROR(-20001, 'Quitting.  We have dangling in ' || p_output_topology);
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                'Sweet, no dangling edges in ' || p_output_topology);
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                     'Sweet, no dangling edges in ' || p_output_topology);
 
       END IF;
 
 
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 20');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('CLEAN_OUTPUT_TOPOLOGY: Tiling');
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
+      --3. CHECK FOR OBSOLETES HERE
+      --With possible single obsolete node removal code, see below for old examples
+      --Could call gz_topo_util.GET_OBSOLETE_NODES
+      --Assume for a moment that an obsolete node or 2 gets through
+      --Does any processing that follow choke on them?  I think clip at least will be cool
+      --And if not maybe removing from the smaller, parallelized clip/sp/ls topos is more efficient anyway
+      --Verdict not arrived at
 
-      --check for obsolete nodes
-      --I cant come up with SQL to determine obsolete nodes in reasonable time
-      --SQL is fine for small topos but grinds to a halt for large topos
-      --Almost 100 pct of the time we'll have them, and a counter doesnt even say antything about tiles
-      --So lets just go ahead
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                  'Checking ' || p_output_topology || ' for obsolete nodes, could take a minute(or 20)');
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                             'Getting tiles for ' || p_output_topology);
+      kount := GZ_TOPO_UTIL.COUNT_OBSOLETE_NODES(p_output_topology);
 
-
-
-      extent_layer := GZ_BUILD_SOURCE.GET_EXTENT_LAYER(p_output_topology);
-
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_output_topology || '_BUILD_TILE')
+      IF kount = 0
       THEN
 
-         --this is really only here in case we are restarting
-         --manually dropping the tile table
-         --and requesting a new tile kount config
-
-         --get input layer for tiles
-         --But what if different modules require different tiling schemes?  Yeah, thats my excuse
-         --Note also that the extent for the extent-layer-less load is now based on the new topology
-         IF extent_layer.source_table IS NOT NULL
-         THEN
-
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                   'Getting tiles for ' || p_output_topology || ' using ' || extent_layer.source_table);
-
-            tiles := GZ_BUILD_SOURCE.GZ_TILE_TABLE(extent_layer.source_schema || '.' || extent_layer.source_table,
-                                                   p_tile_kount,
-                                                   'SDOGEOMETRY',  --parameterize?
-                                                   extent_layer.where_clause,
-                                                   extent_layer.sdo_filter,
-                                                   'BUILD',
-                                                   p_output_topology);
-
-         ELSE
-
-            --can be null if no extent layer exists
-            --got to go with new edge$.  Much slower, mainly on the aggr step to get full extent
-
-            tiles := GZ_BUILD_SOURCE.GZ_TILE_TABLE(p_output_topology || '_EDGE$',
-                                                   p_tile_kount,
-                                                   'GEOMETRY',
-                                                  'a.left_face_id = -1 OR a.right_face_id = -1',  --performance
-                                                   NULL,                                          --full extent
-                                                   'BUILD',
-                                                   p_output_topology);
-
-         END IF;
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                     'Marvelous, no obsolete nodes in ' || p_output_topology);
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                'Getting tiles from ' || p_output_topology || '_build_tile');
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                     'This can be dealt with but I want to see it -- '
+                                                     || kount || ' obsolete nodes in ' || p_output_topology);
 
-         --previous module 4 was our last update
-         --if this is a restart, all of the tiles we finished last time will be marked with a 5 and we wont get them
-         --tiles := GZ_BUILD_SOURCE.GET_BUILD_TILE(p_output_topology, '4');
-
-         --need tile numbers, no accessor for this
-         psql := 'SELECT a.tile_number, a.sdogeometry '
-              || 'FROM ' || p_output_topology || '_build_tile a '
-              || 'WHERE a.status_clue = :p1 '
-              || 'ORDER by a.tile_number ';
-
-         EXECUTE IMMEDIATE psql BULK COLLECT INTO tile_ids,
-                                                  tiles USING '4';
-
+         RAISE_APPLICATION_ERROR(-20001,'This can be dealt with but I wanna see it -- '
+                                         || kount || ' obsolete nodes in ' || p_output_topology);
 
       END IF;
+
+
+      /*  Saving all of this defunct obsolete node code for error handling code
+          in case I need to pull it into load_topo_tile
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3194,7 +4112,7 @@ AS
          FOR i IN 1 .. tiles.COUNT
          LOOP
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                    'Tile ' || tile_ids(i) || ' obsolete node removal ');
 
             BEGIN
@@ -3227,7 +4145,7 @@ AS
                   --desperate edge by edge last ditch effort
                   --extremely slow, just builds a little topomap for each edge in the tile and calls remove obsolete
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                          'Desperate, sending tile ' || tile_ids(i) ||
                                                          ' to edge by edge obsolete node removal');
 
@@ -3255,7 +4173,7 @@ AS
                   --mystery 3
                   --Face ID 218850 not found in cache ORA-06512: at "MDSYS.SDO_TOPO_MAP", line 342
 
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                          'Weird: Tile ' || tile_ids(i) || ' obsolete node removal threw->',
                                                          NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -3270,7 +4188,7 @@ AS
 
                   --only seen this once in remove obsolete nodes.  Happened on topomap commit
                   --As of coding have never seen this trap succeed
-                  GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                  GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                          'Gonna raise the roof and return to this tile: Tile ' || tile_ids(i) || ' obsolete node removal threw->',
                                                           NULL,NULL,NULL,NULL,NULL,SQLERRM);
 
@@ -3316,7 +4234,7 @@ AS
                                                      tiles USING '4';
 
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                    'Going back for another loop over ' || tiles.COUNT || ' failed tiles ');
 
          ELSE
@@ -3329,62 +4247,17 @@ AS
          --delete edges here by tile maybe if performance below gets bad
 
       END LOOP;
+      */
 
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 40');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('CLEAN_OUTPUT_TOPOLOGY: Removing dead edges from build_edge ');
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
+      --no tile-based obsolete node removal to do this tile-by-tile now
+      --just set em all
 
-      --lets try one SQL for now
+      psql := 'UPDATE ' || p_output_topology || '_build_tile a '
+           || 'SET '
+           || 'a.status_clue = :p1 ';
 
-      psql := 'DELETE FROM ' || p_output_topology || '_build_edge a '
-            || 'WHERE NOT EXISTS '
-            || '(SELECT e.edge_id FROM '
-            || p_output_topology || '_edge$ e '
-            || 'WHERE e.edge_id = a.edge_id) ';
-
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                              'Removing dead edges from ' || p_output_topology || '_build_edge ',
-                                              NULL,NULL,NULL,psql,NULL,NULL);
-
-      EXECUTE IMMEDIATE psql;
+      EXECUTE IMMEDIATE psql USING '5';
       COMMIT;
-
-      --check that we still have 1:1
-
-      psql := 'SELECT a.cnt - b.cnt '
-           || 'FROM '
-           || '(SELECT COUNT(*) cnt FROM ' || p_output_topology || '_build_edge) a, '
-           || '(SELECT COUNT(*) cnt FROM ' || p_output_topology || '_edge$) b ';
-
-      EXECUTE IMMEDIATE psql INTO kount;
-
-      IF kount != 0
-      THEN
-
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                'Error: kounts differ between ' || p_output_topology || '_build_edge and '
-                                                || p_output_topology || '_edge$',NULL,NULL,NULL,psql,NULL,NULL);
-
-         RAISE_APPLICATION_ERROR(-20001,'Error: kounts differ between ' || p_output_topology || '_build_edge and '
-                                        || p_output_topology || '_edge$');
-
-      ELSE
-
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                                'Kool: kounts are equal ' || p_output_topology || '_build_edge and '
-                                                || p_output_topology || '_edge$',NULL,NULL,NULL,psql,NULL,NULL);
-
-      END IF;
-
-
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                             'Re-Gathering stats on ' || p_output_topology || '_build_edge',
-                                             NULL,NULL,NULL,NULL);
-
-      GZ_UTILITIES.GATHER_TABLE_STATS(p_output_topology || '_BUILD_EDGE');
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3393,8 +4266,8 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
-                                             'Complete ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+                                                  'Complete ' || p_output_topology);
 
       RETURN output;
 
@@ -3413,14 +4286,16 @@ AS
    AS
 
       --Matt! 2/21/12
+      --! Updated 9/30/13 to respect reference_face_fields.field_length
 
       psql                 VARCHAR2(4000);
       measurements         GZ_TYPES.stringarray;
       layers               GZ_TYPES.GZ_LAYERS_IN_INFO;
+      lengths              GZ_TYPES.stringarray;
 
    BEGIN
 
-      measurements := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      measurements := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                              p_project_id,
                                                              'MEASUREMENT');
 
@@ -3437,7 +4312,15 @@ AS
       FOR i IN 1 .. layers.COUNT
       LOOP
 
-         psql := psql || layers(i).layer || ' VARCHAR2(4000), ';
+         --return a single length, as a character
+         lengths := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
+                                                                p_project_id,
+                                                                'ATTRIBUTE',
+                                                                'REFERENCE_FACE_FIELDS',
+                                                                'FIELD_LENGTH',
+                                                                layers(i).layer);
+
+         psql := psql || layers(i).layer || ' VARCHAR2(' || lengths(1) || '), ';
 
       END LOOP;
 
@@ -3471,7 +4354,7 @@ AS
 
       END LOOP;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'CREATE_BUILD_FACE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_topology,'CREATE_BUILD_FACE',NULL,
                                              'SQL for ' || p_topology || '_face ',NULL,NULL,NULL,psql);
 
       BEGIN
@@ -3522,12 +4405,12 @@ AS
 
       --bitmap index on handful of tiles
 
-      GZ_UTILITIES.ADD_INDEX(p_table_name,
+      GZ_BUSINESS_UTILS.ADD_INDEX(p_table_name,
                              p_table_name || '_TN',
                             'TILE_NUMBER',
                             'BITMAP');
 
-      GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
+      GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS',p_table_name);
 
 
    END CREATE_BUILD_FACE;
@@ -3568,13 +4451,13 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                              'Starting ' || p_output_topology || '_face creation');
 
 
       --create it
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                              'Creating ' || p_output_topology || '_face');
 
       GZ_BUILD_SOURCE.CREATE_BUILD_FACE(p_output_topology || '_FACE',
@@ -3585,7 +4468,7 @@ AS
 
       --register
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                              'Registering ' || p_output_topology || '_face topogeom');
 
       SDO_TOPO.add_topo_geometry_layer(p_output_topology,
@@ -3601,7 +4484,7 @@ AS
             || 'FROM ' || p_output_topology || '_face$ f '
             || 'WHERE f.face_id != :p1 ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                              'Inserting ' || p_output_topology || '_face face_ids',
                                              NULL,NULL,NULL,psql);
 
@@ -3629,7 +4512,7 @@ AS
               || 'f.face_id != :p3) '
               || 'AND aa.tile_number IS NULL ';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                              'Updating ' || p_output_topology || '_face tile_number ' || tilez.COUNT || ' times ',
                                              NULL,NULL,NULL,psql);
 
@@ -3655,7 +4538,7 @@ AS
       IF kount > 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                                 'Bailing out, got ' || kount || ' NUll tile_numbers in ' || p_output_topology || '_face',
                                                  NULL,NULL,NULL,psql);
 
@@ -3664,11 +4547,11 @@ AS
       END IF;
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                              'Gathering stats on ' || p_output_topology || '_face',
                                              NULL,NULL,NULL,NULL);
 
-      GZ_UTILITIES.GATHER_TABLE_STATS(p_output_topology || '_FACE');
+      GZ_BUSINESS_UTILS.GATHER_TABLE_STATS(p_output_topology || '_FACE');
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3677,7 +4560,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                              'Complete ' || p_output_topology || '_face creation');
 
       RETURN output;
@@ -3748,7 +4631,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      tg_layer_id := GZ_UTILITIES.GET_TG_LAYER_ID(p_topo,
+      tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
                                                   p_table,
                                                   p_topo_col,
                                                   tg_layer_type);
@@ -3829,7 +4712,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
                                              'Starting ' || p_output_topology || '_face topogeom construction');
 
       --work by tile in order
@@ -3839,7 +4722,7 @@ AS
       FOR i IN 1 .. tilez.COUNT
       LOOP
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
                                                  'Calling build_topo_from_topo for tile ' || tilez(i));
 
 
@@ -3864,7 +4747,7 @@ AS
       IF kount > 0
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
                                                 'Bailing out, got ' || kount || ' NUll topogeoms in ' || p_output_topology || '_face',
                                                  NULL,NULL,NULL,psql);
 
@@ -3875,10 +4758,10 @@ AS
       --tune up now, have relation$
       --includes stats
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
                                              'Calling topo tune up for stats and index tidying ');
 
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(p_output_topology);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(p_output_topology);
 
       ----------------------------------------------------------------------------------
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3887,7 +4770,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
                                              'Complete ' || p_output_topology || '_face topogeom construction');
 
       RETURN output;
@@ -3940,7 +4823,7 @@ AS
 
       END LOOP;
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_BUILD_GEOID',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_BUILD_GEOID',NULL,
                                              'Executing build geoid sql -->', NULL,NULL,NULL,psql);
 
       EXECUTE IMMEDIATE psql;
@@ -3962,6 +4845,13 @@ AS
 
       --Matt! 2/21/12
       --Switch to sdo_get_oid_from_face
+      --! 11/26/13 New obsolete node on the fly removal
+      --           kills off the xx_build_geom records
+      --           Switch this fun to use the current topo edge$ for the SDO
+      --! Also 11/27/13 New obsolete node plan results in a handful of edges
+      --                that cant be tied back to the benchmark
+      --                So they must be ignored in the L/R updates
+      --! Performance issues in big Z6 with L/R ignore edges. Hopefully fixed 1/6/13
 
 
       psql                 VARCHAR2(4000);
@@ -3972,13 +4862,13 @@ AS
       tilez                GZ_TYPES.stringarray;
       layerz               GZ_TYPES.GZ_LAYERS_IN_INFO;
       layerz_layer_levelz  GZ_TYPES.stringarray;
-      my_cursor            SYS_REFCURSOR;
-      faces                GZ_TYPES.stringarray;
-      edges                GZ_TYPES.stringarray;
+      faces_r              GZ_TYPES.numberarray;
+      edges_r              GZ_TYPES.numberarray;
+      faces_l              GZ_TYPES.numberarray;
+      edges_l              GZ_TYPES.numberarray;  
       tile_kount           PLS_INTEGER;
-
-
-
+      ignore_edges         MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
+      
    BEGIN
 
       ----------------------------------------------------------------------------------
@@ -3988,8 +4878,8 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
-                                             'Starting ' || p_output_topology || '_face layer updates ');
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                  'Starting ' || p_output_topology || '_face layer updates ');
 
       --work by tile and layer
 
@@ -4007,27 +4897,47 @@ AS
 
       END LOOP;
 
+      --one time only dealie, get the edges that we cant use for L/R updates
+      --For some reason collecting these edges once and then re-using in the updates is slow
+      --will still get them for the kount only      
+      
+      psql := 'SELECT e.edge_id FROM ' || p_output_topology || '_edge$ e '
+           || 'MINUS '
+           || 'SELECT a.edge_id FROM ' || p_output_topology || '_build_edge a ';
+
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                  'Will ignore these edges in update since they cant be tied back to the bench',
+                                                  p_sqlstmt => psql);
+
+      EXECUTE IMMEDIATE psql BULK COLLECT INTO ignore_edges;
+
       --set up the update sql one time
-      --sample
-      /*UPDATE z210in_face a
-         SET (a.county, a.place) =
-                (SELECT gz_build_source.gz_get_oid_from_face ('TAB10ST10',
-                                                              'MT',
-                                                              'COUNTY',
-                                                              1,
-                                                              e.left_face_id,
-                                                              'a.vintage = ''90''',
-                                                              'OID'),
-                        gz_build_source.gz_get_oid_from_face ('TAB10ST10',
-                                                              'MT',
-                                                              'INCPLACE',
-                                                              0,
-                                                              e.left_face_id,
-                                                              'a.vintage = ''90''',
-                                                              'OID')
-                   FROM tab10st10.mt_edge$ e, z210in_build_edge b
-                  WHERE b.edge_id = 10 AND b.source_edge_id = e.edge_id)
-       WHERE a.face_id = 2
+      --sample ... a little out of date
+      /*UPDATE Z899IN_face a
+         SET (a.CD, a.COUNTY) =
+                (SELECT GZ_BUILD_SOURCE.SDO_GET_OID_FROM_FACE (
+                           'ACS13',
+                           'MT',
+                           'CD',
+                           0,
+                           e.right_face_id,
+                           q'`a.vintage = q'^90^' and a.cdsessn = q'^113^' and a.cdtyp = q'^O^' and a.statefp NOT IN (q'^74^')`',
+                           'OID',
+                           c.geometry),
+                        GZ_BUILD_SOURCE.SDO_GET_OID_FROM_FACE (
+                           'ACS13',
+                           'MT',
+                           'COUNTY',
+                           1,
+                           e.right_face_id,
+                           q'`a.vintage = q'^90^' and a.statefp NOT IN (q'^74^')`',
+                           'OID',
+                           c.geometry)
+                   FROM ACS13.MT_edge$ e, Z899IN_build_edge b, Z899IN_edge$ c
+                  WHERE     b.edge_id = :p1
+                        AND b.source_edge_id = e.edge_id
+                        AND b.edge_id = c.edge_id)
+         WHERE a.face_id = :p2
        */
 
       psql := q'~UPDATE ~' || p_output_topology || q'~_face a ~'
@@ -4073,24 +4983,14 @@ AS
                                     || layerz_layer_levelz(i) || ', '
                                     || q'~e.left_face_id,~';
 
-         --this is so ignorant and dumb
-         --GZ_BUILD_SOURCE.GZ_GET_OID_FROM_FACE('TAB10ST10','MT','COUNTY',1, 1,q'`a.vintage = q'^90^'`','OID')
-
          rupdate_sql := rupdate_sql || q'~q'`~' || layerz(i).where_clause || q'~`',~'
-                                    || q'~'~' || layerz(i).source_key || q'~',~'             --here
-                                    || q'~c.geometry)~';                                     --here
+                                    || q'~'~' || layerz(i).source_key || q'~',~'             
+                                    || q'~c.geometry)~';                                     
 
          lupdate_sql := lupdate_sql || q'~q'`~' || layerz(i).where_clause || q'~`',~'
-                                    || q'~'~' || layerz(i).source_key || q'~',~'             --here
-                                    || q'~c.geometry)~';                                     --here
+                                    || q'~'~' || layerz(i).source_key || q'~',~'             
+                                    || q'~c.geometry)~';                                     
 
-         /*
-         rupdate_sql := rupdate_sql || layerz(i).where_clause || q'~,~'
-                                    || q'~'~' || layerz(i).source_key || q'~')~';
-
-         lupdate_sql := lupdate_sql || layerz(i).where_clause || q'~,~'
-                                    || q'~'~' || layerz(i).source_key || q'~')~';
-                                    */
 
          IF i != layerz.COUNT
          THEN
@@ -4106,11 +5006,11 @@ AS
       psql := psql || q'~FROM ~'
                    || p_source_schema || q'~.~' || p_source_topology || q'~_edge$ e, ~'
                    || p_output_topology || q'~_build_edge b, ~'
-                   || p_output_topology || q'~_build_geom c ~'   --ADD
+                   || p_output_topology || q'~_build_geom c ~'  
                    || q'~WHERE ~'
                    || q'~b.edge_id = :p1 AND ~'
                    || q'~b.source_edge_id = e.edge_id AND ~'
-                   || q'~b.source_edge_id = c.edge_id) ~'  --ADD
+                   || q'~b.source_edge_id = c.edge_id) ~'  
                    || q'~WHERE a.face_id = :p2 ~';
 
       rupdate_sql := rupdate_sql || psql;
@@ -4118,11 +5018,11 @@ AS
 
       psql := '';
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
-                                             'SQL for right update-->',NULL,NULL,NULL,rupdate_sql);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                  'SQL for right update-->',NULL,NULL,NULL,rupdate_sql);
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
-                                             'SQL for left update-->',NULL,NULL,NULL,lupdate_sql);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                  'SQL for left update-->',NULL,NULL,NULL,lupdate_sql);
 
 
       --get tile universe from pre tagged col in face table. Ordered by tile
@@ -4144,9 +5044,7 @@ AS
          IF tile_kount = 0
          THEN
 
-
-            --get the universe of rights first I think
-            --will tend to have fewer
+            --get the universe of rights first
             --sample
             /*SELECT f.face_id, e.edge_id
               FROM z210in_edge$ e, z210in_face f
@@ -4165,54 +5063,54 @@ AS
                  || 'f.tile_number = :p1 AND '
                  || 'e.right_face_id = f.face_id AND '
                  || 'e.edge_id = (SELECT MAX(ee.edge_id) FROM '
-                 || p_output_topology || '_edge$ ee WHERE ee.right_face_id = f.face_id) ';
+                 || p_output_topology || '_edge$ ee WHERE ee.right_face_id = f.face_id ';
+
+            IF ignore_edges.COUNT = 0
+            THEN
+
+               psql := psql || ') ';
+
+            ELSE
+
+               --make sure the mystery edges dont get bubbled up as the max to use
+               --I bet this makes zero sense in the future.  Trust
+               
+               psql := psql || 'AND ee.edge_id NOT IN '
+                            || '(SELECT e.edge_id FROM ' || p_output_topology || '_edge$ e '
+                            || ' MINUS '
+                            || ' SELECT a.edge_id FROM ' || p_output_topology || '_build_edge a'
+                            || ')) ';
+
+            END IF;
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                        'Entering right update loop for tile ' || tilez(i), NULL,NULL,NULL,psql);
 
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
-                                                   'Entering right update loop for tile ' || tilez(i), NULL,NULL,NULL,psql);
+            --Removed the cursoring structure here
+            --should never be more than a few thousand to collect per tile
 
-            OPEN my_cursor FOR psql USING tilez(i);
-
-            LOOP
-
-               FETCH my_cursor BULK COLLECT INTO faces, edges LIMIT 100;
-               EXIT WHEN faces.COUNT = 0;
-
-               --here we have 1 face and 1 edge in the new topo
-               --that will uniquely ID the geogs on the right
-
-               FORALL jj IN 1 .. faces.COUNT
-                  EXECUTE IMMEDIATE rupdate_sql USING edges(jj),
-                                                      faces(jj);
-               COMMIT;
-
-               /*
-               FOR j IN 1 .. faces.COUNT
-               LOOP
-
-                  --here we have 1 face and 1 edge in the new topo
-                  --that will uniquely ID the geogs on the right
-                  --dont like the bulkless aspect here but for now lets roll with it
+            EXECUTE IMMEDIATE psql BULK COLLECT INTO faces_r, 
+                                                     edges_r USING tilez(i);
 
 
-                  EXECUTE IMMEDIATE rupdate_sql USING edges(j),
-                                                      faces(j);
+            --here we have 1 face and 1 edge in the new topo
+            --that will uniquely ID the geogs on the right
+            
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                        'Calling right update SQL for ' || faces_r.COUNT || ' faces', NULL,NULL,NULL,rupdate_sql);
 
+            FORALL jj IN 1 .. faces_r.COUNT
+               EXECUTE IMMEDIATE rupdate_sql USING edges_r(jj),
+                                                   faces_r(jj);
+            COMMIT;
 
-               END LOOP;
-
-               COMMIT;
-               */
-
-            END LOOP;
-
+            faces_r.DELETE;
+            edges_r.DELETE;
+            
             --now do the universe of lefts
 
-            CLOSE my_cursor;
-            faces.DELETE;
-            edges.DELETE;
-
-            --sample
+            --sample ..out of date
             /*SELECT f.face_id, e.edge_id
                  FROM Z210IN_edge$ e, Z210IN_face f
                 WHERE     f.tile_number = 1
@@ -4227,30 +5125,6 @@ AS
                                      AND eee.right_face_id = fff.face_id)
             */
 
-            /* BAD full table scan but confirmed accurate
-            psql := 'SELECT f.face_id, e.edge_id '
-                 || 'FROM '
-                 || p_output_topology || '_edge$ e, '
-                 || p_output_topology || '_face f '
-                 || 'WHERE '
-                 || 'f.tile_number = :p1 AND '
-                 || 'e.left_face_id = f.face_id AND '
-                 || 'e.edge_id = (SELECT MAX(ee.edge_id) FROM '
-                 || p_output_topology || '_edge$ ee WHERE ee.left_face_id = f.face_id) AND '
-                 || 'f.face_id NOT IN ('
-                 || 'SELECT fff.face_id '
-                 || 'FROM '
-                 || p_output_topology || '_edge$ eee, '
-                 || p_output_topology || '_face fff '
-                 || 'WHERE '
-                 || 'fff.tile_number = :p2 AND '
-                 || 'eee.right_face_id = fff.face_id AND '
-                 || 'eee.edge_id = (SELECT MAX(eeee.edge_id) FROM '
-                 || p_output_topology || '_edge$ eeee WHERE eeee.right_face_id = fff.face_id) '
-                 || ')';
-            */
-
-            --Probably better
 
             psql := 'SELECT f.face_id, e.edge_id '
                  || 'FROM '
@@ -4260,56 +5134,77 @@ AS
                  || 'f.tile_number = :p1 '
                  || 'AND e.left_face_id = f.face_id AND '
                  || 'e.edge_id = (SELECT MAX(ee.edge_id) FROM '
-                 || p_output_topology || '_edge$ ee WHERE ee.left_face_id = f.face_id) AND '
-                 || 'f.face_id NOT IN ('
-                 || 'SELECT DISTINCT (fff.face_id) '
-                 || 'FROM '
-                 || p_output_topology || '_edge$ eee, '
-                 || p_output_topology || '_face fff '
-                 || 'WHERE '
-                 || 'fff.tile_number = :p2 AND '
-                 || 'eee.right_face_id = fff.face_id) ';
+                 || p_output_topology || '_edge$ ee WHERE ee.left_face_id = f.face_id ';
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
-                                                    'Entering left update loop for tile ' || tilez(i), NULL,NULL,NULL,psql);
+            IF ignore_edges.COUNT = 0
+            THEN
 
-            OPEN my_cursor FOR psql USING tilez(i),
-                                          tilez(i);
+               psql := psql || ') AND '
+                            || 'f.face_id NOT IN ('
+                            || 'SELECT DISTINCT (fff.face_id) '
+                            || 'FROM '
+                            || p_output_topology || '_edge$ eee, '
+                            || p_output_topology || '_face fff '
+                            || 'WHERE '
+                            || 'fff.tile_number = :p2 AND '
+                            || 'eee.right_face_id = fff.face_id) ';
 
-            LOOP
+            ELSE
 
-               FETCH my_cursor BULK COLLECT INTO faces, edges LIMIT 100;
-               EXIT WHEN faces.COUNT = 0;
+               --If there are edges to ignore, ignore them both in the current
+               --update, and also pay attention to them in the NOT IN sub clause
+               --(which throws lots of faces out from this update since they already got
+               --handled in the right update )
+               --Any face that had an ignore edge in the right update, go ahead and hit it
+               --again (usually) or for the first time (if the right ignore was the only edge)
+               --Here in the left update
+               
+               --Oddly doing NOT IN (select * from table(:p1)) with the list of ignore_edges is slow
 
-               --here we have 1 face and 1 edge in the new topo
-               --that will uniquely ID the geogs on the right
-
-               FORALL jj IN 1 .. faces.COUNT
-                  EXECUTE IMMEDIATE lupdate_sql USING edges(jj),
-                                                      faces(jj);
-               COMMIT;
-
-               /*
-               FOR j IN 1 .. faces.COUNT
-               LOOP
-
-                  --here we have 1 face and 1 edge in the new topo
-                  --that will uniquely ID the geogs on the right
-                  --dont like the bulkless aspect here but for now lets roll with it
-
-                  EXECUTE IMMEDIATE lupdate_sql USING edges(j),
-                                                      faces(j);
-
-
-               END LOOP;
-
-               COMMIT;
-               */
+               psql := psql || 'AND ee.edge_id NOT IN '
+                            || '(SELECT e.edge_id FROM ' || p_output_topology || '_edge$ e '   --(SELECT * FROM TABLE(:p2)) is slow!
+                            || ' MINUS '
+                            || ' SELECT a.edge_id FROM ' || p_output_topology || '_build_edge a'
+                            || ') '
+                            || ') AND '
+                            || 'f.face_id NOT IN ('
+                            || 'SELECT DISTINCT (fff.face_id) '
+                            || 'FROM '
+                            || p_output_topology || '_edge$ eee, '
+                            || p_output_topology || '_face fff '
+                            || 'WHERE '
+                            || 'fff.tile_number = :p3 AND '
+                            || 'eee.right_face_id = fff.face_id AND '
+                            || 'eee.edge_id NOT IN '
+                            || '(SELECT e.edge_id FROM ' || p_output_topology || '_edge$ e '
+                            || ' MINUS '
+                            || ' SELECT a.edge_id FROM ' || p_output_topology || '_build_edge a'
+                            || '))';
 
 
-            END LOOP;
+            END IF;
 
-            CLOSE my_cursor;
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                        'Entering left update loop for tile ' || tilez(i), NULL,NULL,NULL,psql);
+
+            EXECUTE IMMEDIATE psql BULK COLLECT INTO faces_l, 
+                                                     edges_l USING tilez(i),
+                                                                   tilez(i);
+
+            --here we have 1 face and 1 edge in the new topo
+            --that will uniquely ID the geogs on the left
+            
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                        'Calling left update SQL for ' || faces_l.COUNT || ' faces', NULL,NULL,NULL,lupdate_sql);
+
+            FORALL jj IN 1 .. faces_l.COUNT
+               EXECUTE IMMEDIATE lupdate_sql USING edges_l(jj),
+                                                   faces_l(jj);
+            
+            COMMIT;
+
+            edges_l.DELETE;
+            faces_l.DELETE;
 
             --finish loop on this tile
             --tile source is the distinct tiles in face table
@@ -4322,8 +5217,8 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
-                                                   'Skipping previously processed tile ' || tilez(i), NULL,NULL,NULL,NULL);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                        'Skipping previously processed tile ' || tilez(i), NULL,NULL,NULL,NULL);
 
          END IF;
 
@@ -4332,7 +5227,7 @@ AS
 
       --create phony geoid.  This may be temporary, just to keep clip and SP happy in 2012
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
                                              'Calling korny GEOID builder');
 
       GZ_BUILD_SOURCE.POPULATE_BUILD_GEOID(p_output_topology,
@@ -4350,8 +5245,8 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
-                                             'Complete ' || p_output_topology || '_face layer updates');
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+                                                  'Complete ' || p_output_topology || '_face layer updates');
 
       RETURN output;
 
@@ -4369,11 +5264,14 @@ AS
       p_output_topology    IN VARCHAR2,
       p_tolerance          IN NUMBER,
       p_srid               IN NUMBER,
-      p_fix_edge           IN VARCHAR2 DEFAULT NULL
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N'
    ) RETURN VARCHAR2
    AS
 
       --Matt! 3/01/12
+      --Matt! 6/10/13 p_topofix_qa option
 
       output            VARCHAR2(4000) := '0';
       measurements      GZ_TYPES.stringarray;
@@ -4396,11 +5294,11 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                              'Starting ' || p_output_topology);
 
 
-      measurements := GZ_UTILITIES.GET_REFERENCE_FACE_FIELDS(p_release,
+      measurements := GZ_BUSINESS_UTILS.GET_REFERENCE_FACE_FIELDS(p_release,
                                                              p_project_id,
                                                             'MEASUREMENT',
                                                             'REFERENCE_FACE_FIELDS'); --fixed, right?
@@ -4427,8 +5325,8 @@ AS
             --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
             ----------------------------------------------------------------------------------
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                   'Call gz_fix_edge on the full ' || p_output_topology || ' topology ');
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                        'Call gz_fix_edge on the full ' || p_output_topology || ' topology ');
 
             --return char '1' for some still bad, '0' for all good
 
@@ -4437,22 +5335,33 @@ AS
                                                   'BUILD', --log type
                                                   'Y', --hold univeral
                                                    p_tolerance,
-                                                   NULL); --continue looping over edges as long as they are being fixed
+                                                   NULL, --continue looping over edges as long as they are being fixed
+                                                   p_fix_2edge); --fix pairs of close edges, usually N. Slow
 
             IF edgefix_val = '0'
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                      'GZ_FIX_EDGE success');
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                           'GZ_FIX_EDGE success');
 
 
             ELSIF edgefix_val = '1'
+            AND p_topofix_qa = 'Y'
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+               --SOP on a failed fix.  We want to see it
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                       'GZ_FIX_EDGE not successful, we will fail the build job to be safe ');
 
                output := output || '|Failed to fix all edges in gz_fix_edge';
+
+            ELSIF edgefix_val = '1'
+            AND p_topofix_qa = 'N'
+            THEN
+
+               --overridden to ignore this unfixed edge(s) from gz_build_source_setup.topofix_qa
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                      'GZ_FIX_EDGE not successful, but we we wont fail the build job since topofix_qa is N');
 
             ELSE
 
@@ -4463,7 +5372,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'NOT Calling gz_fix_edge on the full ' || p_output_topology || ' topology ');
 
          END IF;
@@ -4483,10 +5392,10 @@ AS
          FOR i IN 1 .. tilez.COUNT
          LOOP
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc ' || p_output_topology || '_face geometry on tile ' || tilez(i));
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FACE',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_FACE',
                                                   'FACE_ID',
                                                   'SDOGEOMETRY',
                                                   'ALL',
@@ -4520,7 +5429,7 @@ AS
             IF badfaces.COUNT > 0
             THEN
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                       'Got ' || badfaces.COUNT || ' NULL sdogeometry or bad gtypes in tile ' || tilez(i),
                                                        NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -4532,7 +5441,7 @@ AS
                     || 'WHERE a.face_id IN (SELECT * FROM TABLE(:p2)) ';
 
                EXECUTE IMMEDIATE psql USING '2',
-                                             GZ_UTILITIES.stringarray_to_varray(badfaces);
+                                             GZ_BUSINESS_UTILS.stringarray_to_varray(badfaces);
 
                output := output || '|From tile ' || tilez(i) || ' we have ' || badfaces.COUNT || ' NULL or wrong gtype sdogeometries ';
 
@@ -4543,7 +5452,7 @@ AS
                --Im tempted to be nice and round ordinates here but clip comes next
                --The clip developer can suck it
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                       'Cool: ' || badfaces.COUNT || ' NULL sdogeometry or bad gtypes in tile ' || tilez(i),
                                                        NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
@@ -4560,11 +5469,11 @@ AS
          ----------------------------------------------------------------------------------
 
          --seems polite to do this no matter what
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                 'Index ' || p_output_topology || '_face sdogeometry ');
 
          --this is actually a drop and rebuild
-         GZ_UTILITIES.ADD_SPATIAL_INDEX(p_output_topology || '_face',
+         GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_output_topology || '_face',
                                         'SDOGEOMETRY',
                                         p_srid,
                                         p_tolerance);
@@ -4576,7 +5485,7 @@ AS
          --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
          ----------------------------------------------------------------------------------
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                 'Always: call topofix on  ' || p_output_topology || '_face');
 
          --will update QC for all that it can't fix
@@ -4607,22 +5516,32 @@ AS
                                            p_srid);
          */
 
-         IF fix_val != '0'
+         IF fix_val <> '0'
+         AND p_topofix_qa = 'Y'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'We cant get a valid geometry in ' || p_output_topology || '_face for some faces',
                                                     NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
 
             output := output || '| We have some invalid face sdogeometries ';
 
+         ELSIF fix_val <> '0'
+         AND p_topofix_qa = 'N'
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                   'We cant get a valid geometry in ' || p_output_topology || '_face for some faces'
+                                                   || ' but are not going to fail since topofix_qa is N',
+                                                    NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+
          ELSE
 
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
-                                                    'Good: We have a valid geometry in ' || p_output_topology || '_face for all of our faces',
-                                                     NULL,NULL,NULL,psql,NULL,NULL,NULL);
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+                                                   'Good: We have a valid geometry in ' || p_output_topology || '_face for all of our faces',
+                                                   NULL,NULL,NULL,psql,NULL,NULL,NULL);
 
          END IF;
 
@@ -4645,12 +5564,12 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc MBR and index it ' || p_output_topology || '_face');
 
 
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'MBR',
                                                   'ALL',
@@ -4676,7 +5595,7 @@ AS
                --nobody gives a pudding
                --just log and update QC val of 4
 
-               GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                       'We cant get a valid geometry in tile ' || tilez(i) || ' for '
                                                       || badfaces.COUNT || 'of our MBRs',
                                                       NULL,NULL,NULL,psql,NULL,NULL,NULL);
@@ -4688,7 +5607,7 @@ AS
                      || 'a.qc IS NULL ';
 
                 EXECUTE IMMEDIATE psql USING '4',
-                                              GZ_UTILITIES.stringarray_to_varray(badfaces);
+                                              GZ_BUSINESS_UTILS.stringarray_to_varray(badfaces);
 
                 COMMIT;
 
@@ -4710,10 +5629,10 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc areatotal for tile ' || tilez(i));
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'AREATOTAL',
                                                   'ALL',
@@ -4739,12 +5658,12 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc perimeter for tile ' || tilez(i));
 
             -- 'unit=meter' is hard coded into utility  !
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'PERIMETER',
                                                   'ALL',
@@ -4768,12 +5687,12 @@ AS
          AND measurehash.EXISTS('SDOGEOMETRY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc pa_ratio for tile ' || tilez(i));
 
 
             --DECODEs when area is 0 to avoid divide by 0
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'PA_RATIO',
                                                   'ALL',
@@ -4798,10 +5717,10 @@ AS
          AND measurehash.EXISTS('LLX')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc llX for tile ' || tilez(i));
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'LLX',
                                                   'ALL',
@@ -4826,10 +5745,10 @@ AS
          AND measurehash.EXISTS('LLY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc lly for tile ' || tilez(i));
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'LLY',
                                                   'ALL',
@@ -4854,10 +5773,10 @@ AS
          AND measurehash.EXISTS('URX')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc urx for tile ' || tilez(i));
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'URX',
                                                   'ALL',
@@ -4882,10 +5801,10 @@ AS
          AND measurehash.EXISTS('URY')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Calc ury for tile ' || tilez(i));
 
-            GZ_UTILITIES.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
+            GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(p_output_topology || '_face',
                                                   'FACE_ID',
                                                   'URY',
                                                   'ALL',
@@ -4901,10 +5820,10 @@ AS
 
 
        --index the MBR
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                              'Calc sidx on ' || p_output_topology || '_face MBR ');
 
-      GZ_UTILITIES.ADD_SPATIAL_INDEX(p_output_topology || '_FACE',
+      GZ_GEOM_UTILS.ADD_SPATIAL_INDEX(p_output_topology || '_FACE',
                                      'MBR',
                                      p_srid,
                                      p_tolerance,
@@ -4920,7 +5839,7 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                              'Complete ' || p_output_topology);
 
       RETURN output;
@@ -4936,7 +5855,8 @@ AS
       p_project_id         IN VARCHAR2,
       p_output_topology    IN VARCHAR2,
       p_tile_kount         IN NUMBER,
-      p_drop_tables        IN VARCHAR2 DEFAULT 'Y'
+      p_drop_tables        IN VARCHAR2 DEFAULT 'Y',
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y'
    ) RETURN VARCHAR2
    AS
 
@@ -4957,95 +5877,103 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
                                              'Starting ' || p_output_topology);
 
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
                                              'Calling topo tune up ');
 
-      GZ_UTILITIES.GZ_TOPO_TUNE_UP(p_output_topology);
+      GZ_TOPO_UTIL.GZ_TOPO_TUNE_UP(p_output_topology);
 
-
-      --Get tiles for validation
-
-      --get input layers
-      extent_layer := GZ_BUILD_SOURCE.GET_EXTENT_LAYER(p_output_topology);
-
-      IF NOT GZ_UTILITIES.GZ_TABLE_EXISTS(p_output_topology || '_BUILD_TILE')
+      IF p_validate_topo = 'Y'
       THEN
+      
+         --Get tiles for validation
 
-         --this code really only here if we want to manually restart
-         --drop the tile table
-         --and request a new tile number
+         --get input layers
+         extent_layer := GZ_BUILD_SOURCE.GET_EXTENT_LAYER(p_output_topology);
 
-         IF extent_layer.source_table IS NOT NULL
+         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_output_topology || '_BUILD_TILE')
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
-                                                   'Getting tiles for ' || p_output_topology || ' using ' || extent_layer.source_table);
+            --this code really only here if we want to manually restart
+            --drop the tile table
+            --and request a new tile number
 
-            tiles := GZ_BUILD_SOURCE.GZ_TILE_TABLE(extent_layer.source_schema || '.' || extent_layer.source_table,
-                                                   p_tile_kount,
-                                                   'SDOGEOMETRY',  --parameterize?
-                                                   extent_layer.where_clause,
-                                                   extent_layer.sdo_filter,
-                                                   'BUILD',
-                                                   p_output_topology);
+            IF extent_layer.source_table IS NOT NULL
+            THEN
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+                                                      'Getting tiles for ' || p_output_topology || ' using ' || extent_layer.source_table);
+
+               tiles := GZ_BUILD_SOURCE.GZ_TILE_TABLE(extent_layer.source_schema || '.' || extent_layer.source_table,
+                                                      p_tile_kount,
+                                                      'SDOGEOMETRY',  --parameterize?
+                                                      extent_layer.where_clause,
+                                                      extent_layer.sdo_filter,
+                                                      'BUILD',
+                                                      p_output_topology);
+
+            ELSE
+
+               --can be null if no extent layer exists
+               --got to go with edge$.  Much slower, mainly on the aggr step to get full extent
+
+               GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+                                                      'Getting tiles for ' || p_output_topology || ' using edge$ extent');
+
+
+               tiles := GZ_BUILD_SOURCE.GZ_TILE_TABLE(p_output_topology || '_EDGE$',
+                                                      p_tile_kount,
+                                                      'GEOMETRY',
+                                                      'a.left_face_id = -1 or a.right_face_id = -1',
+                                                      NULL,  --whole topo, no filter
+                                                      'BUILD',
+                                                      p_output_topology);
+
+            END IF;
 
          ELSE
 
-            --can be null if no extent layer exists
-            --got to go with edge$.  Much slower, mainly on the aggr step to get full extent
+             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+                                                    'Getting tiles from ' || p_output_topology || '_build_tile');
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
-                                                   'Getting tiles for ' || p_output_topology || ' using edge$ extent');
-
-
-            tiles := GZ_BUILD_SOURCE.GZ_TILE_TABLE(p_output_topology || '_EDGE$',
-                                                   p_tile_kount,
-                                                   'GEOMETRY',
-                                                   'a.left_face_id = -1 or a.right_face_id = -1',
-                                                   NULL,  --whole topo, no filter
-                                                   'BUILD',
-                                                   p_output_topology);
+            tiles := GZ_BUILD_SOURCE.GET_BUILD_TILE(p_output_topology);
 
          END IF;
 
+         BEGIN
+
+            validstr := GZ_TOPO_UTIL.VALIDATE_TOPOLOGY_TILE(p_output_topology,
+                                                            tiles,
+                                                            p_log_type=>'BUILD');
+
+         EXCEPTION
+         WHEN OTHERS
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+                                                   'Boo: ' || p_output_topology || ' is not valid ');
+
+            --this is a FAIL but we'll continue
+            output := output || ' VALIDATE_TOPOLOGY_TILE threw ' || SQLERRM || ' |';
+
+         END;
+
+         IF validstr = 'TRUE'
+         THEN
+
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+                                                   'Sweet: ' || p_output_topology || ' is valid ');
+
+         END IF;
+         
       ELSE
-
-          GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
-                                                 'Getting tiles from ' || p_output_topology || '_build_tile');
-
-         tiles := GZ_BUILD_SOURCE.GET_BUILD_TILE(p_output_topology);
-
-      END IF;
-
-
-
-      BEGIN
-
-         validstr := GZ_UTILITIES.VALIDATE_TOPOLOGY_TILE(p_output_topology,
-                                                         tiles);
-
-      EXCEPTION
-      WHEN OTHERS
-      THEN
-
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
-                                                'Boo: ' || p_output_topology || ' is not valid ');
-
-         --this is a FAIL but we'll continue
-         output := output || ' VALIDATE_TOPOLOGY_TILE threw ' || SQLERRM || ' |';
-
-      END;
-
-      IF validstr = 'TRUE'
-      THEN
-
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
-                                                'Sweet: ' || p_output_topology || ' is valid ');
-
+      
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+                                                     'Skipping topo validation since validate_topo param is ' || p_validate_topo);
+                                                   
       END IF;
 
 
@@ -5056,12 +5984,12 @@ AS
       AND output = '0'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
                                                 'Dropping work tables ');
 
          BEGIN
 
-            GZ_UTILITIES.DROP_MODULE_WORK_TABLES(p_output_topology,
+            GZ_BUSINESS_UTILS.DROP_MODULE_WORK_TABLES(p_output_topology,
                                                  'BUILD',
                                                  'N'); --no drop tracking, how else we write?
 
@@ -5070,13 +5998,13 @@ AS
          WHEN OTHERS
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
                                                    'Error dropping work tables: ' || SQLERRM);
          END;
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
                                                 'NOT Dropping work tables ');
 
       END IF;
@@ -5088,8 +6016,8 @@ AS
       --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       ----------------------------------------------------------------------------------
 
-      GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
-                                             'Complete ' || p_output_topology);
+      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+                                                  'Complete ' || p_output_topology);
 
       RETURN output;
 
@@ -5114,11 +6042,16 @@ AS
       p_tolerance          IN NUMBER DEFAULT .05,
       p_snapping_digits    IN NUMBER DEFAULT 16,
       p_drop_tables        IN VARCHAR2 DEFAULT 'Y',
-      p_fix_edge           IN VARCHAR2 DEFAULT 'Y'
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'Y'    
    ) RETURN VARCHAR2
    AS
 
       --Matt! 02/06/12
+      --Matt! 06/10/13 added topofix_qa option
+      --M!    12/30/13 p_validate_topo, p_fix_edge, p_fix_2edge, and p_topofix_qa
 
       --testing sample
 
@@ -5130,10 +6063,10 @@ AS
 
 
       psql              VARCHAR2(4000);
-      retval            VARCHAR2(4000) := '1';  --set to fail, must set to pass in modules
+      retval            VARCHAR2(4000) := '1';  --set to fail, must set to pass in sub modules
       stack             VARCHAR2(4000);
       errm              VARCHAR2(8000) := 'ERROR:'; --default for line 1 in log error message, if no SQLERRM
-      fix_edge          VARCHAR2(1);
+      topofix_qa        VARCHAR2(1);
 
    BEGIN
 
@@ -5162,29 +6095,53 @@ AS
             RAISE_APPLICATION_ERROR(-20002,'Failed before we could even create a log.  Check the basics, like schema name');
          END;
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'SET_UP',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'SET_UP',NULL,
                                                 'Inputs are (' || p_schema || ',' || p_release || ','
                                                 || p_project_id || ',' || p_source_schema || ','
                                                 || p_source_topology || ',' || p_output_topology || ',' || p_tile_kount || ','
                                                 || 'see sdo_dump->' || ',' ||  p_modules || ',' || p_restart_flag || ','
                                                 || p_srid || ',' || p_tolerance || ',' || p_snapping_digits || ','
-                                                || p_drop_tables || ')',
+                                                || p_drop_tables || ',' || p_validate_topo || ','
+                                                || p_fix_edge || ',' || p_fix_2edge || ','
+                                                || p_topofix_qa ||  ')',
                                                  NULL,NULL,NULL,NULL,NULL,NULL,p_sdo_filter);
 
 
          --make work tables
          --need to give this more thought later
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'SET_UP',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'SET_UP',NULL,
                                                 'Starting table set up for ' || p_output_topology,
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
          GZ_BUILD_SOURCE.SET_UP(p_schema,
                                 p_project_id,
                                 p_output_topology);
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'SET_UP',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'SET_UP',NULL,
                                                  'Finished table set up for ' || p_output_topology,
                                                  NULL,NULL,NULL,NULL,NULL,NULL );
+
+      END IF;
+
+
+      IF p_topofix_qa IS NULL
+      OR p_topofix_qa = 'Y'
+      THEN
+
+         --default topofix qa is YES, should not have invalid geoms at initial build.
+         --Try to fix any and fail if we cant
+         --Have to do this since setup table is typically null
+
+         topofix_qa := 'Y';
+
+      ELSIF p_topofix_qa = 'N'
+      THEN
+
+         topofix_qa := 'N';
+
+      ELSE
+
+         RAISE_APPLICATION_ERROR(-20001,'Unknown p_topofix_qa value of ' || p_topofix_qa);
 
       END IF;
 
@@ -5206,7 +6163,7 @@ AS
       IF retval != '0'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'VERIFY_BUILD_INPUTS',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'VERIFY_BUILD_INPUTS',NULL,
                                                 'UNRECOVERABLE ERROR: Problem in verify build_inputs: ' || retval,
                                                  NULL,NULL,NULL,NULL,NULL,substr(retval , 1, 4000) );
 
@@ -5270,7 +6227,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_LAYER_INFO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_LAYER_INFO',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5279,7 +6236,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_LAYER_INFO',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_LAYER_INFO',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5326,7 +6283,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5335,7 +6292,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_BUILD_POLY',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5381,7 +6338,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5390,7 +6347,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_EMPTY_TOPOLOGY',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5440,7 +6397,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5449,7 +6406,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'LOAD_OUTPUT_TOPOLOGY',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5497,7 +6454,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5506,7 +6463,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CLEAN_OUTPUT_TOPOLOGY',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5552,7 +6509,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5561,7 +6518,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CREATE_FACE_TABLE',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5609,7 +6566,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5618,7 +6575,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'CONSTRUCT_FACE_TABLE',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5666,7 +6623,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5675,7 +6632,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'UPDATE_FACE_LAYERS',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5700,7 +6657,9 @@ AS
                                                             p_output_topology,
                                                             p_tolerance,
                                                             p_srid,
-                                                            p_fix_edge);
+                                                            topofix_qa,
+                                                            p_fix_edge,
+                                                            p_fix_2edge);
 
 
          EXCEPTION
@@ -5726,7 +6685,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5735,7 +6694,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'POPULATE_MEASUREMENTS',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5758,7 +6717,8 @@ AS
                                                             p_project_id,
                                                             p_output_topology,
                                                             p_tile_kount,
-                                                            p_drop_tables);
+                                                            p_drop_tables,
+                                                            p_validate_topo);
 
 
          EXCEPTION
@@ -5784,7 +6744,7 @@ AS
          IF retval != '0'
          THEN
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
                                                    'UNRECOVERABLE ERROR: Ending processing for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,substr(errm || chr(10) || retval || chr(10) || stack , 1, 4000) );
 
@@ -5793,7 +6753,7 @@ AS
 
          ELSE
 
-            GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
+            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'FINALIZE_AND_VALIDATE',NULL,
                                                    'Complete for ' || p_output_topology,
                                                    NULL,NULL,NULL,NULL,NULL,NULL );
 
@@ -5808,14 +6768,14 @@ AS
       IF retval = '0'
       THEN
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'GENERALIZATION_TOPO_BUILD',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'GENERALIZATION_TOPO_BUILD',NULL,
                                                 'WOOT: Returning success code 0');
 
          RETURN retval;
 
       ELSE
 
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'GENERALIZATION_TOPO_BUILD',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'GENERALIZATION_TOPO_BUILD',NULL,
                                                 'ANTIwoot: Returning failure code 1');
 
          RETURN '1';
@@ -5847,7 +6807,7 @@ AS
          -- Word up to "good practice"
 
          errm := SQLERRM || DBMS_UTILITY.format_error_backtrace;
-         GZ_UTILITIES.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'EXCEPTION HANDLER',NULL,
+         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('BUILD',p_output_topology,'EXCEPTION HANDLER',NULL,
                                                 'UNRECOVERABLE ERROR: Build source caught this exception and has no clue ',
                                                  NULL,NULL,NULL,NULL,NULL,substr(errm, 1, 4000) );
 
@@ -5890,7 +6850,7 @@ AS
 
    BEGIN
 
-      IF NOT (GZ_UTILITIES.GZ_TABLE_EXISTS(p_owner || '.' || p_table))
+      IF NOT (GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_owner || '.' || p_table))
       THEN
 
          RAISE_APPLICATION_ERROR(-20001,'Partner, table ' || p_owner || '.' || p_table || ' doesnt exist ');
@@ -6082,7 +7042,7 @@ AS
 
    BEGIN
 
-      IF NOT (GZ_UTILITIES.GZ_TABLE_EXISTS(p_owner || '.' || p_table))
+      IF NOT (GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_owner || '.' || p_table))
       THEN
 
          RAISE_APPLICATION_ERROR(-20001,'Partner, table ' || p_owner || '.' || p_table || ' doesnt exist ');
@@ -6444,7 +7404,7 @@ AS
    BEGIN
 
 
-      IF NOT (GZ_UTILITIES.GZ_TABLE_EXISTS(p_owner || '.' || p_table))
+      IF NOT (GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_owner || '.' || p_table))
       THEN
 
          RAISE_APPLICATION_ERROR(-20001,'Partner, table ' || p_owner || '.' || p_table || ' doesnt exist ');
@@ -6785,9 +7745,9 @@ AS
    AS
 
       --9/28/12 Moved all tiling code to GZ_UTILITIES, dont call or modify this
-      
+
       output            GZ_TYPES.geomarray;
-      
+
 
    BEGIN
 
@@ -6948,7 +7908,7 @@ AS
 
       --Matt! 5/2/12
       --9/28/12 Moved all tiling code to GZ_UTILITIES, dont call or modify this
-      
+
       --Southern side this is just a rough estimate
 
 
@@ -7015,8 +7975,8 @@ AS
       --This remains only for backwards compatibility
 
    BEGIN
-   
-      RETURN GZ_UTILITIES.GZ_TILE_TABLE(p_table,
+
+      RETURN GZ_GEOM_UTILS.GZ_TILE_TABLE(p_table,
                                         p_tile_target,
                                         p_geom_col,
                                         p_whereclause,
@@ -7149,7 +8109,7 @@ AS
 
       --Matt! 3/5/12 Shift any tiles at the dateline
       --9/28/12 Moved all tiling code to GZ_UTILITIES, dont call or modify this
-      
+
       --to whatever magic style works best
       --This is a mess
 
@@ -7227,7 +8187,7 @@ AS
    AS
 
       --Matt! 3/15/12
-      
+
       --For an optimized rectangle return just the part in the hemisphere requested
       --Change signs of longitude ordinates to match standard globe
 
@@ -7330,7 +8290,7 @@ AS
 
       --Matt! 5/01/12
       --9/28/12 Moved all tiling code to GZ_UTILITIES, dont call or modify this
-      
+
       --MBR of US data tends to go from -179 to 179 (or worse) if we have just one tile
       --I'm just gonna hard code the longitude to 140 -60, Guam to US Virgin Islands to make closer
       --Shift_at_dateline will make it all negative, if necessary
@@ -7452,7 +8412,7 @@ AS
            || 'WHERE '
            || p_pkc_col || ' IN (SELECT * FROM TABLE(:p1)) ';
 
-      OPEN my_cursor FOR psql USING GZ_UTILITIES.stringarray_to_varray(p_keys);
+      OPEN my_cursor FOR psql USING GZ_BUSINESS_UTILS.stringarray_to_varray(p_keys);
 
       LOOP
 

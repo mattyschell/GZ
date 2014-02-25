@@ -105,6 +105,8 @@ AS
 
       --Matt! 12/17/12 Made pre setup executions CLOB-friendly
       --               and cleaned up some of the logic
+      --!  11/22/13 Tidied some pre processing workflow and error handling
+      --M! 12/30/13 Rearranged the topo validation and topofix deck chairs again
 
       JOB_REC       GZ_TYPES.GZ_JOB_SETUP_REC;
       BUILDSOURCE_REC GZ_TYPES.GZ_BUILD_SOURCE_SETUP_REC;
@@ -383,7 +385,7 @@ AS
             DBMS_APPLICATION_INFO.SET_MODULE (APP_INFO_MODULE, APP_INFO_ACTION);
 
             SQL1 := 'Select statement, step From GZ_PRE_SETUP Where JOBID = '''
-               || pJobID || ''' ORDER BY step';
+               || pJobID || ''' AND status IS NULL ORDER BY step';
 
             OPEN Cur1 FOR SQL1;
             LOOP
@@ -399,13 +401,17 @@ AS
                   EXECUTE IMMEDIATE SQL2
                      USING 'I', SYSTIMESTAMP, pJobID, vStep;
 
+                  /* What this for?  Disallows mixed status flags to exist, like previous PREs with Y
+                     I guess the idea was to avoid a total bomb from leaving the other higher steps in a nebulous state?
+                     Leaving it here in case Im in here some day trying to fix whatever this prevented from happening
                   SQL2 := 'Update GZ_PRE_SETUP SET STATUS = NULL, start_time = NULL,
                                       end_time = NULL
                                        WHERE JOBID = :1 AND step > :2';
                   EXECUTE IMMEDIATE SQL2 USING pJobID, vStep;
                   COMMIT;
+                  */
 
-                  GZ_UTILITIES.DBMS_SQL_HELPER('BEGIN ' || vStatementl || ' END;');
+                  GZ_BUSINESS_UTILS.DBMS_SQL_HELPER('BEGIN ' || vStatementl || ' END;');
 
                   SQL2 := 'Update GZ_PRE_SETUP SET STATUS = :1, end_time = :2
                                        WHERE JOBID = :3 AND step = :4';
@@ -442,6 +448,19 @@ AS
             END LOOP;
             COMMIT;
             CLOSE Cur1;
+
+            IF vPPStatus IS NULL
+            THEN
+
+               --didn't get anything from the cursor to create a vPPStatus
+               --this cant be intentional
+               --means gz_job_setup.pre_status said to run
+               --but nothing found in gz_pre_setup with the appropriate jobid and null status
+               vPPStatus := 'F';
+               vNote := 'No GZ_PRE_SETUP records found with jobid ' || pJobID || ' and a NULL status';
+
+            END IF;
+
          END;
 
          CASE vPPStatus
@@ -457,7 +476,7 @@ AS
 
             ELSE
                UPDATE_WORKFLOW_STATUS(pJobID, vCurrModule, 'END', 'F');
-               RAISE_APPLICATION_ERROR(-20001, SQLERRM);
+               RAISE_APPLICATION_ERROR(-20001, 'status is ' || vPPStatus || SQLERRM);
 
          END CASE;
 
@@ -525,7 +544,24 @@ AS
             APP_INFO_ACTION  := 'Begin BS'; -- Begin || procedure name
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
 
-             retval := gz_build_source.generalization_topo_build (USER, vRelease, vProjectID, vSourceSchema, vSourceTOPO, vOutTOPO, vTileCount, vSDO_Filter, vModules, vRSFlag, vSRID, vTolerance, vSDigits, vDropTab);
+             retval := gz_build_source.generalization_topo_build (USER,
+                                                                  vRelease,
+                                                                  vProjectID,
+                                                                  vSourceSchema,
+                                                                  vSourceTOPO,
+                                                                  vOutTOPO,
+                                                                  vTileCount,
+                                                                  vSDO_Filter,
+                                                                  vModules,
+                                                                  vRSFlag,
+                                                                  vSRID,
+                                                                  vTolerance,
+                                                                  vSDigits,
+                                                                  vDropTab,
+                                                                  buildsource_rec.validate_topo,
+                                                                  buildsource_rec.topofix_edge,
+                                                                  buildsource_rec.topofix_2edge,
+                                                                  buildsource_rec.topofix_qa);
 
 
          IF (retval = '0' ) THEN
@@ -541,9 +577,14 @@ AS
                vTBStatus := 'F';
                vNote := 'Build Source Failed ' || vSQLErrMsg;
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
-               DBMS_OUTPUT.PUT_LINE('gz_build_source.generalization_topo_build (' || USER || ',' || vProjectID || ','|| vSourceSchema ||',' || vSourceTOPO ||','
-                                                                                                                        || vOutTOPO ||',' || vTileCount ||',vSDO_Filter,' || vModules ||','
-                                                                                                                        || vRSFlag ||',' || vSRID||',' || vTolerance||',' || vSDigits||',' || vDropTab||');');
+               DBMS_OUTPUT.PUT_LINE('gz_build_source.generalization_topo_build (' || USER || ',' || vProjectID || ','|| vSourceSchema ||','
+                                                                                  || vSourceTOPO ||',' || vOutTOPO ||',' || vTileCount
+                                                                                  ||',vSDO_Filter,' || vModules ||','|| vRSFlag ||','
+                                                                                  || vSRID||',' || vTolerance||',' || vSDigits||','
+                                                                                  || vDropTab||','|| buildsource_rec.validate_topo || ','
+                                                                                  || buildsource_rec.topofix_edge || ',' 
+                                                                                  || buildsource_rec.topofix_2edge || ','
+                                                                                  || buildsource_rec.topofix_qa || ');');
 
          END;
 
@@ -730,18 +771,21 @@ AS
             APP_INFO_ACTION  := 'Begin CL';
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
 
-            returnVal := GZ_CLIP.GENERALIZATION_CLIP(vGenSchema, 
-                                                     vRelease, 
-                                                     vProjectID, 
-                                                     vClipJobID, 
-                                                     vGenClipTab, 
-                                                     vClipMask, 
-                                                     vTopoOut, 
-                                                     vTopoIn, 
-                                                     vClipDropTables, 
-                                                     vClipTransferAtts, 
-                                                     'N', 
+            returnVal := GZ_CLIP.GENERALIZATION_CLIP(vGenSchema,
+                                                     vRelease,
+                                                     vProjectID,
+                                                     vClipJobID,
+                                                     vGenClipTab,
+                                                     vClipMask,
+                                                     vTopoOut,
+                                                     vTopoIn,
+                                                     vClipDropTables,
+                                                     vClipTransferAtts,
+                                                     'N',
                                                      vClipModules,
+                                                     clip_rec.validate_topo,
+                                                     clip_rec.topofix_edge,
+                                                     clip_rec.topofix_2edge,
                                                      clip_rec.topofix_qa);
 
             dbms_output.put_line('returnVal = ' || returnVal);
@@ -761,8 +805,10 @@ AS
                vNote := 'Clip Failed ' || vSQLErrMsg;
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
                DBMS_OUTPUT.PUT_LINE('GZ_CLIP.GENERALIZATION_CLIP(' || vGenSchema ||',' || vRelease ||',' || vProjectID ||',' || vClipJobID ||',' || vGenClipTab ||',' ||vClipMask ||','
-                                                                      ||vTopoOut ||',' ||vTopoIn ||',' ||vClipDropTables ||',' ||vClipTransferAtts 
-                                                                      || ', N,' || vClipModules || ',' || clip_rec.topofix_qa || ');');
+                                                                   ||vTopoOut ||',' ||vTopoIn ||',' ||vClipDropTables ||',' ||vClipTransferAtts
+                                                                   || ', N,' || vClipModules || ',' || clip_rec.validate_topo || ','
+                                                                   || clip_rec.topofix_edge || ',' || clip_rec.topofix_2edge || ','
+                                                                   || clip_rec.topofix_qa || ');');
          END;
 
          CASE vCLStatus
@@ -842,18 +888,21 @@ AS
             APP_INFO_ACTION  := 'Begin SP';
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
 
-            gz_smpoly.generalization_sp_removal(vGenSchema, 
-                                                vProjectID, 
-                                                pJobID, 
-                                                vTopoOut,  
+            gz_smpoly.generalization_sp_removal(vGenSchema,
+                                                vProjectID,
+                                                pJobID,
+                                                vTopoOut,
                                                 vSPModules,
-                                                vTopoIn, 
-                                                vTopoOut || vTopoBk, 
-                                                vState_TBL, 
+                                                vTopoIn,
+                                                vTopoOut || vTopoBk,
+                                                vState_TBL,
                                                 vStateFP,
-                                                vGeoIDColumn, 
-                                                vRunId, 
+                                                vGeoIDColumn,
+                                                vRunId,
                                                 vSCleanUp,
+                                                smpoly_rec.validate_topo,
+                                                smpoly_rec.topofix_edge,
+                                                smpoly_rec.topofix_2edge,
                                                 smpoly_rec.topofix_qa);
 
             vSPTrackingTable := vTopoOut || '_SP_TRACKING';
@@ -889,10 +938,12 @@ AS
                vNote := 'SMPoly Failed ' || vSQLErrMsg;
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
                DBMS_OUTPUT.PUT_LINE('gz_smpoly.generalization_sp_removal(' || vGenSchema || ',' || vProjectID || ',' || pJobID || ','
-                                                                              || vTopoOut || ',' ||  vSPModules || ',' ||vTopoIn || ','  
-                                                                              || vTopoOut || vTopoBk || ',' || vState_TBL || ',' 
-                                                                              || vStateFP || ',' ||vGeoIDColumn || ',' || vRunId || ',' 
-                                                                              || vSCleanUp || ',' || smpoly_rec.topofix_qa || ');');
+                                                                              || vTopoOut || ',' ||  vSPModules || ',' ||vTopoIn || ','
+                                                                              || vTopoOut || vTopoBk || ',' || vState_TBL || ','
+                                                                              || vStateFP || ',' ||vGeoIDColumn || ',' || vRunId || ','
+                                                                              || vSCleanUp || ',' || smpoly_rec.validate_topo || ','
+                                                                              || smpoly_rec.topofix_edge || ',' || smpoly_rec.topofix_2edge || ','
+                                                                              || smpoly_rec.topofix_qa || ');');
 
          END;
 
@@ -974,17 +1025,20 @@ AS
 
             APP_INFO_ACTION  := 'Begin LS';
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
-            
-            GZ_LINESIM.LINE_SIM (vGenSchema, 
-                                 vProjectID, 
-                                 pJobID, 
-                                 vTopoOut, 
+
+            GZ_LINESIM.LINE_SIM (vGenSchema,
+                                 vProjectID,
+                                 pJobID,
+                                 vTopoOut,
                                  vLSModules,
-                                 vTopoIn, 
-                                 vTopoOut || vTopoBk, 
-                                 vState_TBL, 
-                                 vStateFP, 
+                                 vTopoIn,
+                                 vTopoOut || vTopoBk,
+                                 vState_TBL,
+                                 vStateFP,
                                  vSkipEdgesTable,
+                                 linesim_rec.validate_topo,
+                                 linesim_rec.topofix_edge,
+                                 linesim_rec.topofix_2edge,
                                  linesim_rec.topofix_qa);
 
             vLSStatus := 'S';
@@ -1006,10 +1060,13 @@ AS
                vLSStatus := 'F';
                vNote := 'LineSim Failed ' || vSQLErrMsg;
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
-               DBMS_OUTPUT.PUT_LINE('GZ_LINESIM.LINE_SIM (' || vGenSchema || ',' || vProjectID || ',' || pJobID ||',' || vTopoOut || ',' 
+               DBMS_OUTPUT.PUT_LINE('GZ_LINESIM.LINE_SIM (' || vGenSchema || ',' || vProjectID || ',' || pJobID ||',' || vTopoOut || ','
                                                                || vLSModules || ',' || vTopoIn  || ',' || vTopoOut
                                                                || vTopoBk || ',' || vState_TBL || ',' || vStateFP|| ','
-                                                               || vSkipEdgesTable || ',' || linesim_rec.topofix_qa || ');');
+                                                               || vSkipEdgesTable || ',' || linesim_rec.validate_topo || ','
+                                                               || linesim_rec.topofix_edge || ',' || linesim_rec.topofix_2edge || ','
+                                                               || linesim_rec.topofix_qa || ');');
+                                                               
          END;
 
          CASE vLSStatus
@@ -1090,15 +1147,19 @@ AS
 
          vRelease := JOB_REC.RELEASE;
 
-         SQL1 := 'Select count(jobid) from gz_job_setup where release = :1 and gen_project_id = :2 and step = (Select dependency from gz_job_setup where jobid = :3) and use_for_merge = :4';
+         SQL1 := 'Select count(jobid) from gz_job_setup where '
+              || 'release = :1 and gen_project_id = :2 and '
+              || 'step = (Select dependency from gz_job_setup where jobid = :3) and use_for_merge = :4';
          DBMS_OUTPUT.PUT_LINE('SQL1: ' || SQL1);
          Execute Immediate SQL1 into NumOfTopo2Mrg Using vRelease, vProjectID, pJobID, 'Y';
          DBMS_OUTPUT.PUT_LINE('NumOfTopo2Mrg: ' || NumOfTopo2Mrg);
 
-         -- Get NumOfTopoDone  where run_status = 'S'
-         SQL1 := 'SELECT count(jobid) FROM gz_job_setup WHERE release = :1 AND gen_project_id = :2 AND step = (SELECT dependency FROM gz_job_setup WHERE jobid = :3) AND use_for_merge = :4 AND run_status = :5';
+         -- Get NumOfTopoDone  where run_status is 'S' or 'M'
+         SQL1 := 'SELECT count(jobid) FROM gz_job_setup WHERE '
+              || 'release = :1 AND gen_project_id = :2 AND '
+              || 'step = (SELECT dependency FROM gz_job_setup WHERE jobid = :3) AND use_for_merge = :4 AND run_status IN (:5,:6)';
          DBMS_OUTPUT.PUT_LINE('SQL1: ' || SQL1);
-         Execute Immediate SQL1 into NumOfTopoDone Using vRelease, vProjectID, pJobID, 'Y', 'S';
+         Execute Immediate SQL1 into NumOfTopoDone Using vRelease, vProjectID, pJobID, 'Y', 'S', 'M';
          DBMS_OUTPUT.PUT_LINE('NumOfTopoDone: ' || NumOfTopoDone);
 
          -- Is NumOfTopo2Mrg = NumOfTopoDone?
@@ -1150,7 +1211,19 @@ AS
             APP_INFO_ACTION  := 'Begin MRG';
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
 
-            returnval := GZ_TOPO_MERGE.GENERALIZATION_TOPO_MERGE(vGenSchema, pJobID, vRelease, vProjectID, vMRG_TopoInTbl, vTopoOut, vMRG_FaceTblExt, vMRG_Modules, vRestartFlg);
+            returnval := GZ_TOPO_MERGE.GENERALIZATION_TOPO_MERGE(vGenSchema,
+                                                                 pJobID,
+                                                                 vRelease,
+                                                                 vProjectID,
+                                                                 vMRG_TopoInTbl,
+                                                                 vTopoOut,
+                                                                 vMRG_FaceTblExt,
+                                                                 vMRG_Modules,
+                                                                 vRestartFlg,
+                                                                 merge_rec.validate_topo,
+                                                                 merge_rec.topofix_edge,
+                                                                 merge_rec.topofix_2edge,
+                                                                 merge_rec.topofix_qa);
 
             IF returnVal = 0 THEN
                vMRGStatus := 'S';
@@ -1160,13 +1233,19 @@ AS
 
          EXCEPTION
             WHEN Others THEN
+            
                vSQLErrMsg := SQLERRM;
                vMRGStatus := 'F';
+               
                vNote := 'Topo Merge Failed ' || vSQLErrMsg;
+               
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
+               
                dbms_output.put_line('GZ_TOPO_MERGE.GENERALIZATION_TOPO_MERGE('
-                                   || vGenSchema||','||pJobID||','||vRelease||','||vProjectID||','||vMRG_TopoInTbl||','||vTopoOut||','||MERGE_REC.FACE_OUT_TBL_EXT||','||vMRG_Modules||','||vRestartFlg
-                                   || ');');
+                                   || vGenSchema||','||pJobID||','||vRelease||','||vProjectID||','||vMRG_TopoInTbl||','
+                                   || vTopoOut||','||MERGE_REC.FACE_OUT_TBL_EXT||','||vMRG_Modules||','||vRestartFlg||','
+                                   || merge_rec.validate_topo || ',' || merge_rec.topofix_edge || ','
+                                   || merge_rec.topofix_2edge || ',' || merge_rec.topofix_qa || ');');
          END;
 
          CASE vMRGStatus
@@ -1239,7 +1318,6 @@ AS
          vRSFlag := OUTPUT_REC.RESTART_FLAG;
          vSRID := OUTPUT_REC.SRID;
          vTolerance := OUTPUT_REC.TOLERANCE;
-         vSDigits := OUTPUT_REC.SINGLE_LAYER;
          vDropTab := OUTPUT_REC.DROP_TABLES;
          vTileCount := OUTPUT_REC.TILE_COUNT;
 
@@ -1248,7 +1326,28 @@ AS
             APP_INFO_ACTION  := 'Begin OUT';
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
 
-             retval := GZ_OUTPUT.GENERALIZATION_OUTPUT(vRelease, vProjectID,vSourceSchema, vSourceTOPO, vOutTOPO, vModules, vRSFlag,vSDigits, vTileCount, vSRID, vTolerance,vDropTab);
+             retval := GZ_OUTPUT.GENERALIZATION_OUTPUT(vRelease,
+                                                       vProjectID,
+                                                       vSourceSchema,
+                                                       vSourceTOPO,
+                                                       vOutTOPO,
+                                                       vModules,
+                                                       vRSFlag,
+                                                       OUTPUT_REC.SINGLE_LAYER,
+                                                       vTileCount,
+                                                       output_rec.prcs_slivers,
+                                                       output_rec.sliver_restart_flag,
+                                                       output_rec.sliver_width,
+                                                       output_rec.segment_length,
+                                                       output_rec.expendable_review,
+                                                       output_rec.reshape_review,
+                                                       vSRID,
+                                                       vTolerance,
+                                                       vDropTab,
+                                                       output_rec.validate_topo,
+                                                       output_rec.topofix_edge,
+                                                       output_rec.topofix_2edge,
+                                                       output_rec.topofix_qa);
 
          IF (retval = '0' ) THEN
               vOUTStatus := 'S';
@@ -1265,7 +1364,12 @@ AS
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
                DBMS_OUTPUT.PUT_LINE('GZ_OUTPUT.GENERALIZATION_OUTPUT ('
                      || vRelease || ',' || vProjectID || ','|| vSourceSchema ||',' || vSourceTOPO ||','
-                     || vOutTOPO ||',' || vModules ||',' || vRSFlag ||',' ||vSDigits||', '|| vSRID||',' || vTolerance||',' || vDropTab||');');
+                     || vOutTOPO ||',' || vModules ||',' || vRSFlag ||',' ||OUTPUT_REC.SINGLE_LAYER||','
+                     || vTileCount || ',' || output_rec.prcs_slivers||','||output_rec.sliver_restart_flag||','
+                     ||output_rec.sliver_width||','||output_rec.segment_length||','||output_rec.expendable_review||','
+                     ||output_rec.reshape_review||','||vSRID||','||vTolerance||','||vDropTab
+                     || output_rec.validate_topo || ',' || output_rec.topofix_edge || ','
+                     || output_rec.topofix_2edge || ',' || output_rec.topofix_qa || ');');
 
          END;
 
@@ -1477,7 +1581,22 @@ AS
             APP_INFO_ACTION  := 'Begin CA';
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
 
-            returnVal := GZ_CLIP.GENERALIZATION_CLIP(vGenSchema, vRelease, vProjectID, vClipJobID, vGenClipTab, vClipMask, vTopoOut, vTopoIn, vClipDropTables, vClipTransferAtts, 'N', vClipModules);
+            returnVal := GZ_CLIP.GENERALIZATION_CLIP(vGenSchema, 
+                                                     vRelease, 
+                                                     vProjectID, 
+                                                     vClipJobID, 
+                                                     vGenClipTab, 
+                                                     vClipMask, 
+                                                     vTopoOut, 
+                                                     vTopoIn, 
+                                                     vClipDropTables, 
+                                                     vClipTransferAtts, 
+                                                     'N', 
+                                                     vClipModules,
+                                                     clip_rec.validate_topo,
+                                                     clip_rec.topofix_edge,
+                                                     clip_rec.topofix_2edge,
+                                                     clip_rec.topofix_qa);
 
             dbms_output.put_line('returnVal = ' || returnVal);
 
@@ -1495,8 +1614,12 @@ AS
                vCLStatus := 'F';
                vNote := 'Clip Failed ' || vSQLErrMsg;
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
-               DBMS_OUTPUT.PUT_LINE('GZ_CLIP.GENERALIZATION_CLIP(' || vGenSchema ||',' || vRelease ||',' || vProjectID ||',' || vClipJobID ||',' || vGenClipTab ||',' ||vClipMask ||','
-                                                                     ||vTopoOut ||',' ||vTopoIn ||',' ||vClipDropTables ||',' ||vClipTransferAtts || ', N, ' ||vClipModules || ');');
+               DBMS_OUTPUT.PUT_LINE('GZ_CLIP.GENERALIZATION_CLIP(' || vGenSchema || ',' || vRelease || ',' || vProjectID || ',' 
+                                                                   || vClipJobID || ',' || vGenClipTab || ',' ||vClipMask || ','
+                                                                   ||vTopoOut || ',' ||vTopoIn || ',' ||vClipDropTables || ',' 
+                                                                   ||vClipTransferAtts || ', N, ' || vClipModules || ','
+                                                                   || clip_rec.validate_topo || ',' || clip_rec.topofix_edge || ','
+                                                                   || clip_rec.topofix_2edge || ',' || clip_rec.topofix_qa || ');');
          END;
 
          CASE vCLStatus
@@ -1588,12 +1711,41 @@ AS
             APP_INFO_ACTION  := 'Begin QA';
             DBMS_APPLICATION_INFO.SET_MODULE(APP_INFO_MODULE,APP_INFO_ACTION);
 
-            GZ_QA.Build_QA_TBLS_VIEWS(vGenSchema, vGenTopology, vGenSdoGeomCol, vUnGenSchema, vUnGenTopology, vUnGenSdoGeomCol, vOutPutTableSuffix,
-                                                         vtarget_scale, vCompareGenColumn, vAreaCheck, vShapeCheck,
-                                                         vEntireTopology, vGenTableName, vUnGenTableName,
-                                                         vMissingRecTbl, vMissingRecKey, vMissingRecFeatTbl);
+            -------   GZ_QA.Build_QA_TBLS_VIEWS on hold for now ------------
 
-            vQAStatus := 'S';
+            -- GZ_QA.Build_QA_TBLS_VIEWS(vGenSchema,
+            --                            vGenTopology,
+            --                            vGenSdoGeomCol,
+            --                            vUnGenSchema,
+            --                            vUnGenTopology,
+            --                            vUnGenSdoGeomCol,
+            --                            vOutPutTableSuffix,
+            --                            vtarget_scale,
+            --                            vCompareGenColumn,
+            --                            vAreaCheck,
+            --                            vShapeCheck,
+            --                            vEntireTopology,
+            --                            vGenTableName,
+            --                            vUnGenTableName,
+            --                            vMissingRecTbl,
+            --                            vMissingRecKey,
+            --                            vMissingRecFeatTbl);
+
+            -------   GZ_QA.Build_QA_TBLS_VIEWS on hold for now ------------
+
+            -- just run most basic checks on job...
+
+            retval := GZ_QA_BASICS.GENERALIZATION_RUN_BASIC_QA(pJobID,
+                                                               vGenTopology,
+                                                               vUnGenTopology,
+                                                               vGenTableName,
+                                                               vUnGenTableName);
+
+            IF (retval = '0' ) THEN
+                 vQAStatus := 'S';
+            ELSE
+                 vQAStatus := 'F';
+            END IF;
 
          EXCEPTION
             WHEN Others THEN
@@ -1601,12 +1753,23 @@ AS
                vQAStatus := 'F';
                vNote := 'QA Module Failed ' || vSQLErrMsg;
                DBMS_OUTPUT.put_line (DBMS_UTILITY.format_error_backtrace);
-               DBMS_OUTPUT.put_line ('GZ_QA.Build_QA_TBLS_VIEWS(' ||vGenSchema || ',' || vGenTopology || ',' || vGenSdoGeomCol
-                                                                                                      || ',' || vUnGenSchema || ',' || vUnGenTopology || ',' || vUnGenSdoGeomCol
-                                                                                                      || ',' || vOutPutTableSuffix || ',' ||vtarget_scale || ',' || vCompareGenColumn
-                                                                                                      || ',' || vAreaCheck || ',' || vShapeCheck || ',' || vEntireTopology
-                                                                                                      || ',' ||vGenTableName || ',' || vUnGenTableName || ',' ||vMissingRecTbl
-                                                                                                      || ',' || vMissingRecKey || ',' || vMissingRecFeatTbl || ');');
+               DBMS_OUTPUT.put_line (
+                  'GZ_QA_BASICS.GENERALIZATION_RUN_BASIC_QA('
+                  ||pJobID||','||vGenTopology||','
+                  ||vUnGenTopology||','||vGenTableName||','
+                  ||vUnGenTableName||');');
+
+               -------   GZ_QA.Build_QA_TBLS_VIEWS on hold for now ------------
+
+               --DBMS_OUTPUT.put_line ('GZ_QA.Build_QA_TBLS_VIEWS(' ||vGenSchema || ',' || vGenTopology || ',' || vGenSdoGeomCol
+               --                                                                                      || ',' || vUnGenSchema || ',' || vUnGenTopology || ',' || vUnGenSdoGeomCol
+               --                                                                                       || ',' || vOutPutTableSuffix || ',' ||vtarget_scale || ',' || vCompareGenColumn
+               --                                                                                       || ',' || vAreaCheck || ',' || vShapeCheck || ',' || vEntireTopology
+               --                                                                                       || ',' ||vGenTableName || ',' || vUnGenTableName || ',' ||vMissingRecTbl
+               --                                                                                       || ',' || vMissingRecKey || ',' || vMissingRecFeatTbl || ');');
+
+               -------   GZ_QA.Build_QA_TBLS_VIEWS on hold for now ------------
+
          END;
 
          UPDATE_WORKFLOW_STATUS(pJobID, vCurrModule, 'END', vQAStatus);
@@ -1691,7 +1854,7 @@ AS
            SQL1 := 'Update GZ_JOB_SETUP SET RUN_STATUS = :1, END_TIME = :2 WHERE JOBID = :3';
            EXECUTE IMMEDIATE SQL1 USING 'F', SYSTIMESTAMP, pJobID;
            COMMIT;
-           RAISE_APPLICATION_ERROR(-20001, SQLERRM);
+           RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
    END Generalize;
 
   PROCEDURE Create_Table(pSchemaName VARCHAR2, pTableName VARCHAR2, pGzType VARCHAR2, pDropFlag VARCHAR2 DEFAULT 'N')
@@ -1711,11 +1874,11 @@ AS
    psql := psql || '    NULL; ';
    psql := psql || ' End ' || functionName || ';';
 
-   dbms_output.put_line(psql);
+   --dbms_output.put_line(psql);
 
    Execute immediate psql;
 
-   dbms_output.put_line('Created function');
+   --dbms_output.put_line('Created function');
 
    -- 2. Create the table and grant select to public (should grant select to GZ role)
    psql := 'CREATE TABLE ' || pTableName || ' ';
@@ -1738,7 +1901,7 @@ AS
             --table already exists
             If pDropFlag = 'Y'
             Then
-               dbms_output.put_line('Table ' || pTableName || ' already exists.  Let''s drop and try to create the table');
+               --dbms_output.put_line('Table ' || pTableName || ' already exists.  Let''s drop and try to create the table');
                EXECUTE IMMEDIATE 'DROP TABLE ' || UPPER(pTableName) || ' PURGE';
                EXECUTE IMMEDIATE psql;
             Else
@@ -1759,21 +1922,28 @@ AS
    psql := 'Drop function ' || functionName;
 
    Execute immediate psql;
-   dbms_output.put_line('Dropped function');
+   --dbms_output.put_line('Dropped function');
 
 
 
   END;
 
-   PROCEDURE Insert_New_jobs (pRel              IN VARCHAR2,
-                              pPrj              IN VARCHAR2,
-                              pSchema           IN VARCHAR2 DEFAULT USER,
-                              ptopobuildtype    IN VARCHAR2 DEFAULT 'A')
+   PROCEDURE Insert_New_jobs (
+      pRel              IN VARCHAR2,
+      pPrj              IN VARCHAR2,
+      pSchema           IN VARCHAR2 DEFAULT USER,
+      ptopobuildtype    IN VARCHAR2 DEFAULT 'A'
+   )
    AS
 
       --Matt! Added ptopobuildtype input 8/28/12
       --Matt! Added skip_edge_table population to GZ_LINESIM_SETUP
       --Matt! 6/7/13 Added gz_output_parameters tile_count switcheroo for nation vs state
+      --Matt! 6/13/13 Added topofix_qa default Ys and Ns
+      --Matt! 7/31/13 New coastal sliver parameters
+      --Stephanie! 8/6/2013 Updated QA to run by default for step 2 and updated QA_SETUP table face feature table names
+      --M! 8/16/13 Switched topofix_qa defaults for Linesim to N
+      --M! 12/30/13: All 6 modules input: validate_topo, topofix_edge, topofix_2edge, topofix_qa
 
       vRelease                 VARCHAR2 (10) := pRel;                 -- 'ACS11';
       vProjectID               VARCHAR2 (4) := pPrj;                     -- 'Z8';
@@ -1796,8 +1966,8 @@ AS
       vBuildSourcePrmRec       GZ_TYPES.GZ_BUILD_SOURCE_PARAMETERS_REC;
       vBuildSourcePrmNullRec   GZ_TYPES.GZ_BUILD_SOURCE_PARAMETERS_REC;
 
-      vOutputPrmRec       GZ_TYPES.GZ_OUTPUT_PARAMETERS_REC;
-      vOutputPrmNullRec   GZ_TYPES.GZ_OUTPUT_PARAMETERS_REC;
+      vOutputPrmRec            GZ_TYPES.GZ_OUTPUT_PARAMETERS_REC;
+      vOutputPrmNullRec        GZ_TYPES.GZ_OUTPUT_PARAMETERS_REC;
 
       SQL1                     VARCHAR2 (2000);
       tab_col                  VARCHAR2 (2000);
@@ -1816,11 +1986,14 @@ AS
       vPROJECT_Z9              VARCHAR2 (1);
       vTOP_LAYER_TABLE         VARCHAR2 (30);
       vFACE_OUT_TBL_EXT        VARCHAR2 (20);
-      vTOPOBUILDTYPE         VARCHAR2 (1) := UPPER(ptopobuildtype);
-      vTopoSCHEMA                      VARCHAR2 (30);
-      vSHP_UNIT_REQUEST         VARCHAR2 (100);
+      vTOPOBUILDTYPE           VARCHAR2 (1) := UPPER(ptopobuildtype);
+      vTopoSCHEMA              VARCHAR2 (30);
+      vSHP_UNIT_REQUEST        VARCHAR2 (100);
+      process_slivers          VARCHAR2 (1);
+
+      vQAdefault               VARCHAR2 (1) := 'N';
+
    BEGIN
-      NULL;
 
       BEGIN
          SQL1 := 'Select * from GZ_JOB_PARAMETERS '
@@ -1841,10 +2014,14 @@ AS
             RAISE_APPLICATION_ERROR(-20001,'There is error in GZ_JOB_PARAMETERS.');
       END;
 
-
-      -- Step 1 Topo Build Process
+      --------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      -- Step 1 GZ Process
       -- Depends on
-      -- BENCH_MARK_PRCS_UNIT => TOPOBUILD_PRCS_UNIT and SHAPE_FILE_PRCS_UNIT (Could be S => S, N => S, N => N or N => B) 3
+      -- BENCH_MARK_PRCS_UNIT => TOPOBUILD_PRCS_UNIT and
+      -- SHAPE_FILE_PRCS_UNIT (Could be S => S, N => S, N => N or N => B) 3
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      --------------------------------------------------------------------------
 
       vStep := 1;
 
@@ -1900,7 +2077,7 @@ AS
          vSHP_UNIT_REQUEST := 'BOTH';
       ELSIF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'N'  THEN
          prcsShapeFiles := 'Y';
-         vSHP_UNIT_REQUEST := 'NATION';
+         vSHP_UNIT_REQUEST := 'BOTH';
       ELSIF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'S'  THEN
          prcsShapeFiles := 'Y';
          vSHP_UNIT_REQUEST := 'STATE';
@@ -1945,12 +2122,23 @@ AS
             DBMS_OUTPUT. PUT_LINE ( 'Verify Parameter table ' || tblName || ' for project id ' || vProjectID);
       END;
 
-      IF vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'S' AND vJobPrmRec.GZ_PRCS_UNIT = 'S' THEN
 
-         --STATE processing unit, this code is NOT SOP
-         --see the ELSE for a second set of inserts
+      --+++++++++++++++++++++++++++++++++++++++++++++--
+      -------------------------------------------------
+      --actual step 1 setup table inserts start here
+      -------------------------------------------------
+      --+++++++++++++++++++++++++++++++++++++++++++++--
+
+      IF vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'S' 
+      AND vJobPrmRec.GZ_PRCS_UNIT = 'S' 
+      THEN
+
+         --STATE processing unit for step 1
+         --this code is NOT SOP, probably doesnt really even work any more
+         --see the ELSE for a second set of inserts that are standard
 
          BEGIN
+         
             tblName := 'SMALL_POLYGON_PARAMETERS';
 
             EXECUTE IMMEDIATE 'Select *
@@ -2028,16 +2216,30 @@ AS
                DBMS_OUTPUT. PUT_LINE ( 'Verify Parameter table ' || tblName || ' for project id ' || vProjectID);
          END;
 
+
+
          FOR i IN vEntityTableTab.FIRST .. vEntityTableTab.LAST
          LOOP
+         
             DBMS_OUTPUT.PUT_LINE ('ENTITY: ' || vEntityTableTab (i).ENTITY);
             vJOBID := vRelease || '_' || vProjectID||'_' ||vEntityTableTab (i).ENTITY || '_'|| vStep;
+
+            -- Turn on QA by default for step 2 jobs
+               IF vStep = 2
+               THEN
+                  vQAdefault := 'Y';
+               ELSE
+                  vQAdefault := 'N';
+               END IF;
 
             -- Insert into GZ_Job_Setup and GZ_TOPOBUILD_SETUP
             tab_col := 'JOBID, DESCR, RELEASE, gen_project_id, ENTITY, STEP, USE_FOR_MERGE,
                             SRC_TYPE, PRD_TYPE, TOPO_TAG, TOPOBUILD, CLIP, SMPOLY, LINESIM, MERGE,
                             FSLBUILD, CLIP_ATTR, QA, SHAPEFILE, STATE_TABLE, TARGET_SCALE, GEN_CLIP_TABLE';
-            SQL1 :=  'INSERT INTO GZ_JOB_SETUP(' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18, :19, :20, :21, :22)';
+                            
+            SQL1 :=  'INSERT INTO GZ_JOB_SETUP(' || tab_col|| ')  VALUES '
+                  || '(:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18, :19, :20, :21, :22)';
+                  
             EXECUTE IMMEDIATE SQL1
                USING vJOBID, 'Job record for ' || vJOBID,
                      vRelease, vProjectID,  vEntityTableTab (i).ENTITY,
@@ -2045,15 +2247,21 @@ AS
                      vJobPrmRec.BENCH_MARK_PRCS_UNIT,
                      vJobPrmRec.FINAL_TOPO_PRCS_UNIT,
                      vProjectID || vEntityTableTab (i).ENTITY_CODE,
-                     vTOPOBUILDTYPE, 'Y', 'Y',  'Y', 'N', vTOPOBUILDTYPE, 'N',  'N', prcsShapeFiles,
+                     vTOPOBUILDTYPE, 'Y', 'Y',  'Y', 'N', vTOPOBUILDTYPE, 'N',  vQAdefault, prcsShapeFiles,
                      vJobPrmRec.STATE_TABLE, vJobPrmRec.TARGET_SCALE, vJobPrmRec.GEN_CLIP_TABLE;
 
-            IF (vTOPOBUILDTYPE = 'A' ) THEN
-               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY,
-                               OUTPUT_TOPOLOGY, TILE_COUNT, SDO_FILTER, MODULES,
-                               RESTART_FLAG,  SRID, TOLERANCE, SNAPPING_DIGITS, DROP_TABLES';
-               EXECUTE IMMEDIATE   'Insert into GZ_BUILD_SOURCE_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11, :12)'
-                  USING vJOBID, vJobPrmRec.SOURCE_SCHEMA||vEntityTableTab (i).ENTITY,
+            IF (vTOPOBUILDTYPE = 'A' ) 
+            THEN
+            
+               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, '
+                       || 'OUTPUT_TOPOLOGY, TILE_COUNT, SDO_FILTER, MODULES, '
+                       || 'RESTART_FLAG,  SRID, TOLERANCE, SNAPPING_DIGITS, DROP_TABLES, '
+                       || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
+                               
+               EXECUTE IMMEDIATE   'Insert into GZ_BUILD_SOURCE_SETUP (' || tab_col|| ')  '
+                                || 'VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16)'
+                  USING vJOBID, 
+                        vJobPrmRec.SOURCE_SCHEMA||vEntityTableTab(i).ENTITY,
                         vJobPrmRec.SOURCE_TOPOLOGY,
                         vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
                         vBuildSourcePrmRec.TILE_COUNT,
@@ -2063,128 +2271,210 @@ AS
                         vBuildSourcePrmRec.SRID,
                         vBuildSourcePrmRec.TOLERANCE,
                         vBuildSourcePrmRec.SNAPPING_DIGITS,
-                        vBuildSourcePrmRec.DROP_TABLES;
+                        vBuildSourcePrmRec.DROP_TABLES,
+                        'Y', --validate topo
+                        'Y', --topofix edge
+                        'N', --topofix_2edge
+                        'Y'; --topofix QA, dont expect inputs to break bad
+                        
             ELSE
-               tab_col := 'JOBID, UNIVERSE_TABLE, HIERARCHY_TABLE, TOPO_OUT,
-                               STATEFP, FEATURE_MBR_ONLY, TOPO_VALIDATION,
-                               BUILD_OPTION, CLEANUP';
+               
+               --classic topo build.  Decided its wrong to leave this fossil in here since it 
+               --implicitly suggests code is being maintained on various updates
 
-               EXECUTE IMMEDIATE   'Insert into GZ_TOPOBUILD_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8, :9)'
-                  USING vJOBID, vJobPrmRec.UNIVERSE_TABLE,
-                        vJobPrmRec.HIERARCHY_TABLE,  vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
-                        '99',  'FALSE',  'Y', 2, 'N';
+               RAISE_APPLICATION_ERROR(-20001, 'Klassic topo build based on topobuild type ' ||  vTOPOBUILDTYPE
+                                               || ' is no longer supported.');
+                                              
+
             END IF;
 
-            -- Clip
-            tab_col := 'JOBID, GEN_CLIP_MASK, CL_JOBID, TOPO_IN,
-                            TOPO_OUT, DROP_TABLES, TRANSFER_ATTS, GEN_CLIP_MODULES';
+            -- Clip columns here arent in table order
+            tab_col := 'JOBID, GEN_CLIP_MASK, CL_JOBID, TOPO_IN, '
+                    || 'TOPO_OUT, DROP_TABLES, TRANSFER_ATTS, GEN_CLIP_MODULES, '
+                    || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-            EXECUTE IMMEDIATE   'Insert into GZ_CLIP_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7, :8)'
-               USING vJOBID,vEntityTableTab (i).ENTITY_CODE,
+            EXECUTE IMMEDIATE  'Insert into GZ_CLIP_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12)'
+               USING vJOBID,
+                     vEntityTableTab(i).ENTITY_CODE,
                      vEntityTableTab (i).ENTITY_CODE || 'CL', vTOPO_IN,
                      vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'CL',
-                     'Y', vTRANSFER_ATTS, vClipPrmRec.GEN_CLIP_MODULES;
+                     'Y',
+                     vTRANSFER_ATTS,
+                     vClipPrmRec.GEN_CLIP_MODULES,
+                     'Y', --validate topo
+                     'Y', --topofix_edge
+                     'N', --topofix_2edge
+                     'N'; --topofix_qa
 
             -- SMPoly
-            tab_col := 'JOBID, SP_MODULES, TOPO_IN, TOPO_OUT,
-                            STATEFP, GEOID_COL, RUNID, CLEANUP';
+            tab_col := 'JOBID, SP_MODULES, TOPO_IN, TOPO_OUT, '
+                    || 'STATEFP, GEOID_COL, RUNID, CLEANUP, '
+                    || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-            EXECUTE IMMEDIATE   'Insert into GZ_SMPOLY_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7, :8)'
-               USING vJOBID, vSMPolyPrmRec.SP_MODULES, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL',
-                        vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'SP',
-                     vEntityTableTab (i).ENTITY_CODE, 'GEOID',1,'N';
+            EXECUTE IMMEDIATE   'Insert into GZ_SMPOLY_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12)'
+               USING vJOBID,
+                     vSMPolyPrmRec.SP_MODULES,
+                     vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL',
+                      vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'SP',
+                     vEntityTableTab(i).ENTITY_CODE,
+                     'GEOID',
+                     1,
+                     'N',
+                     'Y', --validate topo
+                     'Y', --topofix_edge
+                     'N', --topofix_2edge
+                     'N'; --topofix_qa
 
             -- LineSim
-            tab_col := 'JOBID, LS_MODULES, TOPO_IN, TOPO_OUT, STATEFP, SKIP_EDGES_TABLE';
+            tab_col := 'JOBID, LS_MODULES, TOPO_IN, TOPO_OUT, STATEFP, SKIP_EDGES_TABLE, '
+                    || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-            EXECUTE IMMEDIATE   'Insert into GZ_LINESIM_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6)'
-               USING vJOBID, vLineSimPrmRec.LS_MODULES, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'SP',
-                 vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS', vEntityTableTab (i).ENTITY_CODE,
-                 vLineSimPrmRec.skip_edges_table;
+            EXECUTE IMMEDIATE   'Insert into GZ_LINESIM_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10)'
+               USING vJOBID,
+                     vLineSimPrmRec.LS_MODULES,
+                     vProjectID || vEntityTableTab (i).ENTITY_CODE || 'SP',
+                     vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS',
+                     vEntityTableTab (i).ENTITY_CODE,
+                     vLineSimPrmRec.skip_edges_table,
+                     'Y', --validate topo
+                     'Y', --topofix single edges
+                     'Y', --topofix pairs of edges. Reduced coordinates and parallel state jobs are the one spot for this
+                     'Y'; --topofix QA. End of the line here, could have shapefiles coming from this topo
+                     
 
             IF (vTOPOBUILDTYPE = 'A' ) THEN
+   
+               --step1 alternative output build after a step1 state-based topo build
+               --This is some far-fetched workflow ish here
 
-               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY,
-                                MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT';
+               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY, '
+                       || 'MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT, '
+                       || 'PRCS_SLIVERS, SLIVER_WIDTH, SEGMENT_LENGTH, EXPENDABLE_REVIEW, RESHAPE_REVIEW, '
+                       || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA '; 
 
                IF vEntityTableTab(i).entity_type = 'S'
                THEN
-               
+
+                  IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('S','B')
+                  THEN
+                     process_slivers := 'Y';
+                  ELSE
+                     process_slivers := 'N';
+                  END IF;
+
                   --state tile count
-                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-                  USING vJOBID,  vJobPrmRec.SOURCE_SCHEMA||vEntityTableTab (i).ENTITY,
-                        vJobPrmRec.SOURCE_TOPOLOGY, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
-                        vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_STATE;
-                           
+                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  '
+                                   || ' VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+                  USING vJOBID,  
+                        vJobPrmRec.SOURCE_SCHEMA||vEntityTableTab(i).ENTITY,
+                        vJobPrmRec.SOURCE_TOPOLOGY, 
+                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
+                        vOutputPrmRec.MODULES, 
+                        vOutputPrmRec.RESTART_FLAG,
+                        vOutputPrmRec.SINGLE_LAYER, 
+                        vOutputPrmRec.SRID,
+                        vOutputPrmRec.TOLERANCE, 
+                        vOutputPrmRec.DROP_TABLES,
+                        vOutputPrmRec.TILE_COUNT_STATE,
+                        process_slivers,
+                        vOutputPrmRec.SLIVER_WIDTH, 
+                        vOutputPrmRec.SEGMENT_LENGTH, 
+                        'N',  --expendable review
+                        'Y',  --reshape review
+                        'Y',  --validate topo
+                        'Y',  --topofix_edge
+                        'N',  --topofix_2edge
+                        'Y';  --topofix qa, could lead directly to shapefiles here
+
                ELSIF vEntityTableTab(i).entity_type = 'N'
                THEN
-               
+
+                  IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('N','B')
+                  THEN
+                     process_slivers := 'Y';
+                  ELSE
+                     process_slivers := 'N';
+                  END IF;
+
                   --nation tile count
-                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-                  USING vJOBID,  vJobPrmRec.SOURCE_SCHEMA||vEntityTableTab (i).ENTITY,
-                        vJobPrmRec.SOURCE_TOPOLOGY, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
-                        vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_NATION;
-               
+                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  '
+                                   || ' VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+                  USING vJOBID,  
+                        vJobPrmRec.SOURCE_SCHEMA||vEntityTableTab(i).ENTITY,
+                        vJobPrmRec.SOURCE_TOPOLOGY, 
+                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
+                        vOutputPrmRec.MODULES, 
+                        vOutputPrmRec.RESTART_FLAG,
+                        vOutputPrmRec.SINGLE_LAYER, 
+                        vOutputPrmRec.SRID,
+                        vOutputPrmRec.TOLERANCE, 
+                        vOutputPrmRec.DROP_TABLES,
+                        vOutputPrmRec.TILE_COUNT_NATION,
+                        process_slivers,
+                        vOutputPrmRec.SLIVER_WIDTH, 
+                        vOutputPrmRec.SEGMENT_LENGTH, 
+                        'N',  --expendable review
+                        'Y',  --reshape review
+                        'Y',  --validate topo
+                        'Y',  --topofix_edge
+                        'N',  --topofix_2edge
+                        'Y';  --topofix qa, could lead directly to shapefiles here
+
                ELSE
-               
-                  RAISE_APPLICATION_ERROR(-20001,'GZ_ENTITY_TABLE entity ' || vEntityTableTab(i).entity 
+
+                  RAISE_APPLICATION_ERROR(-20001,'GZ_ENTITY_TABLE entity ' || vEntityTableTab(i).entity
                                               || ' entity_type is ' || vEntityTableTab(i).entity_type || '. Im confused');
-               
+
                END IF;
 
             ELSE
-               -- FSLBuild
-               -- vFSLBuildSetupRec.FACE_TABLE_EXT := get it from clip parameters
-               BEGIN
-                  EXECUTE IMMEDIATE 'Select FACE_OUTPUT_TABLE
-                    From GEN_CLIP_PARAMETERS
-                   Where  release = :1 AND gen_project_id = :2'
-                     INTO vFACE_TABLE_EXT
-                     USING vRelease, vProjectID;
-               EXCEPTION
-                  WHEN OTHERS THEN
-                     Error_Desc:= SQLERRM;
-                     DBMS_OUTPUT.put_line (Error_Desc);
-                     DBMS_OUTPUT. PUT_LINE ( 'Using default value of CLIP_FACE for FACE_TABLE_EXT.  Please verify');
-                     vFACE_TABLE_EXT := 'CLIP_FACE';
-               END;
-               tab_col := 'JOBID, TOPO_IN, UNGEN_TOPO, FACE_TABLE_EXT, UNIVERSE_TABLE,
-                               HIERARCHY_TABLE, PROJECT_Z9, RELEASE,
-                               STATE_EDGES_TABLE, DROP_TABLES';
+            
+               --classic fsl build.  Decided its wrong to leave this fossil in here since it 
+               --implicitly suggests code is being maintained on various updates
 
-               EXECUTE IMMEDIATE   'Insert into GZ_FSLBUILD_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9, :10)'
-                  USING vJOBID,vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS',
-                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL',
-                        vFACE_TABLE_EXT, vFSLBuildPrmRec.TOPO_UNIVERSE, vFSLBuildPrmRec.TOPO_HIERARCHY,
-                        vFSLBuildPrmRec.PROJECT_Z9, vRelease,  vJobPrmRec.STATE_EDGES_TBL, 'Y';
+               RAISE_APPLICATION_ERROR(-20001, 'Klassic FSL build based on topobuild type ' ||  vTOPOBUILDTYPE
+                                               || ' is no longer supported.');
+                                               
             END IF;
+            
 
             -- QA
             tab_col :='JOBID, GEN_TOPO, GEN_SDOGEOM_COL, UNGEN_SCHEMA,
                             UNGEN_TOPO, UNGEN_SDOGEOM_COL, OUT_TBL_SUFFIX,
                             COMPARE_GEN_COLUMN, AREA_CHECK,
-                            SHAPE_CHECK, ENTIRE_TOPO, MISSING_REC_TBL,MISSING_REC_KEY, TARGET_SCALE ';
+                            SHAPE_CHECK, ENTIRE_TOPO, GEN_TBL_NAME,
+                            UNGEN_TBL_NAME, MISSING_REC_TBL,MISSING_REC_KEY,
+                            TARGET_SCALE ';
 
-            EXECUTE IMMEDIATE 'Insert into GZ_QA_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9, :10, :11,:12,:13, :14)'
-               USING vJOBID, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS', 'SDOGEOMETRY',
-                     vSchema, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL', 'SDOGEOMETRY', 'QA_TBL',
+            EXECUTE IMMEDIATE 'Insert into GZ_QA_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16)'
+               USING vJOBID, 
+                     vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS', 
+                     'SDOGEOMETRY',
+                     vSchema, 
+                     vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL', 
+                     'SDOGEOMETRY', 
+                     'QA_TBL',
                      vQAPrmRec.COMPARE_GEN_COLUMN,
-                     vQAPrmRec.AREA_CHECK, vQAPrmRec.SHAPE_CHECK, 'Y',
-                     vProjectID|| vEntityTableTab (i).ENTITY_CODE|| '_MISSING','GEO_ID',
+                     vQAPrmRec.AREA_CHECK, 
+                     vQAPrmRec.SHAPE_CHECK, 
+                     'Y',
+                     vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'LS_CLIP_FACE',
+                     vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'CL_CLIP_FACE',
+                     vProjectID|| vEntityTableTab (i).ENTITY_CODE|| '_MISSING',
+                     'GEO_ID',
                      vJobPrmRec.TARGET_SCALE;
 
-            IF prcsShapeFiles = 'Y' THEN
+            IF prcsShapeFiles = 'Y' 
+            THEN
+            
                -- Insert into GZ_SHAPEFILE_SETUP only if SF_PU = TB_PU
+               
                BEGIN
+               
                   SQL1 :=  'Select * from SHAPEFILE_PARAMETERS ' || ' Where release = :1 AND gen_project_id = :1';
 
                   EXECUTE IMMEDIATE SQL1 INTO vShapeFilePrmRec USING vRelease, vProjectID;
+                  
                EXCEPTION
                   WHEN NO_DATA_FOUND THEN
                      Error_Desc:= SQLERRM;
@@ -2200,6 +2490,7 @@ AS
                      Error_Desc:= SQLERRM;
                      DBMS_OUTPUT.put_line (Error_Desc);
                      --RAISE_APPLICATION_ERROR ( -20001, 'There is error at SHAPEFILE_PARAMETERS. ');
+                     
                END;
 
                 tab_col := 'JOBID, TOPO_NAME, FSL_STRING, YEAR, GEN_LEVEL,
@@ -2207,15 +2498,25 @@ AS
                                DEL_CPG_FLAG, SHP_UNIT_REQUEST';
 
                EXECUTE IMMEDIATE   'Insert into GZ_SHAPEFILE_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9, :10)'
-                  USING vJOBID,vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
-                        vShapeFilePrmRec.FSL_STRING, vShapeFilePrmRec.YEAR,
-                        vShapeFilePrmRec.GEN_LEVEL, vShapeFilePrmRec.GENCODE,
-                        vShapeFilePrmRec.PROJECTION,vShapeFilePrmRec.STATE_TOPO_FLAG,
-                        vShapeFilePrmRec.DEL_CPG_FLAG, vSHP_UNIT_REQUEST;
+                  USING vJOBID,
+                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
+                        vShapeFilePrmRec.FSL_STRING, 
+                        vShapeFilePrmRec.YEAR,
+                        vShapeFilePrmRec.GEN_LEVEL, 
+                        vShapeFilePrmRec.GENCODE,
+                        vShapeFilePrmRec.PROJECTION,
+                        vShapeFilePrmRec.STATE_TOPO_FLAG,
+                        vShapeFilePrmRec.DEL_CPG_FLAG, 
+                        vSHP_UNIT_REQUEST;
+                        
             END IF;
+            
          END LOOP;
 
-      ELSE
+      ELSE  --implicitly I think: vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'N' AND vJobPrmRec.GZ_PRCS_UNIT = 'S'
+
+         --Standard step 1 processing
+         --Just a couple of ST99-type entities doing topo build, shapefiles, etc
 
          FOR i IN vEntityTableTab.FIRST .. vEntityTableTab.LAST
          LOOP
@@ -2223,33 +2524,67 @@ AS
             DBMS_OUTPUT.PUT_LINE ('ENTITY: ' || vEntityTableTab (i).ENTITY);
             vJOBID := vRelease || '_' || vProjectID||'_' ||vEntityTableTab (i).ENTITY || '_'|| vStep;
 
+            -- Turn on QA by default for step 2 jobs
+            IF vStep = 2
+            THEN
+               vQAdefault := 'Y';
+            ELSE
+               vQAdefault := 'N';
+            END IF;
+
             -- Insert into GZ_Job_Setup and GZ_TOPOBUILD_SETUP
+            
             tab_col := 'JOBID, DESCR, RELEASE, gen_project_id, ENTITY, STEP, USE_FOR_MERGE,
                             SRC_TYPE, PRD_TYPE, TOPO_TAG, TOPOBUILD, CLIP, SMPOLY, LINESIM,
                             MERGE, FSLBUILD, CLIP_ATTR, QA, SHAPEFILE,STATE_TABLE,TARGET_SCALE,GEN_CLIP_TABLE';
+                            
             SQL1 :=  'Insert into GZ_JOB_SETUP(' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20,:21, :22)';
 
             EXECUTE IMMEDIATE SQL1
-               USING vJOBID, 'Job record for ' || vJOBID,
-                     vRelease, vProjectID,  vEntityTableTab (i).ENTITY,
-                     vStep,  'N',
+               USING vJOBID, 
+                     'Job record for ' || vJOBID,
+                     vRelease, vProjectID,  
+                     vEntityTableTab(i).ENTITY,
+                     vStep,  
+                     'N',
                      vJobPrmRec.BENCH_MARK_PRCS_UNIT,
                      vJobPrmRec.FINAL_TOPO_PRCS_UNIT,
-                     vProjectID || vEntityTableTab (i).ENTITY_CODE,
-                     vTOPOBUILDTYPE, 'N', 'N',  'N', 'N', vTOPOBUILDTYPE, 'Y',  'N', prcsShapeFiles,
-                     vJobPrmRec.STATE_TABLE, vJobPrmRec.TARGET_SCALE, vJobPrmRec.GEN_CLIP_TABLE;
+                     vProjectID || vEntityTableTab(i).ENTITY_CODE,
+                     vTOPOBUILDTYPE, 
+                     'N', 
+                     'N',  
+                     'N', 
+                     'N', 
+                     vTOPOBUILDTYPE, 
+                     'Y',  
+                     vQAdefault, 
+                     prcsShapeFiles,
+                     vJobPrmRec.STATE_TABLE, 
+                     vJobPrmRec.TARGET_SCALE, 
+                     vJobPrmRec.GEN_CLIP_TABLE;
 
-            IF (vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'N') OR (vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'B') THEN
+            IF (vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'N') 
+            OR (vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'B')
+            THEN
+            
                vTopoSCHEMA:= vJobPrmRec.SOURCE_SCHEMA;
+               
             ELSE
+            
                 vTopoSCHEMA:= vJobPrmRec.SOURCE_SCHEMA||vEntityTableTab (i).ENTITY;
+                
             END IF;
 
-            IF (vTOPOBUILDTYPE = 'A' ) THEN
-               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY,
-                               OUTPUT_TOPOLOGY, TILE_COUNT, SDO_FILTER, MODULES,
-                               RESTART_FLAG,  SRID, TOLERANCE, SNAPPING_DIGITS, DROP_TABLES';
-               EXECUTE IMMEDIATE   'Insert into GZ_BUILD_SOURCE_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11, :12)'
+            IF (vTOPOBUILDTYPE = 'A' ) 
+            THEN
+            
+               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, '
+                       || 'OUTPUT_TOPOLOGY, TILE_COUNT, SDO_FILTER, MODULES, '
+                       || 'RESTART_FLAG,  SRID, TOLERANCE, SNAPPING_DIGITS, DROP_TABLES, '
+                       || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
+                       
+               EXECUTE IMMEDIATE   'Insert into GZ_BUILD_SOURCE_SETUP (' || tab_col|| ')  '
+                                || 'VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16)'
                   USING vJOBID,  vTopoSCHEMA,
                         vJobPrmRec.SOURCE_TOPOLOGY,
                         vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
@@ -2260,69 +2595,115 @@ AS
                         vBuildSourcePrmRec.SRID,
                         vBuildSourcePrmRec.TOLERANCE,
                         vBuildSourcePrmRec.SNAPPING_DIGITS,
-                        vBuildSourcePrmRec.DROP_TABLES;
+                        vBuildSourcePrmRec.DROP_TABLES,
+                        'Y', --validate_topo
+                        'Y', --topofix_edge
+                        'N', --topofix_2edge
+                        'Y'; --topofix_qa. Dont expect problems on initial build
+                        
             ELSE
-               tab_col := 'JOBID, UNIVERSE_TABLE, HIERARCHY_TABLE, TOPO_OUT,
-                               STATEFP, FEATURE_MBR_ONLY, TOPO_VALIDATION, BUILD_OPTION,CLEANUP';
+            
+               --classic fsl build.  Decided its wrong to leave this fossil in here since it 
+               --implicitly suggests code is being maintained on various updates
 
-               EXECUTE IMMEDIATE   'Insert into GZ_TOPOBUILD_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8, :9)'
-                  USING vJOBID, vJobPrmRec.UNIVERSE_TABLE,
-                        vJobPrmRec.HIERARCHY_TABLE,
-                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN', '99', 'FALSE',  'Y', 2, 'N';
+               RAISE_APPLICATION_ERROR(-20001, 'Klassic fsl build based on topobuild type ' ||  vTOPOBUILDTYPE
+                                               || ' is no longer supported.');
 
             END IF;
 
-            -- Insert into FSL SETUP Table
-            IF (vTOPOBUILDTYPE = 'A' ) THEN
-               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY,
-                                MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT';
+            -- Insert into OUTPUT SETUP Table
+            
+            IF (vTOPOBUILDTYPE = 'A' ) 
+            THEN
+            
+               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY, '
+                       || 'MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES, TILE_COUNT, '
+                       || 'PRCS_SLIVERS, SLIVER_WIDTH, SEGMENT_LENGTH, EXPENDABLE_REVIEW, RESHAPE_REVIEW, '
+                       || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-               IF vEntityTableTab(i).entity_type = 'S'
+               IF vEntityTableTab(i).entity_type = 'S'   -- oops, dont think this is really possible in this section of the code
                THEN
-               
-                  --state tile count
-                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-                  USING vJOBID,  vTopoSCHEMA,
-                        vJobPrmRec.SOURCE_TOPOLOGY, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
-                        vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_STATE;
-                           
-               ELSIF vEntityTableTab(i).entity_type = 'N'
+
+                  IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('S','B')
+                  THEN
+                     process_slivers := 'Y';
+                  ELSE
+                     process_slivers := 'N';
+                  END IF;
+
+                  --state tile count - dont think this is really possible in this section of the code
+                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ') '
+                                   || ' VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+                  USING vJOBID,  
+                        vTopoSCHEMA,
+                        vJobPrmRec.SOURCE_TOPOLOGY, 
+                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
+                        vOutputPrmRec.MODULES, 
+                        vOutputPrmRec.RESTART_FLAG,
+                        vOutputPrmRec.SINGLE_LAYER, 
+                        vOutputPrmRec.SRID,
+                        vOutputPrmRec.TOLERANCE, 
+                        vOutputPrmRec.DROP_TABLES,
+                        vOutputPrmRec.TILE_COUNT_STATE,
+                        process_slivers,
+                        vOutputPrmRec.SLIVER_WIDTH, 
+                        vOutputPrmRec.SEGMENT_LENGTH,
+                        'N', --expendable review
+                        'Y', --reshape review
+                        'Y', --validate topo
+                        'Y', --topofix edge
+                        'N', --topofix 2edge
+                        'Y'; --topofix qa, could be on the cusp of output shapefiles
+
+               ELSIF vEntityTableTab(i).entity_type = 'N'  --THIS IS THE REAL ONE HERE
                THEN
-               
-                  --nation tile count
-                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-                  USING vJOBID,  vTopoSCHEMA,
-                        vJobPrmRec.SOURCE_TOPOLOGY, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
-                        vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_NATION;
-               
+
+                  IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('N','B')
+                  THEN
+                     process_slivers := 'Y';
+                  ELSE
+                     process_slivers := 'N';
+                  END IF;
+
+                  --nation tile count, standard
+                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ') '
+                                   || ' VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+                  USING vJOBID,  
+                        vTopoSCHEMA,
+                        vJobPrmRec.SOURCE_TOPOLOGY, 
+                        vProjectID || vEntityTableTab(i).ENTITY_CODE || 'IN',
+                        vOutputPrmRec.MODULES, 
+                        vOutputPrmRec.RESTART_FLAG,
+                        vOutputPrmRec.SINGLE_LAYER, 
+                        vOutputPrmRec.SRID,
+                        vOutputPrmRec.TOLERANCE, 
+                        vOutputPrmRec.DROP_TABLES,
+                        vOutputPrmRec.TILE_COUNT_NATION,
+                        process_slivers,
+                        vOutputPrmRec.SLIVER_WIDTH, 
+                        vOutputPrmRec.SEGMENT_LENGTH, 
+                        'N', --expendable review
+                        'Y', --reshape review
+                        'Y', --validate topo
+                        'Y', --topofix edge
+                        'N', --topofix 2edge
+                        'Y'; --topofix qa, could be on the cusp of output shapefiles
+                        
                ELSE
-               
-                  RAISE_APPLICATION_ERROR(-20001,'GZ_ENTITY_TABLE entity ' || vEntityTableTab(i).entity 
+
+                  RAISE_APPLICATION_ERROR(-20001,'GZ_ENTITY_TABLE entity ' || vEntityTableTab(i).entity
                                               || ' entity_type is ' || vEntityTableTab(i).entity_type || '. Im confused');
-               
+
                END IF;
 
             ELSE
-               -- FSLBuild
-               SELECT DECODE (vProjectID, 'Z9', 'Y', 'N')
-                 INTO vPROJECT_Z9
-                 FROM DUAL;
+            
+               --classic fsl build.  Decided its wrong to leave this fossil in here since it 
+               --implicitly suggests code is being maintained on various updates
 
-               tab_col := 'JOBID, UNGEN_TOPO, FACE_TABLE_EXT, UNIVERSE_TABLE,
-                               HIERARCHY_TABLE, PROJECT_Z9, RELEASE,
-                               STATE_EDGES_TABLE, DROP_TABLES';
-
-               EXECUTE IMMEDIATE   'Insert into GZ_FSLBUILD_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9)'
-                  USING vJOBID,vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN',
-                        vFACE_TABLE_EXT, vFSLBuildPrmRec.TOPO_UNIVERSE,
-                        vFSLBuildPrmRec.TOPO_HIERARCHY, vFSLBuildPrmRec.PROJECT_Z9,
-                        vRelease, vJobPrmRec.STATE_EDGES_TBL, 'Y';
+               RAISE_APPLICATION_ERROR(-20001, 'Klassic fsl build based on topobuild type ' ||  vTOPOBUILDTYPE
+                                               || ' is no longer supported.');
+                                               
             END IF;
 
             IF prcsShapeFiles = 'Y' THEN
@@ -2358,28 +2739,52 @@ AS
                         vShapeFilePrmRec.DEL_CPG_FLAG, vSHP_UNIT_REQUEST;
             END IF;
 
-            IF prcsClip = 'Y' THEN
-               -- Insert into GZ_CLIP_SETUP only if BM_PU = N and TB_PU = S
-               tab_col := 'JOBID, GEN_CLIP_MASK, CL_JOBID, TOPO_OUT,
-                               DROP_TABLES, TRANSFER_ATTS, GEN_CLIP_MODULES';
+            IF prcsClip = 'Y' 
+            THEN
+            
+               --this is transfer_attributes = O(nly) on ST 99 step 1s
+               
+               -- Insert into GZ_CLIP_SETUP only if BM_PU = N and TB_PU = S  (what does this mean?)
+               
+               tab_col := 'JOBID, GEN_CLIP_MASK, CL_JOBID, TOPO_OUT, '
+                       || 'DROP_TABLES, TRANSFER_ATTS, GEN_CLIP_MODULES, '
+                       || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-               EXECUTE IMMEDIATE   'Insert into GZ_CLIP_SETUP (' || tab_col || ')  VALUES (:1,:2,:3,:4,:5,:6, :7)'
-                  USING vJOBID, vEntityTableTab (i).ENTITY_CODE,
-                        vEntityTableTab (i).ENTITY_CODE || 'CL',
+               EXECUTE IMMEDIATE   'Insert into GZ_CLIP_SETUP (' || tab_col || ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11)'
+                  USING vJOBID,
+                        vEntityTableTab(i).ENTITY_CODE,
+                        vEntityTableTab(i).ENTITY_CODE || 'CL',
                         vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL',
-                        'Y','O', vClipPrmRec.GEN_CLIP_MODULES;
+                        'Y',
+                        'O',
+                        vClipPrmRec.GEN_CLIP_MODULES,
+                        'N', --validate_topo        clip module always ignores these
+                        'N', --topofix_edge         parameters on transfer atts Only
+                        'N', --topofix_2edge        just sticking the values in here 
+                        'N'; --topofix_qa           for consistency and obviousness
+                        
             END IF;
+            
          END LOOP;
+         
       END IF;
+
+
+      --------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
       -- Step 2 GZ Process
       -- Init variables
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      --------------------------------------------------------------------------
 
       vEntityTableRec := vEntityTableNullRec;
 
       SQL1 := NULL;
       vStep := 2;
 
-      IF NOT (vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'S' AND vJobPrmRec.GZ_PRCS_UNIT = 'S') THEN
+      IF NOT (vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'S' AND vJobPrmRec.GZ_PRCS_UNIT = 'S') 
+      THEN
+      
          DBMS_OUTPUT.PUT_LINE ('Processing Step: ' || vStep);
 
          SQL1 :=  'Select * from GZ_ENTITY_TABLE '
@@ -2392,12 +2797,16 @@ AS
             USING vRelease,  vProjectID,
                   vJobPrmRec.GZ_PRCS_UNIT;
 
-         IF vEntityTableTab.COUNT = 0 THEN
+         IF vEntityTableTab.COUNT = 0 
+         THEN
+         
             RAISE_APPLICATION_ERROR ( -20001,  'No GZ_ENTITY_TABLE records found for release ' || vRelease
                || ' project id ' || vProjectID || ' and GZ_Prcs_Unit ' || vJobPrmRec.GZ_PRCS_UNIT);
+               
          END IF;
 
          BEGIN
+         
             tblName := 'SMALL_POLYGON_PARAMETERS';
 
             EXECUTE IMMEDIATE 'Select *
@@ -2418,6 +2827,7 @@ AS
          END;
 
          BEGIN
+         
             tblName := 'LINE_SIM_PARAMETERS';
 
             EXECUTE IMMEDIATE 'Select *
@@ -2438,6 +2848,7 @@ AS
          END;
 
          BEGIN
+         
             tblName := 'QA_PARAMETERS';
 
             EXECUTE IMMEDIATE 'Select *
@@ -2458,6 +2869,7 @@ AS
          END;
 
          BEGIN
+         
             tblName := 'SHAPEFILE_PARAMETERS';
 
             EXECUTE IMMEDIATE 'Select *
@@ -2477,111 +2889,213 @@ AS
                DBMS_OUTPUT. PUT_LINE ( 'Verify Parameter table ' || tblName || ' for project id ' || vProjectID);
          END;
 
-         IF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'B'  THEN
+         IF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'B'  
+         THEN
+         
             prcsShapeFiles := 'Y';
             vSHP_UNIT_REQUEST := 'STATE';
-         ELSIF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'S'  THEN
+            
+         ELSIF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'S'  
+         THEN
+         
             prcsShapeFiles := 'Y';
             vSHP_UNIT_REQUEST := 'STATE';
+            
          ELSE
+         
             prcsShapeFiles := 'N';
+            
          END IF;
 
-         IF vJobPrmRec.GZ_PRCS_UNIT = 'S' AND vJobPrmRec.FINAL_TOPO_PRCS_UNIT = 'N' THEN
+         IF vJobPrmRec.GZ_PRCS_UNIT = 'S' 
+         AND vJobPrmRec.FINAL_TOPO_PRCS_UNIT = 'N' 
+         THEN
+         
             vUSE_FOR_MERGE := 'Y';
+            
          ELSE
+         
             vUSE_FOR_MERGE := 'N';
+            
          END IF;
 
          FOR i IN vEntityTableTab.FIRST .. vEntityTableTab.LAST
          LOOP
+         
             DBMS_OUTPUT.PUT_LINE ('ENTITY: ' || vEntityTableTab (i).ENTITY);
             vJOBID := vRelease || '_' || vProjectID||'_' ||vEntityTableTab (i).ENTITY || '_'|| vStep;
+
+            -- Turn on QA by default for step 2 jobs
+            IF vStep = 2
+            THEN
+               vQAdefault := 'Y';
+            ELSE
+               vQAdefault := 'N';
+            END IF;
 
             tab_col :=  'JOBID, DESCR, RELEASE, gen_project_id, ENTITY, STEP, DEPENDENCY, USE_FOR_MERGE,
                             SRC_TYPE, PRD_TYPE, TOPO_TAG, TOPOBUILD, CLIP, SMPOLY, LINESIM,
                             MERGE, FSLBUILD, CLIP_ATTR, QA, SHAPEFILE,STATE_TABLE,TARGET_SCALE, GEN_CLIP_TABLE';
 
-            EXECUTE IMMEDIATE 'Insert into GZ_JOB_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19, :20,:21,:22, :23)'
+            EXECUTE IMMEDIATE 'Insert into GZ_JOB_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20,:21,:22,:23)'
                USING vJOBID, 'Job record for ' || vJOBID,
                      vRelease,  vProjectID, vEntityTableTab (i).ENTITY,
                      vStep, 1, vUSE_FOR_MERGE, vJobPrmRec.BENCH_MARK_PRCS_UNIT,
                      vJobPrmRec.FINAL_TOPO_PRCS_UNIT,
                      vProjectID || vEntityTableTab (i).ENTITY_CODE,
-                     'N', 'Y', 'Y', 'Y', 'N',  vTOPOBUILDTYPE, 'N', 'N', prcsShapeFiles,
+                     'N', 'Y', 'Y', 'Y', 'N',  vTOPOBUILDTYPE, 'N', vQAdefault, prcsShapeFiles,
                      vJobPrmRec.STATE_TABLE, vJobPrmRec.TARGET_SCALE, vJobPrmRec.GEN_CLIP_TABLE;
 
             -- Clip
             IF (vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'N' OR vJobPrmRec.TOPOBUILD_PRCS_UNIT = 'B')
-               AND vJobPrmRec.GZ_PRCS_UNIT = 'S' THEN
+            AND vJobPrmRec.GZ_PRCS_UNIT = 'S' 
+            THEN
+            
                vTOPO_IN := NULL;
                vTRANSFER_ATTS := 'N';
+               
             ELSE
+            
                vTOPO_IN := vProjectID || vEntityTableTab (i).ENTITY_CODE || 'IN';
                vTRANSFER_ATTS := 'Y';
+               
             END IF;
 
-            tab_col := 'JOBID, GEN_CLIP_MASK, CL_JOBID, TOPO_IN,
-                            TOPO_OUT, DROP_TABLES, TRANSFER_ATTS, GEN_CLIP_MODULES';
+            --not in table order
+            tab_col := 'JOBID, GEN_CLIP_MASK, CL_JOBID, TOPO_IN, '
+                    || 'TOPO_OUT, DROP_TABLES, TRANSFER_ATTS, GEN_CLIP_MODULES, '
+                    || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-            EXECUTE IMMEDIATE   'Insert into GZ_CLIP_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7, :8)'
-               USING vJOBID,vEntityTableTab (i).ENTITY_CODE,
-                     vEntityTableTab (i).ENTITY_CODE || 'CL', vTOPO_IN,
+            EXECUTE IMMEDIATE   'Insert into GZ_CLIP_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12)'
+               USING vJOBID,
+                     vEntityTableTab(i).ENTITY_CODE,
+                     vEntityTableTab(i).ENTITY_CODE || 'CL', vTOPO_IN,
                      vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'CL',
-                     'Y', vTRANSFER_ATTS, vClipPrmRec.GEN_CLIP_MODULES;
+                     'Y',
+                     vTRANSFER_ATTS,
+                     vClipPrmRec.GEN_CLIP_MODULES,
+                     'Y', --validate topo
+                     'Y', --topofix edge
+                     'N', --topofix 2edge
+                     'N'; --topofix qa
 
             -- SMPoly
-            tab_col := 'JOBID, SP_MODULES, TOPO_IN, TOPO_OUT,
-                            STATEFP, GEOID_COL, RUNID, CLEANUP';
+            tab_col := 'JOBID, SP_MODULES, TOPO_IN, TOPO_OUT, '
+                    || 'STATEFP, GEOID_COL, RUNID, CLEANUP, '
+                    || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-            EXECUTE IMMEDIATE   'Insert into GZ_SMPOLY_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7, :8)'
-               USING vJOBID, vSMPolyPrmRec.SP_MODULES, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL',
-                        vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'SP',
-                        vEntityTableTab (i).ENTITY_CODE, 'GEOID',1,'N';
+            EXECUTE IMMEDIATE   'Insert into GZ_SMPOLY_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12)'
+               USING vJOBID,
+                     vSMPolyPrmRec.SP_MODULES,
+                     vProjectID || vEntityTableTab(i).ENTITY_CODE || 'CL',
+                     vProjectID|| vEntityTableTab(i).ENTITY_CODE|| 'SP',
+                     vEntityTableTab(i).ENTITY_CODE,
+                     'GEOID',
+                     1,
+                     'N',
+                     'Y', --validate topo
+                     'Y', --topofix edge
+                     'N', --topofix 2edge
+                     'N'; --topofix qa
 
             -- LineSim
 
-            tab_col := 'JOBID, LS_MODULES, TOPO_IN, TOPO_OUT, STATEFP, SKIP_EDGES_TABLE';
+            tab_col := 'JOBID, LS_MODULES, TOPO_IN, TOPO_OUT, STATEFP, SKIP_EDGES_TABLE, '
+                    || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-            EXECUTE IMMEDIATE   'Insert into GZ_LINESIM_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6)'
-               USING vJOBID, vLineSimPrmRec.LS_MODULES, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'SP',
+            EXECUTE IMMEDIATE   'Insert into GZ_LINESIM_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10)'
+               USING vJOBID,
+                     vLineSimPrmRec.LS_MODULES,
+                     vProjectID || vEntityTableTab (i).ENTITY_CODE || 'SP',
                      vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS',
-                     vEntityTableTab (i).ENTITY_CODE, vLineSimPrmRec.skip_edges_table;
+                     vEntityTableTab(i).ENTITY_CODE,
+                     vLineSimPrmRec.skip_edges_table,
+                     'Y', --validate topo
+                     'Y', --topofix single edges
+                     'Y', --topofix pairs of edges. Reduced coordinates and parallel state jobs are the one spot for this
+                     'Y'; --topofix QA. End of the line here, could have shapefiles coming from this topo
 
-            -- Insert into FSL SETUP Table
+            -- Insert into OUTPUT SETUP Table
             IF (vTOPOBUILDTYPE = 'A' ) THEN
-               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY,
-                                MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT';
+               tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY, '
+                       || 'MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT, '
+                       || 'PRCS_SLIVERS, SLIVER_WIDTH, SEGMENT_LENGTH, EXPENDABLE_REVIEW, RESHAPE_REVIEW, '
+                       || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';                                
 
                IF vEntityTableTab(i).entity_type = 'S'
                THEN
-               
-                  --state tile count
-                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-                  USING vJOBID,  vTopoSCHEMA, vJobPrmRec.SOURCE_TOPOLOGY,
-                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS',
-                        vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_STATE;
-                           
+
+                  IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('S','B')
+                  THEN
+                     process_slivers := 'Y';
+                  ELSE
+                     process_slivers := 'N';
+                  END IF;
+
+                  --state tile count, SOP
+                  
+                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  '
+                                   || ' VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+                  USING vJOBID,  
+                        vTopoSCHEMA, 
+                        vJobPrmRec.SOURCE_TOPOLOGY,
+                        vProjectID || vEntityTableTab(i).ENTITY_CODE || 'LS',
+                        vOutputPrmRec.MODULES, 
+                        vOutputPrmRec.RESTART_FLAG,
+                        vOutputPrmRec.SINGLE_LAYER, 
+                        vOutputPrmRec.SRID,
+                        vOutputPrmRec.TOLERANCE, 
+                        vOutputPrmRec.DROP_TABLES,
+                        vOutputPrmRec.TILE_COUNT_STATE,  --here
+                        process_slivers,
+                        vOutputPrmRec.SLIVER_WIDTH, 
+                        vOutputPrmRec.SEGMENT_LENGTH,
+                        'N', --expendable review
+                        'Y', --reshape review
+                        'Y', --validate topo
+                        'Y', --topofix edge
+                        'N', --topofix 2edge
+                        'Y'; --topofix qa, could be on the cusp of output shapefiles                        
+
                ELSIF vEntityTableTab(i).entity_type = 'N'
                THEN
-               
-                  --nation tile count
-                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-                  USING vJOBID,  vTopoSCHEMA, vJobPrmRec.SOURCE_TOPOLOGY,
-                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS',
-                        vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_NATION;
-               
+
+                  IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('N','B')
+                  THEN
+                     process_slivers := 'Y';
+                  ELSE
+                     process_slivers := 'N';
+                  END IF;
+
+                  --nation tile count, pretty much always NA here in step 2 inserts
+                  EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  '
+                                   || ' VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+                  USING vJOBID,  
+                        vTopoSCHEMA, 
+                        vJobPrmRec.SOURCE_TOPOLOGY,
+                        vProjectID || vEntityTableTab(i).ENTITY_CODE || 'LS',
+                        vOutputPrmRec.MODULES, 
+                        vOutputPrmRec.RESTART_FLAG,
+                        vOutputPrmRec.SINGLE_LAYER, 
+                        vOutputPrmRec.SRID,
+                        vOutputPrmRec.TOLERANCE, 
+                        vOutputPrmRec.DROP_TABLES,
+                        vOutputPrmRec.TILE_COUNT_NATION,  --here
+                        process_slivers,
+                        vOutputPrmRec.SLIVER_WIDTH, 
+                        vOutputPrmRec.SEGMENT_LENGTH,
+                        'N', --expendable review
+                        'Y', --reshape review
+                        'Y', --validate topo
+                        'Y', --topofix edge
+                        'N', --topofix 2edge
+                        'Y'; --topofix qa, could be on the cusp of output shapefiles                 
+
                ELSE
-               
-                  RAISE_APPLICATION_ERROR(-20001,'GZ_ENTITY_TABLE entity ' || vEntityTableTab(i).entity 
+
+                  RAISE_APPLICATION_ERROR(-20001,'GZ_ENTITY_TABLE entity ' || vEntityTableTab(i).entity
                                               || ' entity_type is ' || vEntityTableTab(i).entity_type || '. Im confused');
-               
+
                END IF;
 
                --why this here?
@@ -2589,49 +3103,29 @@ AS
                                 MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT';
 
             ELSE
-               -- FSLBuild
+            
+               --classic fsl build.  Decided its wrong to leave this fossil in here since it 
+               --implicitly suggests code is being maintained on various updates
 
-               -- vFSLBuildSetupRec.FACE_TABLE_EXT := get it from clip parameters
-               BEGIN
-                  EXECUTE IMMEDIATE 'Select FACE_OUTPUT_TABLE
-                    From GEN_CLIP_PARAMETERS
-                   Where release = :1 AND gen_project_id = :2'
-                     INTO vFACE_TABLE_EXT
-                     USING vRelease, vProjectID;
-               EXCEPTION
-                  WHEN OTHERS THEN
-                     Error_Desc:= SQLERRM;
-                     DBMS_OUTPUT.put_line (Error_Desc);
-                     DBMS_OUTPUT. PUT_LINE ( 'Using default value of CLIP_FACE for FACE_TABLE_EXT.  Please verify');
-                     vFACE_TABLE_EXT := 'CLIP_FACE';
-               END;
-
-               SELECT DECODE (vProjectID, 'Z9', 'Y', 'N')
-                 INTO vPROJECT_Z9
-                 FROM DUAL;
-
-               tab_col := 'JOBID, TOPO_IN, UNGEN_TOPO, FACE_TABLE_EXT, UNIVERSE_TABLE,
-                               HIERARCHY_TABLE, PROJECT_Z9, RELEASE,
-                               STATE_EDGES_TABLE, DROP_TABLES';
-
-               EXECUTE IMMEDIATE   'Insert into GZ_FSLBUILD_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9, :10)'
-                  USING vJOBID,vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS',
-                        vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL',
-                        vFACE_TABLE_EXT, vFSLBuildPrmRec.TOPO_UNIVERSE, vFSLBuildPrmRec.TOPO_HIERARCHY,
-                        vFSLBuildPrmRec.PROJECT_Z9, vRelease,  vJobPrmRec.STATE_EDGES_TBL, 'Y';
+               RAISE_APPLICATION_ERROR(-20001, 'Klassic fsl build based on topobuild type ' ||  vTOPOBUILDTYPE
+                                               || ' is no longer supported.');
+                                               
             END IF;
 
             -- QA
             tab_col :='JOBID, GEN_TOPO, GEN_SDOGEOM_COL, UNGEN_SCHEMA,
                             UNGEN_TOPO, UNGEN_SDOGEOM_COL, OUT_TBL_SUFFIX,
                             COMPARE_GEN_COLUMN, AREA_CHECK,
-                            SHAPE_CHECK, ENTIRE_TOPO, MISSING_REC_TBL,MISSING_REC_KEY,TARGET_SCALE ';
+                            SHAPE_CHECK, ENTIRE_TOPO, GEN_TBL_NAME,
+                            UNGEN_TBL_NAME,MISSING_REC_TBL,MISSING_REC_KEY,TARGET_SCALE ';
 
-            EXECUTE IMMEDIATE 'Insert into GZ_QA_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9, :10, :11,:12,:13,:14)'
+            EXECUTE IMMEDIATE 'Insert into GZ_QA_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16)'
                USING vJOBID, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'LS', 'SDOGEOMETRY',
                      vSchema, vProjectID || vEntityTableTab (i).ENTITY_CODE || 'CL', 'SDOGEOMETRY', 'QA_TBL',
                      vQAPrmRec.COMPARE_GEN_COLUMN, vQAPrmRec.AREA_CHECK,
                      vQAPrmRec.SHAPE_CHECK, 'Y',
+                     vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'LS_CLIP_FACE',
+                     vProjectID|| vEntityTableTab (i).ENTITY_CODE|| 'CL_CLIP_FACE',
                      vProjectID|| vEntityTableTab (i).ENTITY_CODE|| '_MISSING','GEO_ID',
                      vJobPrmRec.TARGET_SCALE;
 
@@ -2651,14 +3145,19 @@ AS
                         vShapeFilePrmRec.STATE_TOPO_FLAG, vShapeFilePrmRec.DEL_CPG_FLAG,
                         vSHP_UNIT_REQUEST;
             END IF;
+            
          END LOOP;
+         
       END IF;
 
-      -- Step 3 Topo Merge Process
-
+      --------------------------------------------------------------------------
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      -- Step 3 Merge and final output + SHP 
       -- Depends on
       -- GZ_PRCS_UNIT => FINAL_TOPO_PRCS_UNIT and SHAPE_FILE_PRCS_UNIT (Could be S => N)
       -- Only Case: S => N
+      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+      --------------------------------------------------------------------------
 
       -- Insert into GZ_JOB_SETUP (MRG, FSL, QA, decode(SHAPE_FILE_PRCS_UNIT) for SHP)
 
@@ -2683,7 +3182,7 @@ AS
             vSHP_UNIT_REQUEST := 'NATION';
          ELSIF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'N'  THEN
             prcsShapeFiles := 'Y';
-            vSHP_UNIT_REQUEST := 'NATION';
+            vSHP_UNIT_REQUEST := 'BOTH';
          ELSIF vJobPrmRec.SHAPE_FILE_PRCS_UNIT = 'S'  THEN
             prcsShapeFiles := 'Y';
             vSHP_UNIT_REQUEST := 'STATE';
@@ -2725,66 +3224,113 @@ AS
                vFACE_OUT_TBL_EXT := 'MERGE_FACE';
          END;
 
-         tab_col := 'JOBID, TOPO_IN_TBL, TOPO_OUT, TOP_LAYER_TABLE,
-                         FACE_OUT_TBL_EXT, MRG_MODULES, RESTART';
+         tab_col := 'JOBID, TOPO_IN_TBL, TOPO_OUT, TOP_LAYER_TABLE, '
+                 || 'FACE_OUT_TBL_EXT, MRG_MODULES, RESTART, '
+                 || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
-         EXECUTE IMMEDIATE   'Insert into GZ_MERGE_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7)'
-            USING vJOBID, vProjectID || '_MERGE_TOPO_IN',
+         EXECUTE IMMEDIATE   'Insert into GZ_MERGE_SETUP ('|| tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11)'
+            USING vJOBID,
+                  vProjectID || '_MERGE_TOPO_IN',
                   vProjectID || vEntityTableTab (1).ENTITY_CODE || 'TM',
-                  vTOP_LAYER_TABLE, vFACE_OUT_TBL_EXT, 'YYYYYYYYYY', 'N';
+                  vTOP_LAYER_TABLE,
+                  vFACE_OUT_TBL_EXT,
+                  'YYYYYYYYYY',
+                  'N', --restart flag
+                  'Y', --validate topo
+                  'Y', --topofix edge
+                  'N', --topofix 2edge
+                  'Y'; --topofix QA
 
          -- Insert into FSL SETUP Table
          IF (vTOPOBUILDTYPE = 'A' ) THEN
-            tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY,
-                             MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT ';
+            tab_col := 'JOBID, SOURCE_SCHEMA, SOURCE_TOPOLOGY, OUTPUT_TOPOLOGY, '
+                    || 'MODULES, RESTART_FLAG, SINGLE_LAYER, SRID, TOLERANCE, DROP_TABLES,TILE_COUNT, '
+                    || 'PRCS_SLIVERS, SLIVER_WIDTH, SEGMENT_LENGTH, EXPENDABLE_REVIEW, RESHAPE_REVIEW, '
+                    || 'VALIDATE_TOPO, TOPOFIX_EDGE, TOPOFIX_2EDGE, TOPOFIX_QA ';
 
 
-            IF vJobPrmRec.FINAL_TOPO_PRCS_UNIT = 'S'  --pretty rare
+            IF vJobPrmRec.FINAL_TOPO_PRCS_UNIT = 'S'  --pretty rare. Possibly extinct
             THEN
-               
+
+               IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('S','B')
+               THEN
+                  process_slivers := 'Y';
+               ELSE
+                  process_slivers := 'N';
+               END IF;
+
                --state tile count
-               EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-               USING vJOBID,  vJobPrmRec.SOURCE_SCHEMA, vJobPrmRec.SOURCE_TOPOLOGY,
-                         vProjectID || vEntityTableTab (1).ENTITY_CODE || 'TM',
-                         vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_STATE;
-                           
+               EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  '
+                                || 'VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+               USING vJOBID,  
+                     vJobPrmRec.SOURCE_SCHEMA, 
+                     vJobPrmRec.SOURCE_TOPOLOGY,
+                     vProjectID || vEntityTableTab (1).ENTITY_CODE || 'TM',
+                     vOutputPrmRec.MODULES, 
+                     vOutputPrmRec.RESTART_FLAG,
+                     vOutputPrmRec.SINGLE_LAYER, 
+                     vOutputPrmRec.SRID,
+                     vOutputPrmRec.TOLERANCE, 
+                     vOutputPrmRec.DROP_TABLES,
+                     vOutputPrmRec.TILE_COUNT_STATE,
+                     process_slivers,
+                     vOutputPrmRec.SLIVER_WIDTH, 
+                     vOutputPrmRec.SEGMENT_LENGTH,
+                     'N', --expendable review
+                     'Y', --reshape review
+                     'Y', --validate topo
+                     'Y', --topofix edge
+                     'N', --topofix 2edge
+                     'Y'; --topofix qa
+
             ELSIF vJobPrmRec.FINAL_TOPO_PRCS_UNIT = 'N'  --SOP
             THEN
-               
+
+               IF vOutputPrmRec.SLIVER_PRCS_UNIT IN ('N','B')
+               THEN
+                  process_slivers := 'Y';
+               ELSE
+                  process_slivers := 'N';
+               END IF;
+
                --nation tile count
-               EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10, :11)'
-               USING vJOBID,  vJobPrmRec.SOURCE_SCHEMA, vJobPrmRec.SOURCE_TOPOLOGY,
-                         vProjectID || vEntityTableTab (1).ENTITY_CODE || 'TM',
-                         vOutputPrmRec.MODULES, vOutputPrmRec.RESTART_FLAG,
-                        vOutputPrmRec.SINGLE_LAYER, vOutputPrmRec.SRID,
-                        vOutputPrmRec.TOLERANCE, vOutputPrmRec.DROP_TABLES,
-                        vOutputPrmRec.TILE_COUNT_NATION;
-               
+               EXECUTE IMMEDIATE   'Insert into GZ_OUTPUT_SETUP (' || tab_col|| ')  '
+                                || 'VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10,:11,:12,:13,:14,:15,:16,:17,:18,:19,:20)'
+               USING vJOBID,  
+                     vJobPrmRec.SOURCE_SCHEMA, 
+                     vJobPrmRec.SOURCE_TOPOLOGY,
+                     vProjectID || vEntityTableTab(1).ENTITY_CODE || 'TM',
+                     vOutputPrmRec.MODULES, 
+                     vOutputPrmRec.RESTART_FLAG,
+                     vOutputPrmRec.SINGLE_LAYER, 
+                     vOutputPrmRec.SRID,
+                     vOutputPrmRec.TOLERANCE, 
+                     vOutputPrmRec.DROP_TABLES,
+                     vOutputPrmRec.TILE_COUNT_NATION,
+                     process_slivers,
+                     vOutputPrmRec.SLIVER_WIDTH, 
+                     vOutputPrmRec.SEGMENT_LENGTH,
+                     'N', --expendable review
+                     'Y', --reshape review
+                     'Y', --validate topo
+                     'Y', --topofix edge
+                     'N', --topofix 2edge
+                     'Y'; --topofix qa
+                     
             ELSE
-               
+
                RAISE_APPLICATION_ERROR(-20001,'GZ_JOB_PARAMETERS entity FINAL_TOPO_PRCS_UNIT is ' ||vJobPrmRec.FINAL_TOPO_PRCS_UNIT || '?');
-               
+
             END IF;
-            
+
          ELSE
-            -- FSL Build
-            -- vFSLBuildSetupRec.PROJECT_Z9 := decode(vJobPrmRec.gen_project_id,'Z9','Y','N');
-            SELECT DECODE (vProjectID, 'Z9', 'Y', 'N')
-              INTO vPROJECT_Z9
-              FROM DUAL;
 
-            tab_col := 'JOBID, TOPO_IN, FACE_TABLE_EXT, UNIVERSE_TABLE,
-                            HIERARCHY_TABLE, PROJECT_Z9, RELEASE,
-                            STATE_EDGES_TABLE, DROP_TABLES';
+            --classic fsl build.  Decided its wrong to leave this fossil in here since it 
+            --implicitly suggests code is being maintained on various updates
 
-            EXECUTE IMMEDIATE   'Insert into GZ_FSLBUILD_SETUP (' || tab_col || ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9)'
-               USING vJOBID, vProjectID || vEntityTableTab (1).ENTITY_CODE || 'TM',
-                     vFACE_OUT_TBL_EXT,
-                     vFSLBuildPrmRec.TOPO_UNIVERSE, vFSLBuildPrmRec.TOPO_HIERARCHY,
-                     vFSLBuildPrmRec.PROJECT_Z9, vRelease, vJobPrmRec.STATE_EDGES_TBL, 'Y';
+             RAISE_APPLICATION_ERROR(-20001, 'Klassic fsl build based on topobuild type ' ||  vTOPOBUILDTYPE
+                                          || ' is no longer supported.');
+                                               
          END IF;
 
 
@@ -2792,13 +3338,16 @@ AS
          tab_col := 'JOBID, GEN_TOPO, GEN_SDOGEOM_COL, UNGEN_SCHEMA,
                          UNGEN_TOPO, UNGEN_SDOGEOM_COL, OUT_TBL_SUFFIX,
                          COMPARE_GEN_COLUMN, AREA_CHECK,
-                         SHAPE_CHECK, ENTIRE_TOPO, MISSING_REC_TBL,MISSING_REC_KEY,TARGET_SCALE ';
+                         SHAPE_CHECK, ENTIRE_TOPO, GEN_TBL_NAME,
+                         UNGEN_TBL_NAME,MISSING_REC_TBL,MISSING_REC_KEY,TARGET_SCALE ';
 
-         EXECUTE IMMEDIATE 'Insert into GZ_QA_SETUP (' || tab_col || ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9, :10, :11,:12,:13, :14)'
+         EXECUTE IMMEDIATE 'Insert into GZ_QA_SETUP (' || tab_col || ')  VALUES (:1,:2,:3,:4,:5,:6,:7,:8,:9, :10,:11,:12,:13,:14,:15,:16)'
             USING vJOBID, vProjectID || vEntityTableTab (1).ENTITY_CODE || 'TM', 'SDOGEOMETRY',  vSchema,
                   vProjectID || vEntityTableTab (1).ENTITY_CODE || 'CL',
                   'SDOGEOMETRY', 'QA_TBL', vQAPrmRec.COMPARE_GEN_COLUMN,
                   vQAPrmRec.AREA_CHECK, vQAPrmRec.SHAPE_CHECK, 'Y',
+                  vProjectID|| vEntityTableTab (1).ENTITY_CODE|| 'LS_CLIP_FACE',
+                  vProjectID|| vEntityTableTab (1).ENTITY_CODE|| 'CL_CLIP_FACE',
                   vProjectID || vEntityTableTab (1).ENTITY_CODE || '_MISSING',
                   'GEO_ID', vJobPrmRec.TARGET_SCALE;
 
@@ -2824,7 +3373,89 @@ AS
 
       vEntityTableTab.Delete;
       COMMIT;
+
+
    END Insert_New_jobs;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   -----------------------------------------------------------------------------------------
+
+   PROCEDURE DELETE_NEW_JOBS (
+      p_release          IN VARCHAR2,
+      p_gen_project_id   IN VARCHAR2
+   )
+   AS
+
+      --Matt! 6/12/13
+      --This is poorly thought out
+      --Assumes all jobs are defined like <release>_<project id>_xxxx
+      --And it just gets setup table names from the gz_types hard coded list
+
+      --example
+      -- begin
+      --    GZ_WORKFLOW.DELETE_NEW_JOBS('ACS122','Z6');
+      -- end;
+
+      all_tabs          GZ_TYPES.stringarray;
+      psql              VARCHAR2(4000);
+      bad_deletes       VARCHAR2(4000);
+
+   BEGIN
+
+      all_tabs := GZ_TYPES.LEGAL_GZ_TABLES();
+
+      FOR i IN 1 .. all_tabs.COUNT
+      LOOP
+
+         IF all_tabs(i) LIKE ('%SETUP')
+         THEN
+
+            psql := 'DELETE FROM ' || all_tabs(i) || ' a '
+                 || 'WHERE a.jobid LIKE :p1 ';
+
+            --utilities + verbose = 4 the best
+            dbms_output.put_line(psql || chr(10) || UPPER(p_release) || '_' || UPPER(p_gen_project_id) || '_%');
+
+            BEGIN
+
+               EXECUTE IMMEDIATE psql USING UPPER(p_release) || '_' || UPPER(p_gen_project_id) || '_%';
+               COMMIT;
+
+            EXCEPTION
+            WHEN OTHERS
+            THEN
+
+               IF SQLCODE = -942 --ORA-00942: table or view does not exist
+               THEN
+
+                  bad_deletes := bad_deletes || '| ' || all_tabs(i) || ' doesnt exist!';
+
+               ELSE
+
+                  RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' on ' || psql || ' using '
+                                                  || UPPER(p_release) || '_' || UPPER(p_gen_project_id) || '_%');
+
+               END IF;
+
+            END;
+
+         END IF;
+
+         IF LENGTH(bad_deletes) > 0
+         THEN
+
+            RAISE_APPLICATION_ERROR(-20001, 'Deleted as much as possible but... ' || bad_deletes);
+
+         END IF;
+
+      END LOOP;
+
+   END DELETE_NEW_JOBS;
+
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   -----------------------------------------------------------------------------------------
 
   PROCEDURE Validate_Job(pJobID IN VARCHAR2)
     AS
@@ -2882,6 +3513,17 @@ AS
   PROCEDURE Create_Empty_Prm_Tbls  AS
      PRM_TBLS MDSYS.SDO_STRING_ARRAY := MDSYS.SDO_STRING_ARRAY();
 
+     --Reminder to future selves
+     --The standard (to me) method for creating GZ parameter tables is confusingly in two parts
+     --Best entry point is gz_business_utils.CREATE_GZ_TABLES
+     --   It will first create all parameter tables that have standalone procedures like create_gen_clip_parameters
+     --   Then it will call THIS HERE PROCEDURE to create more.  There are overlaps between the two lists
+     --   However, THIS HERE PROCEDURE calls GZ_WORKFLOW.CREATE_TABLE which won't drop an existing table
+     --   So the standalone procedures trump anything in here.
+     --   Also, THIS HERE PROCEDURE is nice because it adds some universal support objects (triggers, keys) to all parameter tables,
+     --     regardless of whether the table already exists, and whether the procedure coded back in the day is aware of this stuff
+     --   This is all rather annoying and confusing and should be tidied some day
+
   BEGIN
      PRM_TBLS.extend(13);
      PRM_TBLS(1) := 'GZ_JOB_PARAMETERS';
@@ -2899,19 +3541,20 @@ AS
      PRM_TBLS(13) := 'GZ_OUTPUT_PARAMETERS';
 
      FOR i in 1..PRM_TBLS.LAST LOOP
+
         -- dbms_output.put_line(user || '.' || PRM_TBLS(i) || ' GZ_TYPES.' || PRM_TBLS(i));
 
-        --BEGIN
+        GZ_WORKFLOW.CREATE_TABLE(USER, PRM_TBLS(i), 'GZ_TYPES.' || PRM_TBLS(i) , 'N');
+        GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS', PRM_TBLS(i));
 
-          GZ_WORKFLOW.CREATE_TABLE(USER, PRM_TBLS(i), 'GZ_TYPES.' || PRM_TBLS(i) , 'N');
-          GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS', PRM_TBLS(i));
+        --Matt is a control freak on all parameter and setup tables
+        --This sub will add, for now, just primary keys and triggers
+        --Note the tricksy plan to run this support stuff even on existing tables.  Existing tables
+        --   get ignored in the create_table code just above
+
+        GZ_WORKFLOW.CREATE_PRM_TABLE_SUPPORT(PRM_TBLS(i));
 
 
-
-        --EXCEPTION
-
-
-        --END;
      END LOOP;
 
      PRM_TBLS.DELETE;
@@ -2927,28 +3570,13 @@ AS
    AS
 
       --Matt! 12/17/12
+      --! 6/27/13 made user and date last modified trigger on all setup tables
       --Control freak attempt to lock down the setup tables
+
 
       key_list       VARCHAR2(4000);
 
    BEGIN
-
-
-      IF setup_tbl IN ('GZ_PRE_SETUP')
-      THEN
-
-         --one table get user last modified and date last modified
-         --maybe more some day
-
-         EXECUTE IMMEDIATE 'CREATE OR REPLACE TRIGGER ' || setup_tbl || 'TRG '
-                     || 'BEFORE INSERT OR UPDATE ON ' || setup_tbl || ' '
-                     || 'FOR EACH ROW '
-                     || 'BEGIN '
-                     || '   :NEW.date_last_modified := CURRENT_DATE; '
-                     || '   :NEW.user_last_modified := SUBSTR(USER,1,32); '
-                     || 'END;';
-
-      END IF;
 
       --Primary keys are always best practice yo
       --Why did our sunbaes not include them?
@@ -2994,7 +3622,89 @@ AS
       END;
 
 
+      --all tables get user last modified and date last modified
+
+      EXECUTE IMMEDIATE 'CREATE OR REPLACE TRIGGER ' || setup_tbl || 'TRG '
+                  || 'BEFORE INSERT OR UPDATE ON ' || setup_tbl || ' '
+                  || 'FOR EACH ROW '
+                  || 'BEGIN '
+                  || '   :NEW.date_last_modified := CURRENT_DATE; '
+                  || '   :NEW.user_last_modified := SUBSTR(USER,1,32); '
+                  || 'END;';
+
+
+
    END CREATE_SETUP_TABLE_SUPPORT;
+
+    ------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------
+
+   PROCEDURE CREATE_PRM_TABLE_SUPPORT (
+      prm_tbl              IN VARCHAR2
+   )
+   AS
+
+      --Matt! 6/27/13
+      --Control freak attempt to lock down the "parameter" tables
+
+      --all parameter tables have at least these two columns to make composite pkc
+      key_list       VARCHAR2(4000) := 'RELEASE, GEN_PROJECT_ID';
+      xtended_keys   GZ_TYPES.stringhash;
+
+   BEGIN
+
+      --some tables have an additional column
+      xtended_keys := GZ_TYPES.LEGAL_GZ_XTENDED_KEYS();
+
+      IF xtended_keys.EXISTS(prm_tbl)
+      THEN
+
+         key_list := key_list || ',' || xtended_keys(prm_tbl);
+
+      END IF;
+
+      --Primary keys are best practice yo
+
+      BEGIN
+
+         EXECUTE IMMEDIATE 'ALTER TABLE ' || prm_tbl || ' '
+              || 'ADD ('
+              || '   CONSTRAINT ' || prm_tbl || 'PKC '
+              || '      PRIMARY KEY(' || key_list || ') '
+              || ')';
+
+      EXCEPTION
+      WHEN OTHERS
+      THEN
+
+         IF SQLCODE = -2260
+         THEN
+
+            --ORA-02260: table can have only one primary key (get this when pkc already exists)
+            --is like rubber to us
+            NULL;
+
+         ELSE
+
+            RAISE_APPLICATION_ERROR(-20001,SQLERRM);
+
+         END IF;
+
+      END;
+
+
+      --everyone gets this
+      EXECUTE IMMEDIATE 'CREATE OR REPLACE TRIGGER ' || prm_tbl || 'TRG '
+                     || 'BEFORE INSERT OR UPDATE ON ' || prm_tbl || ' '
+                     || 'FOR EACH ROW '
+                     || 'BEGIN '
+                     || '   :NEW.date_last_modified := CURRENT_DATE; '
+                     || '   :NEW.user_last_modified := SUBSTR(USER,1,32); '
+                     || 'END;';
+
+
+   END CREATE_PRM_TABLE_SUPPORT;
 
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -3031,7 +3741,7 @@ AS
          -- dbms_output.put_line(user || '.' || PRM_TBLS(i) || ' GZ_TYPES.' || PRM_TBLS(i));
 
          GZ_WORKFLOW.CREATE_TABLE(USER, SETUP_TBLS(i), 'GZ_TYPES.' || SETUP_TBLS(i) , 'N');
-         GZ_UTILITIES.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS', SETUP_TBLS(i));
+         GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS', SETUP_TBLS(i));
 
          --Matt is a control freak on user input tables
          --This sub will add primary keys, indexes, and other control freak stuff as currently whimmed
@@ -3056,6 +3766,7 @@ AS
       SF_STATUS            VARCHAR2 (1);
       RELEASE              VARCHAR2 (64);
       GEN_PROJECT_ID      VARCHAR2 (2);
+      STEP                  NUMBER;
       IS_QA                  VARCHAR2 (1);
       SQL1                 VARCHAR2 (1000);
       SHAPEFILE_PRCS_STR   VARCHAR2 (1000);
@@ -3063,8 +3774,8 @@ AS
       pQA_OUT_DIR          VARCHAR2 (200);
    BEGIN
       -- 1. Check to see if we are ready to create shapefiles
-      SQL1 := ' Select SHAPEFILE_STATUS, QA, RELEASE, GEN_PROJECT_ID From GZ_JOB_SETUP Where jobid = :1';
-      EXECUTE IMMEDIATE SQL1 INTO SF_STATUS, IS_QA, RELEASE, GEN_PROJECT_ID USING pJobID;
+      SQL1 := ' Select SHAPEFILE_STATUS, QA, RELEASE, GEN_PROJECT_ID, STEP From GZ_JOB_SETUP Where jobid = :1';
+      EXECUTE IMMEDIATE SQL1 INTO SF_STATUS, IS_QA, RELEASE, GEN_PROJECT_ID, STEP USING pJobID;
       DBMS_OUTPUT.PUT_LINE ('SF_STATUS: ' || SF_STATUS);
 
       IF SF_STATUS = 'R'  THEN
@@ -3081,7 +3792,7 @@ AS
             pQA_OUT_DIR := SUBSTR (pQA_OUT_DIR, 2);
          END IF;
 
-         SQL1 :='Select ''SF_STATUS=0;RELEASE='' || ''' || RELEASE || ''' ||'';GEN_PROJECT_ID='' || ''' || GEN_PROJECT_ID || ''' ||'';DATABASE='' ||ORA_DATABASE_NAME || '';GEN_SCHEMA='' || USER
+         SQL1 :='Select ''SF_STATUS=0;RELEASE='' || ''' || RELEASE || ''' ||'';GEN_PROJECT_ID='' || ''' || GEN_PROJECT_ID || ''' ||'';STEP='' || ''' || STEP || ''' ||'';DATABASE='' ||ORA_DATABASE_NAME || '';GEN_SCHEMA='' || USER
                          || '';QA_UNGEN_TABLE_PREFIX='' ||UNGEN_TOPO_NAME|| ''_'' || FSL_STRING
                          || '';QA_TABLE_PREFIX='' ||TOPO_NAME|| ''_'' || QA_STRING || ''_'' || FSL_STRING
                          || '';PRD_TABLE_PREFIX='' ||TOPO_NAME || ''_'' || FSL_STRING || '';QA=''||''' || IS_QA || '''

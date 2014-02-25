@@ -64,37 +64,22 @@ AS
       p_face_out           IN VARCHAR2,
       p_modules            IN VARCHAR2 DEFAULT 'YYYYYYYYYY',
       p_restart_flag       IN VARCHAR2 DEFAULT 'N',
-      p_fix_edge           IN VARCHAR2 DEFAULT 'Y'
+      p_validate_topo      IN VARCHAR2 DEFAULT 'Y',
+      p_fix_edge           IN VARCHAR2 DEFAULT 'Y',
+      p_fix_2edge          IN VARCHAR2 DEFAULT 'N',
+      p_topofix_qa         IN VARCHAR2 DEFAULT 'Y'    
    ) RETURN VARCHAR2;
 
 
-   FUNCTION EXTRACT_HOLES (
-      geom_in           IN SDO_GEOMETRY
-   ) RETURN SDO_GEOMETRY DETERMINISTIC;
-
-    FUNCTION MEASURE_SLIVER_WIDTH (
-      geom_in           IN SDO_GEOMETRY,
-      p_sample_kount    IN PLS_INTEGER DEFAULT 100,
-      p_tolerance       IN NUMBER DEFAULT .00000005,
-      p_debug           IN NUMBER DEFAULT 0
-   ) RETURN NUMBER DETERMINISTIC;
-
-   PROCEDURE GZ_ALIGN_EDGES (
-      p_tab_name              IN VARCHAR2,
-      p_geom_col_name         IN VARCHAR2,
-      p_out_tab_name          IN VARCHAR2,
-      p_tolerance             IN NUMBER DEFAULT .0000005,
-      p_drop_out_tab          IN VARCHAR2 DEFAULT 'N'
-   );
-
     FUNCTION MAX_GAP_EVALUATION_2 (
-      p_topo_out      IN VARCHAR2,
-      p_tab           IN VARCHAR2,
-      p_step          IN VARCHAR2,
-      p_work_tab      IN VARCHAR2,
-      p_sdo_col       IN VARCHAR2 DEFAULT 'SDOGEOMETRY',
-      p_null_tol      IN NUMBER DEFAULT .0000005,
-      p_sample_count  IN NUMBER DEFAULT 100
+      p_topo_out           IN VARCHAR2,
+      p_tab                IN VARCHAR2,
+      p_step               IN VARCHAR2,
+      p_work_tab           IN VARCHAR2,
+      p_sdo_col            IN VARCHAR2 DEFAULT 'SDOGEOMETRY',
+      p_null_tol           IN NUMBER DEFAULT .0000005,
+      p_sample_count       IN NUMBER DEFAULT 100,
+      p_gz_union           IN VARCHAR2 DEFAULT 'N'
    ) RETURN NUMBER;
 
     FUNCTION MAX_GAP_EVALUATION (
@@ -114,7 +99,8 @@ AS
       p_work_tab      IN VARCHAR2,
       p_sdo_col       IN VARCHAR2 DEFAULT 'SDOGEOMETRY',
       p_null_tol      IN NUMBER DEFAULT .0000005,
-      p_sample_count  IN NUMBER DEFAULT 100
+      p_sample_count  IN NUMBER DEFAULT 100,
+      p_gz_intersect  IN VARCHAR2 DEFAULT 'N'
    ) RETURN NUMBER;
 
    FUNCTION GZ_AGGR_UNION (
@@ -123,6 +109,15 @@ AS
       p_tolerance     IN NUMBER
    ) RETURN SDO_GEOMETRY;
 
+   FUNCTION GZ_MERGE_INTERSECTION (
+      geom1_in             IN SDO_GEOMETRY,
+      geom2_in             IN SDO_GEOMETRY,
+      p_tolerance          IN NUMBER DEFAULT .00000005,
+      p_debug              IN NUMBER DEFAULT 1,
+      p_recursive          IN NUMBER DEFAULT 0
+   ) RETURN SDO_GEOMETRY DETERMINISTIC;
+   
+   
    FUNCTION GZ_INTERSECTION (
       p_incoming      IN SDO_GEOMETRY,
       p_clipper       IN SDO_GEOMETRY,

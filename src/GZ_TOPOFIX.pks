@@ -1,16 +1,58 @@
-create or replace
-PACKAGE GZ_TOPOFIX
+CREATE OR REPLACE PACKAGE GZ_TOPOFIX
 AUTHID CURRENT_USER
 AS
 
 
-
+   -- Face Fixing
    -- Best entry point: Wrapper gz_topofix.check_face_tab
    -- Main logical entry: gz_topofix.gz_fix_face
+   
+   --For edge fixing
+   --GZ_FIX_EDGE
+   
+   --For coastal slivers
+   --GZ_COASTAL_SLIVERS
 
    ------------------------------------------------------------------------------------
    --   | MATT | ++++++++++++++++++++++++++++++++++++++++++++++++++ | MATT |  +++++++--
    ----\/-----\/----------------------------------------------------\/-----\/----------
+   
+   ------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------
+   
+   FUNCTION VERIFY_CS_INPUTS (
+      p_release               IN VARCHAR2,
+      p_gen_project_id        IN VARCHAR2,
+      p_topo                  IN VARCHAR2,
+      p_face_table            IN VARCHAR2,
+      p_sliver_restart_flag   IN VARCHAR2,
+      p_sliver_width          IN NUMBER,
+      p_segment_length        IN NUMBER,
+      p_expendable_review     IN VARCHAR2,
+      p_reshape_review        IN VARCHAR2,
+      p_update_feature_geom   IN VARCHAR2
+   ) RETURN VARCHAR2;
+   
+   ------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------
+
+   FUNCTION GZ_COASTAL_SLIVERS (
+      p_release               IN VARCHAR2,
+      p_gen_project_id        IN VARCHAR2,
+      p_topo                  IN VARCHAR2,
+      p_face_table            IN VARCHAR2,
+      p_log_type              IN VARCHAR2,
+      p_sliver_restart_flag   IN VARCHAR2 DEFAULT 'N',
+      p_sliver_width          IN NUMBER DEFAULT NULL,
+      p_segment_length        IN NUMBER DEFAULT NULL,
+      p_expendable_review     IN VARCHAR2 DEFAULT 'N',
+      p_reshape_review        IN VARCHAR2 DEFAULT 'Y',
+      p_update_feature_geom   IN VARCHAR2 DEFAULT 'N', 
+      p_tolerance             IN NUMBER DEFAULT .05,
+      p_srid                  IN NUMBER DEFAULT 8265
+   ) RETURN VARCHAR2;
 
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -570,6 +612,7 @@ PROCEDURE DROP_NODE(Topology VARCHAR2,p_node_id NUMBER);
 PROCEDURE DROP_EDGE_VERTEX(Topology VARCHAR2,edge_id NUMBER,vertex NUMBER);
 FUNCTION Fast_Vincenty_gcd(x1 NUMBER,y1 NUMBER,x2 NUMBER,y2 NUMBER,units VARCHAR2 DEFAULT 'm') RETURN NUMBER DETERMINISTIC;
 FUNCTION FIND_CLOSEST_EDGES(pTopology VARCHAR2,face_id NUMBER,Clip_face_table VARCHAR2, InGeom_Column VARCHAR2,seg1 IN OUT NOCOPY NUMBER,seg2 IN OUT NOCOPY NUMBER,tolerance NUMBER) RETURN MDSYS.SDO_LIST_TYPE;
+FUNCTION GET_Angles(Geom IN MDSYS.SDO_GEOMETRY,smallest VARCHAR2 default 'NO') RETURN MDSYS.SDO_LIST_TYPE;
 FUNCTION GET_NEARBY_EDGES(Edges_Table VARCHAR2,EDGE_ID_COLUMN VARCHAR2, GEOMETRY_COLUMN VARCHAR2,Edge_id NUMBER,pxLL NUMBER,pyLL NUMBER,pxUR NUMBER,pyUR NUMBER,SRID NUMBER,GREATER VARCHAR2 DEFAULT 'NO',pxepsilon NUMBER default NULL,pyepsilon NUMBER default NULL,ptolerance NUMBER default 0.05) RETURN MDSYS.SDO_LIST_TYPE;
 FUNCTION GET_BETTER_EDGE (pTopology VARCHAR2,face_id NUMBER,edge_id IN OUT NOCOPY NUMBER,pInSchema VARCHAR2,Clip_face_table VARCHAR2,InGeom_Column VARCHAR2 default 'SDOGEOMETRY',tolerance NUMBER default 0.05,decim_digits NUMBER default 7) RETURN MDSYS.SDO_GEOMETRY;
 FUNCTION GET_CLOSEST(geom1 IN OUT NOCOPY MDSYS.SDO_GEOMETRY,
@@ -717,6 +760,15 @@ procedure test_circulate_node(Edge_id NUMBER,Topology VARCHAR2);
       p_repeat                    IN NUMBER DEFAULT 2,
       p_checkcloseedge       IN VARCHAR2 DEFAULT 'N'
    ) RETURN VARCHAR2;
+   
+   
+   PROCEDURE CHECK_CLOSE_EDGE_MGR (
+      p_topo               IN VARCHAR2,
+      p_tolerance          IN NUMBER,
+      p_edgeids1           IN OUT GZ_TYPES.numberarray,
+      p_edgeids2           IN OUT GZ_TYPES.numberarray,
+      p_chunk_size         IN NUMBER DEFAULT 100000
+   );
 
    FUNCTION CHECK_CLOSE_EDGE (
       pTopology        VARCHAR2,
