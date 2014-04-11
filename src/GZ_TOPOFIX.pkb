@@ -7,1211 +7,7 @@ AS
 
    --For edge fixing
    --GZ_FIX_EDGE
-
-   --For coastal slivers
-   --GZ_COASTAL_SLIVERS
-
-    ------------------------------------------------------------------------------------
-   --   | MATT | ++++++++++++++++++++++++++++++++++++++++++++++++++ | MATT |  +++++++--
-   ----\/-----\/----------------------------------------------------\/-----\/----------
-
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --PUBLIC---------------------------------------------------------------------------------
-
-   FUNCTION VERIFY_CS_INPUTS (
-      p_release               IN VARCHAR2,
-      p_gen_project_id        IN VARCHAR2,
-      p_topo                  IN VARCHAR2,
-      p_face_table            IN VARCHAR2,
-      p_sliver_restart_flag   IN VARCHAR2,
-      p_sliver_width          IN NUMBER,
-      p_segment_length        IN NUMBER,
-      p_expendable_review     IN VARCHAR2,
-      p_reshape_review        IN VARCHAR2,
-      p_update_feature_geom   IN VARCHAR2
-   ) RETURN VARCHAR2
-   AS
-
-      --M@! 8/01/13
-      --Being a little bit OCD about this since we are putting our nice topology under the knife
-      --      Values are legal
-      --      Face table exists
-      --      Layers in the output parameter table for this release/project are built and in the topo
-      --      If restarting face_slivers transaction table should exist
-
-      output            VARCHAR2(4000);
-      layers_out        GZ_TYPES.gz_layers_out;
-      tg_layer_id       NUMBER;
-
-   BEGIN
-
-      --      Values are legal
-
-      IF UPPER(p_sliver_restart_flag) NOT IN ('Y', 'N')
-      THEN
-
-         output := output || 'Sliver_Restart_Flag unknown value ' ||  p_sliver_restart_flag || ' | ';
-
-      END IF;
-
-      IF p_sliver_width IS NULL
-      THEN
-
-         output := output || 'Sliver_Width cant be NULL | ';
-
-      END IF;
-
-      IF UPPER(p_expendable_review) NOT IN ('Y', 'N')
-      THEN
-
-         output := output || 'expendable_review unknown value ' ||  p_expendable_review || ' | ';
-
-      END IF;
-
-      IF UPPER(p_reshape_review) NOT IN ('Y', 'N')
-      THEN
-
-         output := output || 'reshape_review unknown value ' ||  p_reshape_review || ' | ';
-
-      END IF;
-
-      IF UPPER(p_update_feature_geom) NOT IN ('Y', 'N')
-      THEN
-
-         output := output || 'p_update_feature_geom unknown value ' ||  p_update_feature_geom || ' | ';
-
-      END IF;
-
-      --      Face table exists
-
-      IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_face_table)
-      THEN
-
-         output := output || p_face_table || ' doesnt exist or is empty | ';
-
-      END IF;
-
-      --      Layers in the output parameter table for this release/project are built
-
-      layers_out := GZ_OUTPUT.GET_LAYERS_OUT(p_release,
-                                             p_gen_project_id);
-
-      IF layers_out.COUNT = 0
-      THEN
-
-         output := output || 'Cant find any records in gz_layers_out for release ' || p_release
-                          || ' and project id ' || p_gen_project_id || ' | ';
-
-      END IF;
-
-      FOR i IN 1 .. layers_out.COUNT
-      LOOP
-
-         IF NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_topo || '_FSL' || layers_out(i).layer || 'V',
-                                                  TRUE) --empty exists
-         THEN
-
-            output := output || 'Output table ' || p_topo || '_FSL' || layers_out(i).layer || 'V' || ' doesnt exist | ';
-
-         END IF;
-
-         --check that layer is in the topo and has topogeom col with polygon geom
-         BEGIN
-
-            tg_layer_id := GZ_TOPO_UTIL.GET_TG_LAYER_ID(p_topo,
-                                                        p_topo || '_FSL' || layers_out(i).layer || 'V',
-                                                        'TOPOGEOM',
-                                                        'POLYGON');
-
-         EXCEPTION
-         WHEN OTHERS
-         THEN
-
-            output := output || 'Couldnt find layer ' || p_topo || '_FSL' || layers_out(i).layer || 'V' || ' in topo ' || p_topo || ' | ';
-
-         END;
-
-      END LOOP;
-
-      --      If restarting face_slivers transaction table should exist
-      IF p_sliver_restart_flag = 'Y'
-      AND NOT GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS(p_topo || '_FACE_SLIVERS')
-      THEN
-
-         output := output || 'Sliver restart but table ' || p_topo || '_FACE_SLIVERS' || ' doesnt exist or is empty | ';
-
-      END IF;
-
-      RETURN output;
-
-   END VERIFY_CS_INPUTS;
-
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --PRIVATE--------------------------------------------------------------------------------
-
-   PROCEDURE WRITE_SLIVER_TRANSACTIONS (
-      p_topo                  IN VARCHAR2,
-      p_sliver_type           IN VARCHAR2,
-      p_face_id               IN NUMBER,
-      p_status                IN VARCHAR2,
-      p_fsl_tables            IN MDSYS.STRINGLIST,
-      p_fsl_geoids            IN MDSYS.STRINGLIST,
-      p_geoid_extinction      IN VARCHAR2,
-      p_sdogeometry           IN SDO_GEOMETRY,
-      p_sliver_id             IN NUMBER DEFAULT NULL,     --restart, update an existing record
-      p_partial_sdogeometry   IN SDO_GEOMETRY DEFAULT NULL
-   )
-   AS
-
-      --Matt! 8/5/13
-      --Writer for the xx_face_slivers table
-
-      psql              VARCHAR2(4000);
-      sliver_id         NUMBER;
-      fsl_geoids        VARCHAR2(8000);
-
-   BEGIN
-
-      IF p_sliver_id IS NULL
-      THEN
-
-         --standard, insert on initial run
-         psql := 'SELECT MAX(a.sliver_id) + 1 FROM '
-              || p_topo || '_face_slivers a ';
-
-         EXECUTE IMMEDIATE psql INTO sliver_id;
-
-         IF sliver_id IS NULL
-         THEN
-
-            --first, duh
-            sliver_id := 1;
-
-         END IF;
-
-      END IF;
-
-      FOR i IN 1 .. p_fsl_tables.COUNT
-      LOOP
-
-         --Z606LS_FSL160V|1600000US0608058;Z606LS_FSL976V|9760000US0603199997...
-         fsl_geoids := fsl_geoids || p_fsl_tables(i) || '|' || p_fsl_geoids(i) || ';';
-
-      END LOOP;
-
-      IF LENGTH(fsl_geoids) > 4000
-      THEN
-
-         fsl_geoids := SUBSTR(fsl_geoids, 1, 3950) || ' <SNIP!>';
-
-      END IF;
-
-      IF p_sliver_id IS NULL
-      THEN
-
-         psql := 'INSERT /*+ APPEND */ INTO ' || p_topo || '_face_slivers '
-              || '(sliver_id, sliver_type, face_id, status, fsl_geoids, geoid_extinction, sdogeometry, partial_sdogeometry) '
-              || 'VALUES(:p1, :p2, :p3, :p4, :p5, :p6, :p7, :p8) ';
-
-         EXECUTE IMMEDIATE psql USING sliver_id,
-                                      p_sliver_type,
-                                      p_face_id,
-                                      p_status,
-                                      fsl_geoids,
-                                      p_geoid_extinction,
-                                      p_sdogeometry,
-                                      p_partial_sdogeometry;
-
-      ELSE
-
-         --restart and update of an existing transaction record
-         --only thing that should change is the status message
-         --I'll update geoids and extinction too, just in case I'm forgetting something
-         --If anything, don't want to change stuff like sdo and partial sdo, want it to be a window back to the
-         --original input topo
-
-         psql := 'UPDATE ' || p_topo || '_face_slivers a '
-              || 'SET '
-              || 'a.status = :p1, '
-              || 'a.fsl_geoids = :p2, '
-              || 'a.geoid_extinction = :p3 '
-              || 'WHERE '
-              || 'a.sliver_id = :p4 AND '
-              || 'a.face_id = :p5 ';
-
-         EXECUTE IMMEDIATE psql USING p_status,
-                                      fsl_geoids,
-                                      p_geoid_extinction,
-                                      p_sliver_id,
-                                      p_face_id;
-
-      END IF;
-
-      COMMIT;
-
-
-   END WRITE_SLIVER_TRANSACTIONS;
-
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --PRIVATE--------------------------------------------------------------------------------
-
-   PROCEDURE TRACK_FSLS (
-      p_face_to_add        IN GZ_FEATURE_FACE,
-      p_fsl_hash           IN OUT GZ_TYPES.nestedhash
-   )
-   AS
-
-      --M@! 8/5/13
-      --Add the fsls and geoids of the current face and all neighbor faces
-
-      --p_fsl_hash looks like
-      --T848LS_FSL050V    (0500000US48427 = 1
-      --                   0500000US48427 = 1)
-      --T848LS_FSL310V    (310M300US21340 = 1)
-
-      temp_hash            GZ_TYPES.numberhash;
-      work_face            GZ_FEATURE_FACE := gz_feature_face();
-
-   BEGIN
-
-      --first, add any for the current face
-
-      FOR i IN 1 .. p_face_to_add.feature_tables.COUNT
-      LOOP
-
-         IF p_fsl_hash.EXISTS(p_face_to_add.feature_tables(i))
-         THEN
-
-            IF p_fsl_hash(p_face_to_add.feature_tables(i)).EXISTS(p_face_to_add.feature_table_geoids(i))
-            THEN
-
-               --table and geoid already in there
-               NULL;
-
-            ELSE
-
-              --table is in there, but geoid is not.  add geoid
-              temp_hash := p_fsl_hash(p_face_to_add.feature_tables(i));
-              temp_hash(p_face_to_add.feature_table_geoids(i)) := 1;
-
-              p_fsl_hash(p_face_to_add.feature_tables(i)) := temp_hash;
-
-            END IF;
-
-         ELSE
-
-            --add the table and the geoid
-            temp_hash.DELETE;
-            temp_hash(p_face_to_add.feature_table_geoids(i)) := 1;
-
-            p_fsl_hash(p_face_to_add.feature_tables(i)) := temp_hash;
-
-         END IF;
-
-      END LOOP;
-
-      --now instantiate and add all neighbor faces
-      FOR i IN 1 .. p_face_to_add.boundary_faces.COUNT
-      LOOP
-
-         work_face := gz_feature_face(p_face_to_add.topology_name,
-                                      p_face_to_add.table_name,
-                                      p_face_to_add.boundary_faces(i),
-                                      p_face_to_add.tolerance);
-
-         --set feature layers for the neighbor
-         work_face.set_feature_layers;
-
-         FOR i IN 1 .. work_face.feature_tables.COUNT
-         LOOP
-
-            IF p_fsl_hash.EXISTS(work_face.feature_tables(i))
-            THEN
-
-               IF p_fsl_hash(work_face.feature_tables(i)).EXISTS(work_face.feature_table_geoids(i))
-               THEN
-
-                  --table and geoid already in there
-                  NULL;
-
-               ELSE
-
-                 --table is in there, but geoid is not.  add geoid
-                 temp_hash := p_fsl_hash(work_face.feature_tables(i));
-                 temp_hash(work_face.feature_table_geoids(i)) := 1;
-
-                 p_fsl_hash(work_face.feature_tables(i)) := temp_hash;
-
-               END IF;
-
-            ELSE
-
-               --add the table and the geoid
-               temp_hash.DELETE;
-               temp_hash(work_face.feature_table_geoids(i)) := 1;
-
-               p_fsl_hash(work_face.feature_tables(i)) := temp_hash;
-
-            END IF;
-
-         END LOOP;
-
-      END LOOP;
-
-   END TRACK_FSLS;
-
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --PRIVATE--------------------------------------------------------------------------------
-
-   PROCEDURE UPDATE_FSLS (
-      p_release            IN VARCHAR2,
-      p_gen_project_id     IN VARCHAR2,
-      p_topo               IN VARCHAR2,
-      p_fsl_hash           IN GZ_TYPES.nestedhash
-   )
-   AS
-
-      --M@! 8/12/13
-      --Update measurements for all edited fsls tracked through the coastal sliver work
-
-      --this has to happen for all, even a region could get edited
-
-      --p_fsl_hash looks like
-      --T848LS_FSL050V    (0500000US48427 = 1
-      --                   0500000US48427 = 1)
-      --T848LS_FSL310V    (310M300US21340 = 1)
-
-      table_key            VARCHAR2(4000);
-      nest_hash            GZ_TYPES.numberhash;
-      nest_key             VARCHAR2(4000);
-
-   BEGIN
-
-      table_key := p_fsl_hash.FIRST;
-
-      LOOP
-
-         EXIT WHEN NOT p_fsl_hash.EXISTS(table_key);
-
-         nest_hash := p_fsl_hash(table_key);
-
-         nest_key := nest_hash.FIRST;
-
-         LOOP
-
-            EXIT WHEN NOT nest_hash.EXISTS(nest_key);
-
-            BEGIN
-
-               GZ_BUSINESS_UTILS.GZ_POPULATE_MEASUREMENTS(table_key,
-                                                          'GEO_ID',
-                                                          'SDOGEOMETRY',  --just this column
-                                                          'ALL',
-                                                           p_subset_col => 'GEO_ID',      --subset col
-                                                           p_subset_val => nest_key);     --subset val to update
-
-            EXCEPTION
-            WHEN OTHERS
-            THEN
-
-               IF SQLERRM LIKE '%No records found in%'
-               THEN
-
-                  --This was a waterey piece of fsl allowed to go extinct
-                  --Should maybe consider returning these to the caller to verify matches in sliver transaction table
-                  NULL;
-
-               ELSE
-
-                  RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
-
-               END IF;
-
-            END;
-
-            nest_key := nest_hash.NEXT(nest_key);
-
-         END LOOP;
-
-         table_key := p_fsl_hash.NEXT(table_key);
-
-      END LOOP;
-
-   END UPDATE_FSLS;
-
-   -----------------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   --PUBLIC---------------------------------------------------------------------------------
-
-   FUNCTION GZ_COASTAL_SLIVERS (
-      p_release               IN VARCHAR2,
-      p_gen_project_id        IN VARCHAR2,
-      p_topo                  IN VARCHAR2,
-      p_face_table            IN VARCHAR2,
-      p_log_type              IN VARCHAR2,
-      p_sliver_restart_flag   IN VARCHAR2 DEFAULT 'N',  --switched out
-      p_sliver_width          IN NUMBER DEFAULT NULL,
-      p_segment_length        IN NUMBER DEFAULT NULL,
-      p_expendable_review     IN VARCHAR2 DEFAULT 'N',  --switched out
-      p_reshape_review        IN VARCHAR2 DEFAULT 'Y',  --switched out
-      p_update_feature_geom   IN VARCHAR2 DEFAULT 'N',
-      p_tolerance             IN NUMBER DEFAULT .05,
-      p_srid                  IN NUMBER DEFAULT 8265
-   ) RETURN VARCHAR2
-   AS
-
-      --M@! 8/1/13
-
-      --Specs to Self:
-      --0. Replace explicit NULL inputs with defaults
-      --1. Check inputs in a sub
-      --      Face table exists
-      --      Values are legal
-      --      Layers in the output parameter table for this release/project are built
-      --2. Create or replace or check in on existence of transaction table
-      --
-      --LOOP while slivers are being removed
-      --
-      --3. Sort out universe of slivers for removal
-      --      Sort faces on universal face by area asc. Loop over the ids
-      --      If face id still exists, check for sliverishness
-      --      If sliver, determine if removing the face results in endangerment, checking expendability
-      --        IF endangered and not expendable, or endangered and p_expendable_review is Y, skip the face but note that this scenario exists
-      --    If go ahead is OK and p_update_feature_geom is Y record all FSLs on the face and on neighbor faces
-      --4. Collapse_to_universal
-      --
-      --END LOOP
-
-      --5. IF p_update_feature_geom is Y update measurements for all recorded FSLS. Best to avoid this step
-      --              In standard output processing coastal slivers happen before any sdo is calculated
-      --              On restarts of coastal slivers the caller in output processing will need to switch this to Y
-      --
-      --6. When slivers no longer being removed, if non-expendables were found roll through one more time
-      --  Get their IDs, whatever they currently are
-      --  Write to the transaction table
-      --7. If segment_length is not null Roll through again and get partial reshapes
-      --  For now just write to the transaction table
-      --8. Reshape and restart stuff will go here eventually
-
-      sliver_restart_flag     VARCHAR2(1);
-      expendable_review       VARCHAR2(4);
-      reshape_review          VARCHAR2(4);
-      output                  VARCHAR2(4000);
-      slivers_removed         PLS_INTEGER := 1;
-      deadman                 PLS_INTEGER := 0;
-      face_sql                VARCHAR2(4000);
-      psql                    VARCHAR2(4000);
-      facez                   GZ_TYPES.numberarray;
-      sliver_idz              GZ_TYPES.numberarray;
-      kount                   PLS_INTEGER;
-      work_face               GZ_FEATURE_FACE := gz_feature_face();
-      endangered              VARCHAR2(4000);
-      expendable              VARCHAR2(4000);
-      sliver_status           VARCHAR2(32);
-      endangered_exist        PLS_INTEGER := 0;
-      fails_may_exist         PLS_INTEGER := 0;
-      all_touched_fsls        GZ_TYPES.nestedhash;
-      final_removed_kount     PLS_INTEGER;
-      start_removed_kount     PLS_INTEGER;
-      cutoff_pt               SDO_GEOMETRY;
-
-   BEGIN
-
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('Step 1');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('GZ_TOPOFIX.GZ_COASTAL_SLIVERS: Start ');
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
-
-      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                  p_topo,
-                                                  'GZ_COASTAL_SLIVERS',
-                                                  p_face_table,
-                                                  'Start: GZ_TOPOFIX.GZ_COASTAL_SLIVERS('
-                                                  || p_release || ',' || p_gen_project_id || ','
-                                                  || p_topo || ',' || p_face_table || ',' || p_log_type || ','
-                                                  || p_sliver_restart_flag || ',' || p_sliver_width || ','
-                                                  || p_segment_length || ',' || p_expendable_review || ','
-                                                  || p_reshape_review || ',' || p_update_feature_geom || ','
-                                                  || p_tolerance || ',' || p_srid || ')');
-
-      -------------------------------------------------------------------------
-      --0. Replace explicit NULL inputs with defaults
-      --   This can happen if the setup tables get NULLed by hand
-      -------------------------------------------------------------------------
-
-      IF p_sliver_restart_flag IS NULL
-      THEN
-         sliver_restart_flag := 'N';
-      ELSE
-         sliver_restart_flag := UPPER(p_sliver_restart_flag);
-      END IF;
-
-      IF p_expendable_review IS NULL
-      THEN
-         expendable_review := 'N';
-      ELSE
-         expendable_review := UPPER(p_expendable_review);
-      END IF;
-
-      IF p_reshape_review IS NULL
-      THEN
-         reshape_review := 'Y';
-      ELSE
-         reshape_review := UPPER(p_reshape_review);
-      END IF;
-
-      IF p_srid <> 8265 OR p_srid IS NULL
-      THEN
-
-         --Code and remove this soonish
-         RETURN 'Sorry, I havent coded coastal sliver removal for Z9 yet';
-
-      END IF;
-
-      -------------------------------------------------------------------------
-      --1. Check inputs in a sub
-      -------------------------------------------------------------------------
-
-      output := GZ_TOPOFIX.VERIFY_CS_INPUTS(p_release,
-                                            p_gen_project_id,
-                                            p_topo,
-                                            p_face_table,
-                                            sliver_restart_flag,
-                                            p_sliver_width,
-                                            p_segment_length,
-                                            expendable_review,
-                                            reshape_review,
-                                            p_update_feature_geom);
-
-      IF output IS NOT NULL
-      THEN
-
-         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                     p_topo,
-                                                     'GZ_COASTAL_SLIVERS',
-                                                     p_face_table,
-                                                     'GZ_COASTAL_SLIVERS input check failed with: ' || output);
-
-         RETURN 'GZ_COASTAL_SLIVERS input check failed with: ' || output;
-
-      END IF;
-
-      -------------------------------------------------------------------------
-      --2. Create or replace transaction table
-      -------------------------------------------------------------------------
-
-      IF sliver_restart_flag = 'N'
-      THEN
-
-         GZ_BUSINESS_UTILS.CREATE_GZ_FACE_SLIVERS(NULL,p_topo || '_FACE_SLIVERS');
-
-      END IF;
-
-      --LOOP while slivers are being removed
-
-      --get count for tracking
-      psql := 'SELECT COUNT(*) '
-           || 'FROM '  || p_topo || '_face_slivers '
-           || 'WHERE status = :p1 ';
-
-      EXECUTE IMMEDIATE psql INTO start_removed_kount USING 'REMOVED';
-
-      WHILE slivers_removed = 1
-      LOOP
-
-         -------------------------------------------------------------------------
-         --3. Sort out universe of slivers for removal
-         -------------------------------------------------------------------------
-
-         IF sliver_restart_flag = 'N'
-         THEN
-
-            face_sql := 'SELECT a.face_id FROM ' || p_face_table || ' a '
-                     || 'WHERE a.face_id IN ( '
-                     || 'SELECT e.right_face_id FROM ' || p_topo || '_edge$ e '
-                     || 'WHERE e.left_face_id = :p1 '
-                     || 'UNION '
-                     || 'SELECT e.left_face_id FROM ' || p_topo || '_edge$ e '
-                     || 'WHERE e.right_face_id = :p2 '
-                     || ') ORDER BY SDO_GEOM.SDO_AREA(a.sdogeometry,:p3) ASC ';
-
-            --even for final national topos
-            --dont think this will ever be more than a few tens of thousands
-
-            EXECUTE IMMEDIATE face_sql BULK COLLECT INTO facez USING -1,
-                                                                     -1,
-                                                                     p_tolerance;
-
-         ELSE
-
-            --meh, keep the whole mess separate
-            face_sql := 'SELECT a.face_id, b.sliver_id FROM ' || p_face_table || ' a, '
-                     || p_topo || '_FACE_SLIVERS b '
-                     || 'WHERE a.face_id IN ( '
-                     || 'SELECT e.right_face_id FROM ' || p_topo || '_edge$ e '
-                     || 'WHERE e.left_face_id = :p1 '
-                     || 'UNION '
-                     || 'SELECT e.left_face_id FROM ' || p_topo || '_edge$ e '
-                     || 'WHERE e.right_face_id = :p2 '
-                     || ') AND a.face_id = b.face_id '
-                     || 'AND b.sliver_type = :p3 AND b.status = :p4 AND b.review_adjudication = :p5 '
-                     || 'ORDER BY SDO_GEOM.SDO_AREA(a.sdogeometry,:p3) ASC ';
-
-            --need sliver ids to uniquely ID the record
-            --This should only happen if expendable review is set to Y and we want to review water junk before removal
-            --which is unlikely
-
-            EXECUTE IMMEDIATE face_sql BULK COLLECT INTO facez, sliver_idz USING -1,
-                                                                                 -1,
-                                                                                 'SLIVER',
-                                                                                 'IN REVIEW',
-                                                                                 'Y',
-                                                                                 p_tolerance;
-
-         END IF;
-
-
-         IF facez.COUNT > 0
-         THEN
-
-            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                        p_topo,
-                                                        'GZ_COASTAL_SLIVERS',
-                                                        p_topo || '_FACE_SLIVERS' ,
-                                                        'Starting loop ' || TO_CHAR(deadman + 1) || ' over ' || facez.COUNT
-                                                        || ' faces on the universal face. See ' || p_topo || '_FACE_SLIVERS for dets');
-
-         ELSE
-
-            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                        p_topo,
-                                                        'GZ_COASTAL_SLIVERS',
-                                                        p_topo || '_FACE_SLIVERS' ,
-                                                        'No sliver faces to process');
-
-         END IF;
-
-         --      Sort faces on universal face by area asc. Loop over the ids
-
-         --set to exit the outer loop if nothing happens
-         slivers_removed := 0;
-
-         FOR i IN 1 .. facez.COUNT
-         LOOP
-
-            -- If face id still exists on this loop, check for sliverishness
-
-            psql := 'SELECT COUNT(*) '
-                 || 'FROM ' ||  p_face_table || ' a '
-                 || 'WHERE a.face_id = :p1 ';
-
-            EXECUTE IMMEDIATE psql INTO kount USING facez(i);
-
-            IF kount = 1
-            THEN
-
-               --------------------------------------------------------------------
-               --Much logic buried here, instantiate face and check if its a sliver
-               work_face := gz_feature_face(p_topo,
-                                            p_face_table,
-                                            facez(i),
-                                            p_tolerance);
-
-               work_face.set_coastal_sliver(p_sliver_width,
-                                            p_segment_length);   --consider updating type to take a NULL value here
-                                                                 --save some time on this section - no need to calc partials
-               --------------------------------------------------------------------
-
-
-               IF work_face.coastal_sliver = 'SLIVER'
-               THEN
-
-                  -- If sliver, determine if removing the face results in endangerment, checking expendability
-
-                  endangered := NULL;
-
-                  IF expendable_review = 'N'
-                  OR sliver_restart_flag = 'Y' --if expendable review = Y on a restart, still need to get real endangerment
-                  THEN
-
-                     --usually here. No need to review when expendable watery stuff is endangered
-                     endangered := GZ_SMPOLY.FSLS_ENDANGERED(p_release,
-                                                             p_gen_project_id,
-                                                             p_topo,
-                                                             facez(i),
-                                                             'GEO_ID',
-                                                             'GZ_LAYERS_OUT');
-
-                  ELSE
-
-                     --wish to review if anything at all is endangered, including water junk
-                     endangered := GZ_SMPOLY.FSLS_ENDANGERED(p_release,
-                                                             p_gen_project_id,
-                                                             p_topo,
-                                                             facez(i),
-                                                             'GEO_ID',
-                                                             'GZ_LAYERS_OUT');
-
-                     --Add water junk.  All we are doing at this point is kicking
-                     --out any face that can't be removed
-                     --After the looping and face removing we will get these once again
-                     endangered := endangered || GZ_SMPOLY.FSLS_ENDANGERED(p_release,
-                                                                           p_gen_project_id,
-                                                                           p_topo,
-                                                                           facez(i),
-                                                                           'GEO_ID',
-                                                                           'GZ_LAYERS_OUT',
-                                                                           'Y');  --special reverse flag
-
-                  END IF;
-
-
-                  IF endangered_exist = 0
-                  AND endangered IS NOT NULL
-                  THEN
-
-                     --first time weve seen something is about to get extinct
-                     --set this.  Cant log these guys now because face_ids may change
-                     endangered_exist := 1;
-
-                  ELSIF endangered IS NULL
-                  THEN
-
-                     -- If go ahead is OK and p_update_feature_geom is Y record all FSLs on the face and on neighbor faces
-
-                     IF p_update_feature_geom = 'Y'
-                     THEN
-
-                        --set the neighbor faces
-                        work_face.set_boundary_faces;
-                        --set the current face fsls
-                        work_face.set_feature_layers;
-
-                        --add the FSLs of this face and all boundary faces to the running list
-                        GZ_TOPOFIX.TRACK_FSLS(work_face,
-                                              all_touched_fsls);  --in out
-
-
-                     END IF;
-
-                     BEGIN
-
-                        --call the fsl getter again with reverse from standard use above, cant do it after face collapse
-                        --gets any ugly extinct water geoids.  So we can write them to the transaction table. usually null
-                        endangered := GZ_SMPOLY.FSLS_ENDANGERED(p_release,
-                                                                p_gen_project_id,
-                                                                p_topo,
-                                                                facez(i),
-                                                                'GEO_ID',
-                                                                'GZ_LAYERS_OUT',
-                                                                'Y');   ---special only get stuff we allow to be extinct
-
-
-                        --------------------------------
-                        --The work----------------------
-                        work_face.collapse_to_universal;
-                        --------------------------------
-                        --------------------------------
-
-                        --no error
-                        slivers_removed := 1;
-
-                        IF sliver_restart_flag = 'N'
-                        THEN
-
-                           --SOP
-                           GZ_TOPOFIX.WRITE_SLIVER_TRANSACTIONS(p_topo,
-                                                                'SLIVER',
-                                                                facez(i),
-                                                                'REMOVED',
-                                                                work_face.feature_tables,
-                                                                work_face.feature_table_geoids,
-                                                                endangered,  --should be null here
-                                                                work_face.sdogeometry);
-
-                        ELSE
-
-                           --rare, possibly never called, restart and removal of expendable territory after review
-                           GZ_TOPOFIX.WRITE_SLIVER_TRANSACTIONS(p_topo,
-                                                                'SLIVER',
-                                                                facez(i),
-                                                                'REMOVED',         --should go from IN REVIEW to REMOVED
-                                                                work_face.feature_tables,
-                                                                work_face.feature_table_geoids,
-                                                                endangered,
-                                                                work_face.sdogeometry,
-                                                                sliver_idz(i));     --update instead of insert based on primary key
-
-                        END IF;
-
-
-                     EXCEPTION
-                     WHEN OTHERS
-                     THEN
-
-                        --Dont write to the transaction table. Rationale:
-                        --The face and other info written here may well be bogus by the time of investigation
-                        --The face may have partially been fixed, turning a sliver into a partial sliver that will be totally fixed
-                        --If it wasnt fixed and is still a sliver, final transaction loop will catch and record it
-
-                        fails_may_exist := 1;
-                        --Do write to the tracking table for developer investigation
-                        GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                                    p_topo,
-                                                                    'GZ_COASTAL_SLIVERS',
-                                                                    p_topo || '_FACE_SLIVERS' ,
-                                                                    'FAILURE: collapse_to_universal on ' || facez(i),
-                                                                    p_error_msg => SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace,
-                                                                    p_sdo_dump => work_face.sdogeometry);
-
-                     END;
-
-
-                  END IF;
-
-
-               END IF; --end if, this face is SLIVER
-
-            END IF;  --end if, does this face even exist
-
-         END LOOP; --end loop over this current set of all -1 faces in the topo
-
-
-
-         IF deadman <= 5
-         THEN
-
-            deadman := deadman + 1;
-
-         ELSE
-
-            GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                        p_topo,
-                                                        'GZ_COASTAL_SLIVERS',
-                                                        p_face_table,
-                                                        '5 loops and still cant remove all slivers?  '
-                                                        || 'Somethings wrong, continuing with what we have ');
-
-            output := output || 'Warning: Cant remove all slivers | ';
-            slivers_removed := 0;
-
-         END IF;
-
-
-      END LOOP;
-
-      psql := 'SELECT COUNT(*) '
-           || 'FROM '  || p_topo || '_face_slivers '
-           || 'WHERE status = :p1 ';
-
-      EXECUTE IMMEDIATE psql INTO final_removed_kount USING 'REMOVED';
-
-      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                  p_topo,
-                                                  'GZ_COASTAL_SLIVERS',
-                                                  p_face_table,
-                                                  'Removed ' || TO_CHAR(final_removed_kount - start_removed_kount) || ' coastal slivers ');
-
-
-      -------------------------------------------------------------------------
-      --5. IF p_update_feature_geom is Y update measurements for all touched FSLS
-      -------------------------------------------------------------------------
-
-      IF p_update_feature_geom = 'Y'
-      AND all_touched_fsls.COUNT > 0
-      THEN
-
-         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                     p_topo,
-                                                     'GZ_COASTAL_SLIVERS',
-                                                     p_topo || '_FACE_SLIVERS' ,
-                                                     'Updating FSLS touched by sliver removals');
-
-         GZ_TOPOFIX.UPDATE_FSLS(p_release,
-                                p_gen_project_id,
-                                p_topo,
-                                all_touched_fsls);
-
-      END IF;
-
-
-      -------------------------------------------------------------------------
-      --6. When slivers no longer being removed, if non-expendables were found roll through one more time
-      --   Get their IDs, whatever they currently are
-      --   Write to the transaction table
-      --   If expendable review is also requested, get those too
-      -------------------------------------------------------------------------
-      -------------------------------------------------------------------------
-      --7. If segment_length is not null and this is an initial run, get partial reshapes
-      --  For now just write to the transaction table
-      -------------------------------------------------------------------------
-
-      IF endangered_exist = 1            --these three evaluate to YES pretty much always
-      OR fails_may_exist = 1
-      OR p_segment_length IS NOT NULL
-      THEN
-
-         GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                     p_topo,
-                                                     'GZ_COASTAL_SLIVERS',
-                                                     p_topo || '_FACE_SLIVERS' ,
-                                                     'Making a final loop to get endangered, failed, or partial sliver records to add to '
-                                                     || p_topo || '_FACE_SLIVERS');
-
-         --face_sql stored above
-         IF sliver_restart_flag = 'N'
-         THEN
-
-            --SOP
-            EXECUTE IMMEDIATE face_sql BULK COLLECT INTO facez USING -1,
-                                                                     -1,
-                                                                     p_tolerance;
-         ELSE
-
-            --rare review of expendable water and there are fails
-            --will only get faces in review that didnt get fixed up yonder
-            EXECUTE IMMEDIATE face_sql BULK COLLECT INTO facez, sliver_idz USING -1,
-                                                                                 -1,
-                                                                                 'SLIVER',
-                                                                                 'IN REVIEW',
-                                                                                 'Y',
-                                                                                 p_tolerance;
-         END IF;
-
-         FOR i IN 1 .. facez.COUNT
-         LOOP
-
-            -- Dont need to check for face existence this loop, no transmogrifying
-
-            --------------------------------------------------------------------
-            --Much logic buried here, instantiate face and check if its a sliver
-            work_face := gz_feature_face(p_topo,
-                                         p_face_table,
-                                         facez(i),
-                                         p_tolerance);
-
-            work_face.set_coastal_sliver(p_sliver_width,
-                                         p_segment_length);
-            --------------------------------------------------------------------
-
-
-            IF work_face.coastal_sliver = 'SLIVER'
-            THEN
-
-               --only do this if necessary
-               work_face.set_feature_layers;
-
-               -- If sliver, determine if removing the face results in endangerment, checking expendability
-
-               endangered := NULL;
-
-               --usually just this. Get any important endangered stuff
-               endangered := GZ_SMPOLY.FSLS_ENDANGERED(p_release,
-                                                       p_gen_project_id,
-                                                       p_topo,
-                                                       facez(i),
-                                                       'GEO_ID',
-                                                       'GZ_LAYERS_OUT');
-
-
-               --also get any watery junk, put it in the table too
-               expendable := GZ_SMPOLY.FSLS_ENDANGERED(p_release,
-                                                       p_gen_project_id,
-                                                       p_topo,
-                                                       facez(i),
-                                                       'GEO_ID',
-                                                       'GZ_LAYERS_OUT',
-                                                       'Y');  --special reverse flag
-
-
-               IF expendable_review = 'N'
-               THEN
-
-                  IF endangered IS NOT NULL
-                  THEN
-
-                     sliver_status := 'NOT EXPENDABLE';
-
-                  ELSE
-
-                     --if it was totally ok to remove this face but its still here, assume a problem
-                     sliver_status := 'REMOVAL FAILED';
-
-                  END IF;
-
-               ELSE --expendable_review = 'Y'
-
-                  IF endangered IS NOT NULL
-                  THEN
-
-                     --existence of non expendable trumps
-                     sliver_status := 'NOT EXPENDABLE';
-
-                  ELSIF endangered IS NULL
-                  AND expendable IS NOT NULL
-                  THEN
-
-                     --This is what we are trying to catch here
-
-                     IF sliver_restart_flag = 'N'
-                     THEN
-
-                        sliver_status := 'IN REVIEW';
-
-                     ELSIF sliver_restart_flag = 'Y'
-                     THEN
-
-                        sliver_status := 'REMOVAL FAILED';
-
-                     END IF;
-
-                  ELSIF endangered IS NULL
-                  AND expendable IS NULL
-                  THEN
-
-                     sliver_status := 'REMOVAL FAILED';
-
-                  ELSE
-
-                     RAISE_APPLICATION_ERROR(-20001, 'Logic 101 bustah');
-
-                  END IF;
-
-               END IF;
-
-               IF sliver_restart_flag = 'N'
-               THEN
-
-                  GZ_TOPOFIX.WRITE_SLIVER_TRANSACTIONS(p_topo,
-                                                       'SLIVER',
-                                                       facez(i),
-                                                       sliver_status,                  --the variable
-                                                       work_face.feature_tables,
-                                                       work_face.feature_table_geoids,
-                                                       endangered || ';' || expendable,       --one or both may be NULL
-                                                       work_face.sdogeometry);
-
-               ELSE
-
-                  GZ_TOPOFIX.WRITE_SLIVER_TRANSACTIONS(p_topo,
-                                                       'SLIVER',
-                                                       facez(i),
-                                                       sliver_status,                  --the variable
-                                                       work_face.feature_tables,
-                                                       work_face.feature_table_geoids,
-                                                       endangered || ';' || expendable,       --one or both may be NULL
-                                                       work_face.sdogeometry,
-                                                       sliver_idz(i));
-
-               END IF;
-
-            ELSIF work_face.coastal_sliver = 'PARTIAL'
-            THEN
-
-               --only do this if necessary
-               work_face.set_feature_layers;
-
-               --Make this explicit in the table.  Not checked, doesnt matter.
-               endangered := 'NA';
-
-               sliver_status := 'IN REVIEW';
-
-               IF work_face.coastal_sliver_clock_d IS NOT NULL
-               THEN
-
-                  --better protect this
-                  BEGIN
-
-                     cutoff_pt := work_face.get_partial_sliver_cutoff('CLOCKWISE');
-
-                  EXCEPTION
-                  WHEN OTHERS
-                  THEN
-
-                     cutoff_pt := NULL;
-
-                  END;
-
-                  GZ_TOPOFIX.WRITE_SLIVER_TRANSACTIONS(p_topo,
-                                                       'PARTIAL',
-                                                       facez(i),
-                                                       sliver_status,
-                                                       work_face.feature_tables,
-                                                       work_face.feature_table_geoids,
-                                                       endangered,
-                                                       work_face.sdogeometry,
-                                                       p_partial_sdogeometry => cutoff_pt);
-
-               END IF;
-
-               IF work_face.coastal_sliver_c_clock_d IS NOT NULL
-               THEN
-
-                  BEGIN
-
-                    cutoff_pt := work_face.get_partial_sliver_cutoff('COUNTERCLOCKWISE');
-
-                  EXCEPTION
-                  WHEN OTHERS
-                  THEN
-                     --just in case, not extensively tested as of adding this
-                     cutoff_pt := NULL;
-
-                  END;
-
-                  GZ_TOPOFIX.WRITE_SLIVER_TRANSACTIONS(p_topo,
-                                                       'PARTIAL',
-                                                       facez(i),
-                                                       sliver_status,
-                                                       work_face.feature_tables,
-                                                       work_face.feature_table_geoids,
-                                                       endangered,
-                                                       work_face.sdogeometry,
-                                                       p_partial_sdogeometry => cutoff_pt);
-
-               END IF;
-
-
-
-
-            END IF; --end if, this face is a SLIVER
-
-
-         END LOOP; --end loop over this current set of all -1 faces in the topo
-
-      END IF;  --end IF did some endangered exist
-
-
-      ------------------------------------------------------------------------
-      --8. Reshape restart stuff will go here eventually
-      -------------------------------------------------------------------------
-
-
-
-
-      GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
-                                                  p_topo,
-                                                  'GZ_COASTAL_SLIVERS',
-                                                  p_face_table,
-                                                  'End GZ_TOPOFIX.GZ_COASTAL_SLIVERS');
-
-      ----------------------------------------------------------------------------------
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      DBMS_APPLICATION_INFO.SET_ACTION('');
-      DBMS_APPLICATION_INFO.SET_CLIENT_INFO('GZ_TOPOFIX.GZ_COASTAL_SLIVERS: Peace out ');
-      --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-      ----------------------------------------------------------------------------------
-
-      RETURN output;
-
-   END GZ_COASTAL_SLIVERS;
-
+  
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --PRIVATE---------------------------------------------------------------------------------
@@ -1907,17 +703,17 @@ AS
                                                      'All Fixes',
                                                      p_face_tab,
                                                      'Oh noes!  Invalid faces remain. May be invalid for other than 13349/13356');
-         
-      
+
+
          FOR i IN 1 .. ids_other.COUNT
          LOOP
-         
+
             --log each, no harm, usually none and when 1 its confusing enough
             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                         p_topo,
                                                         'All Fixes',
                                                         p_face_tab,
-                                                        'Updating ' || p_qc_col || ' to 1 for ' 
+                                                        'Updating ' || p_qc_col || ' to 1 for '
                                                         || p_face_pkc || ' ' || ids_other(i));
 
          END LOOP;
@@ -17750,7 +16546,7 @@ END try_check_close_edge;
 
          IF ids_13356.COUNT > 0
          THEN
-         
+
             found_something := 1;
 
             --log just so we arent hanging here
@@ -17840,7 +16636,7 @@ END try_check_close_edge;
 
          IF ids_intersec.COUNT > 0
          THEN
-         
+
             found_something := 1;
 
             --log just so we arent hanging here
@@ -17951,7 +16747,7 @@ END try_check_close_edge;
 
             IF ids_edge1.COUNT > 0
             THEN
-            
+
                found_something := 1;
 
                GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
@@ -17978,7 +16774,7 @@ END try_check_close_edge;
                sub_retval := NULL;
 
                BEGIN
-   
+
                   sub_retval := GZ_TOPOFIX.RESHAPE_TOO_CLOSE(
                                                               USER,
                                                               p_topo,
@@ -18059,14 +16855,14 @@ END try_check_close_edge;
 
 
       END LOOP;
-      
+
       IF found_something = 1
       THEN
 
          psql := 'SELECT a.edge_id FROM '
               || p_topo || '_EDGE$ a '
               || 'WHERE SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT(a.geometry, :p1) LIKE :p2 ';
-              
+
          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                      p_topo,
                                                      'GZ_FIX_EDGE',
@@ -18075,24 +16871,24 @@ END try_check_close_edge;
                                                      p_sqlstmt => psql);
 
          EXECUTE IMMEDIATE psql BULK COLLECT INTO ids_13356 USING p_tolerance, '13356 %';
-         
+
          IF ids_13356.COUNT > 0
          THEN
-         
+
             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                         p_topo,
                                                         'GZ_FIX_EDGE',
                                                         p_topo||'_EDGE$',
                                                         'Oops, ' || ids_13356.COUNT || ' 13356 error(s) remain');
-         
+
          ELSE
-            
+
             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                         p_topo,
                                                         'GZ_FIX_EDGE',
                                                         p_topo||'_EDGE$',
                                                         'Groovy, no 13356 errors remain');
-         
+
          END IF;
 
          psql := 'SELECT a.edge_id FROM '
@@ -18105,46 +16901,46 @@ END try_check_close_edge;
                                                      p_topo||'_EDGE$',
                                                      'Making a final check for 13349 errors',
                                                      p_sqlstmt => psql);
-                                                     
+
          EXECUTE IMMEDIATE psql BULK COLLECT INTO ids_intersec USING p_tolerance;
-         
-         
+
+
          IF ids_intersec.COUNT > 0
          THEN
-         
+
             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                         p_topo,
                                                         'GZ_FIX_EDGE',
                                                         p_topo||'_EDGE$',
                                                         'Oops, ' || ids_intersec.COUNT || ' 13349 error(s) remain');
-         
+
          ELSE
-         
+
             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                         p_topo,
                                                         'GZ_FIX_EDGE',
                                                         p_topo||'_EDGE$',
                                                         'Groovy, no 13349 errors remain');
-         
+
          END IF;
-      
+
       END IF;
-      
+
       IF too_close IS NOT NULL
       THEN
-      
-         --track this, otherwise if this is the only problem 
+
+         --track this, otherwise if this is the only problem
          --there are 13356 and 13349 Groovies and then a generic final result "fail" which is confusing
          GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG(p_log_type,
                                                      p_topo,
                                                      'GZ_FIX_EDGE',
                                                      p_topo||'_EDGE$',
                                                      'Oops, ' || REGEXP_COUNT(too_close, '\|') || ' edge pairs too close (topofix_2edge) remain');
-      
-      END IF;
-      
 
-      IF found_something = 1 AND 
+      END IF;
+
+
+      IF found_something = 1 AND
       ((ids_13356.COUNT > 0) OR (ids_intersec.COUNT > 0) OR (too_close IS NOT NULL))
       THEN
 
@@ -18390,4 +17186,5 @@ begin
  end loop;
 end;
 END GZ_TOPOFIX;
+
 /

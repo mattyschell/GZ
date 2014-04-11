@@ -3311,59 +3311,6 @@ END before;
 
    END REMOVE_CLOSE_ORDINATES;
 
-   ---------------------------------------------------------------------------------
-   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   ---------------------------------------------------------------------------------
-
-   FUNCTION GZ_LOCATE_PT_DISTANCE (
-      p_edge_geom       IN SDO_GEOMETRY,
-      p_distance        IN NUMBER,
-      p_tip             IN VARCHAR2,
-      p_tolerance       IN NUMBER
-   ) RETURN SDO_GEOMETRY DETERMINISTIC
-   AS
-
-      --Matt! 1/22/11
-      --Kinda like gz_clip.gz_locate_pt
-      --This version uses a distance input instead of a measure
-      --Called from REMOVE_DUPE_XPAND_V currently
-
-
-
-      output         SDO_GEOMETRY;
-      measure        NUMBER;
-      line           SDO_GEOMETRY;
-
-   BEGIN
-
-
-
-      --get the percent of the total length of the edge
-      measure := ( (p_distance/SDO_GEOM.SDO_LENGTH(p_edge_geom, p_tolerance)) * 100 );
-
-      line := SDO_LRS.CONVERT_TO_LRS_GEOM(p_edge_geom, 0, 100);
-
-      IF p_tip = 'START'
-      THEN
-
-         output := SDO_LRS.CONVERT_TO_STD_GEOM(SDO_LRS.LOCATE_PT(line, measure));
-
-      ELSIF p_tip = 'END'
-      THEN
-
-         output := SDO_LRS.CONVERT_TO_STD_GEOM(SDO_LRS.LOCATE_PT(line, (100 - measure)));
-
-      ELSE
-
-         RAISE_APPLICATION_ERROR(-20001,'Whats a tip of ' || p_tip || '?');
-
-      END IF;
-
-
-      RETURN output;
-
-
-   END GZ_LOCATE_PT_DISTANCE;
 
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -4298,6 +4245,57 @@ END before;
       RETURN geom;
 
    END ORDINATE_ROUNDER;
+   
+   ---------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public-------------------------------------------------------------------------
+
+   FUNCTION GZ_LOCATE_PT_DISTANCE (
+      p_edge_geom       IN SDO_GEOMETRY,
+      p_distance        IN NUMBER,
+      p_tip             IN VARCHAR2,
+      p_tolerance       IN NUMBER
+   ) RETURN SDO_GEOMETRY DETERMINISTIC
+   AS
+
+      --Matt! 1/22/11
+      --Kinda like gz_clip.gz_locate_pt
+      --This version uses a distance input instead of a measure
+      --Called from REMOVE_DUPE_XPAND_V currently
+
+
+      output         SDO_GEOMETRY;
+      measure        NUMBER;
+      line           SDO_GEOMETRY;
+
+   BEGIN
+
+
+
+      --get the percent of the total length of the edge
+      measure := ( (p_distance/SDO_GEOM.SDO_LENGTH(p_edge_geom, p_tolerance)) * 100 );
+
+      line := SDO_LRS.CONVERT_TO_LRS_GEOM(p_edge_geom, 0, 100);
+
+      IF p_tip = 'START'
+      THEN
+
+         output := SDO_LRS.CONVERT_TO_STD_GEOM(SDO_LRS.LOCATE_PT(line, measure));
+
+      ELSIF p_tip = 'END'
+      THEN
+
+         output := SDO_LRS.CONVERT_TO_STD_GEOM(SDO_LRS.LOCATE_PT(line, (100 - measure)));
+
+      ELSE
+
+         RAISE_APPLICATION_ERROR(-20001,'Whats a tip of ' || p_tip || '?');
+
+      END IF;
+
+      RETURN output;
+
+   END GZ_LOCATE_PT_DISTANCE;
 
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
@@ -4317,7 +4315,7 @@ END before;
 
    BEGIN
 
-      --convert to LRS, 0 to 100
+      --convert to LRS, 0 to 1000
       p_line := SDO_LRS.CONVERT_TO_LRS_GEOM(p_edge, 0, 1000);
 
 
@@ -4327,6 +4325,34 @@ END before;
 
    END GZ_FIND_MEASURE;
 
+   -----------------------------------------------------------------------------------------
+   --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --Public---------------------------------------------------------------------------------
+
+   FUNCTION GZ_FIND_MEASURE_PERCENT (
+      p_point              IN SDO_GEOMETRY,
+      p_edge               IN SDO_GEOMETRY,
+      p_rounding           IN NUMBER DEFAULT 2
+   ) RETURN NUMBER DETERMINISTIC
+   AS
+
+      --Matt! 3/27/14
+      --Wrapper to gz_find_measure 
+      --returning the location of the point along the line in percent
+      --   instead of 0-1000 measures
+
+      output               NUMBER;
+
+   BEGIN
+
+      output := ROUND((GZ_GEOM_UTILS.GZ_FIND_MEASURE(p_point,
+                                                    p_edge)/10),  --ie /1000*100
+                      p_rounding);
+
+      RETURN output;
+
+   END GZ_FIND_MEASURE_PERCENT;
+   
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
@@ -4385,6 +4411,125 @@ END before;
 
    END GZ_PROJECT_PT;
 
+
+   FUNCTION GET_COORD_INDEX (
+      p_point          IN SDO_GEOMETRY,
+      p_edge           IN SDO_GEOMETRY,
+      p_debug          IN PLS_INTEGER DEFAULT 0  --This guy is gonna try our patience
+   ) RETURN PLS_INTEGER DETERMINISTIC
+   AS
+
+      --Matt! 09/03/10
+      --Copied over from gz_clip and slightly modified 3/28/14
+      --Caller should null the input srids in almost all cases. 
+      --   Up to you though, see if I, get_coord_index, care
+      
+      -- This is the one.  This is the one.  This is the one.
+
+      pt_measure        NUMBER;
+      test_point        SDO_GEOMETRY;
+      test_measure      NUMBER;
+
+   BEGIN
+
+
+      IF p_edge.sdo_gtype != 2002
+      THEN
+
+         RAISE_APPLICATION_ERROR(-20001,'Buddy, edge gtype is ' || p_edge.sdo_gtype || ' !?');
+
+      END IF;
+
+      --Return if just one segment
+      IF p_edge.sdo_ordinates.count = 4
+      THEN
+
+         RETURN 0;  --oracle coord_index
+
+      END IF;
+
+      --No SRID to mimic topology voodoo?
+      --Now done in caller
+      --p_edge.sdo_srid := NULL;
+      --p_point.sdo_srid := NULL;
+
+      pt_measure := GZ_GEOM_UTILS.GZ_FIND_MEASURE(p_point,
+                                                  p_edge);
+
+      --we are probably screwed, but we will give the caller a guess
+      IF pt_measure >= 1000
+      THEN
+
+         IF p_debug = 1
+         THEN
+            dbms_output.put_line('off the line, measure is ' || pt_measure);
+         END IF;
+
+         RETURN ( SDO_UTIL.GETNUMVERTICES(p_edge) - 2 );
+
+      ELSIF pt_measure <= 0
+      THEN
+
+         IF p_debug = 1
+         THEN
+            dbms_output.put_line('off the line, measure is ' || pt_measure);
+         END IF;
+
+         RETURN 0;
+
+      END IF;
+
+
+      IF p_debug = 1
+      THEN
+         dbms_output.put_line('pt_measure is ' || pt_measure);
+      END IF;
+
+
+      FOR i IN 1 .. SDO_UTIL.GETNUMVERTICES(p_edge)
+      LOOP
+
+         IF i = 1
+         THEN
+
+            test_measure := 0;
+
+         ELSE
+
+            test_point := SDO_GEOMETRY(2001,
+                                       p_edge.sdo_srid,  --Should usually be NULL
+                                       SDO_POINT_TYPE(p_edge.sdo_ordinates( (i*2) - 1 ),
+                                                      p_edge.sdo_ordinates( (i*2) ),
+                                                      NULL),
+                                       NULL,
+                                       NULL);
+
+            test_measure := GZ_GEOM_UTILS.GZ_FIND_MEASURE(test_point,
+                                                          p_edge);
+
+         END IF;
+
+
+         IF p_debug = 1
+         THEN
+            dbms_output.put_line('test_measure is ' || test_measure);
+         END IF;
+
+
+         IF test_measure > pt_measure
+         THEN
+
+            --we just passed our point
+            RETURN (i-2);
+
+         END IF;
+
+
+      END LOOP;
+
+
+   END GET_COORD_INDEX;
+   
     -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
@@ -4454,7 +4599,7 @@ END before;
    RETURN result;
 
   END VALIDATE_LINES_WITH_CONTEXT;
-  
+
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public-------------------------------------------------------------------------
@@ -4472,7 +4617,7 @@ END before;
       --select e.edge_id, gz_utilities.validate_lines_with_context(e.geometry, .05)
       --from z955ls_edge$ e
       --where gz_utilities.validate_lines_with_context(e.geometry, .05) != 'TRUE'
-      
+
       --For intersections see GZ_INTERACTIVE_UTILS.SHOW_ME_EDGE_INTERSECTION fpr a viewer
 
       psql              VARCHAR2(4000);
@@ -4490,15 +4635,15 @@ END before;
 
       IF p_line.sdo_gtype = 2002 or p_line.sdo_gtype = 2006
       THEN
-      
+
          NULL;
-         
+
       ELSE
-      
+
          RETURN 'Gtype is ' || p_line.sdo_gtype;
 
       END IF;
-      
+
       IF p_which_check = 'BOTH'
       OR p_which_check = '13356'
       THEN
@@ -4509,9 +4654,9 @@ END before;
             RETURN sdo_geom.validate_geometry_with_context(p_line, p_tolerance);
 
          END IF;
-         
+
       END IF;
-      
+
       IF p_which_check = 'BOTH'
       OR p_which_check = '13349'
       THEN
@@ -4548,13 +4693,13 @@ END before;
             END IF;
 
          END IF;
-         
+
       END IF;
 
       RETURN 'TRUE';
 
    END VALIDATE_LINES_WITH_CONTEXT;
-   
+
    ---------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public-------------------------------------------------------------------------
@@ -4655,7 +4800,7 @@ END;
    ) RETURN VARCHAR2
    AS
 
-      --Matt! 10/31/13 Original version attempted to use gz_pipes.get_widths 
+      --Matt! 10/31/13 Original version attempted to use gz_pipes.get_widths
       --! 12/26/13 Rewrote to avoid gz_pipes
 
       --returns 'TRUE' or 'FALSE'
@@ -4676,7 +4821,7 @@ END;
       --z699tm_edge$ ee
       --where e.edge_id = 46935
       --and ee.edge_id = 46937
-      
+
       --side note on why rounding is necessary
       --heres an example of a loop x position for 2 edges that share a node
       -- -80.43940281608109899025293998420238494873
@@ -4711,126 +4856,126 @@ END;
                                                                                        p_line2),
                                                                  p_tolerance,
                                                                  '13349'); --only check for self-intersection
-            
+
          --theres potentially more info here if we want it
          --dbms_output.put_line(val_result);
-                                                                    
+
          IF val_result = 'TRUE'
          THEN
-            
+
             RETURN 'TRUE';
-               
+
          ELSIF val_result LIKE '1 self intersections%'
          OR    val_result LIKE '2 self intersections%'
          OR    val_result LIKE '3 self intersections%'
          THEN
-            
+
             --check that one of the edges isn't a ring attached to the other edge
             --that spot would appear as a self-intersection in the concatenated geom
-            
+
             --   ---1--    x is a node in the original topo
             --   |    |      and also the reported intersection point in the concatenated validation
             --   |    |
             --   -----x----2-----
-            
+
             --and also there's an unfortunate wrinkle regarding the *2* and *3* self intersections
             --in cases like the one diagrammed above Oracle appears to always output (in the validate subroutine sdo_intersection)
-            --a new start point for the looping edge somewhere on the loop.  
+            --a new start point for the looping edge somewhere on the loop.
             --I guess this makes it a little more valid or something
-            
+
             --   x--1--        <---Bonus intersection point, start-end loop of the concatenated intersection
-            --   |    |      
+            --   |    |
             --   |    |
             --   -----x----2-----   <--True sensible intersection of the input geom
-               
-            IF  (x1head <> x1tail AND y1head <> y1tail)  
+
+            IF  (x1head <> x1tail AND y1head <> y1tail)
             AND (x2head <> x2tail AND y2head <> y2tail)
-            THEN               
-               
+            THEN
+
                IF (x1head = x2head AND y1head = y2head AND x1tail = x2tail AND y1tail = y2tail) --1head/2head + 1tail/2tail
                OR (x1head = x2tail AND y1head = y2tail AND x1tail = x2head AND y1tail = y2head) --1head/2tail + 1tail/2head
                THEN
-               
+
                   --However check that the two edges dont join at a node on both ends
-                  --this results in 1 false positive intersection 
+                  --this results in 1 false positive intersection
                   --    __1__
                   --   /     \
                   --  x       x
                   --   \__2__/
-               
+
                   ix_kount := TO_NUMBER(SUBSTR(val_result,1,1));
-                  
+
                   IF ix_kount = 1
                   THEN
-                  
+
                      RETURN 'TRUE';
-                  
+
                   ELSE
-                  
+
                      RETURN 'FALSE';
-                  
+
                   END IF;
-                  
+
 
                ELSE
-               
+
                   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-                  --No looping involved. Got a real intersection at tolerance. 
+                  --No looping involved. Got a real intersection at tolerance.
                   --legit FALSE return values 99.99% go here, everything else is
                   --false positive loops burrowing toward a TRUE
                   RETURN 'FALSE';
                   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-                  
+
                END IF;
-               
+
             ELSE
-               
+
                --false alarm, most likely, got loops in the picture
-               
+
                --1, 2, or 3
                ix_kount := TO_NUMBER(SUBSTR(val_result,1,1));
-               
-               --start with one point for there being a loop, 
-               --always an intersection at the junction 
+
+               --start with one point for there being a loop,
+               --always an intersection at the junction
                loop_allow_kount := 1;
-               
+
                --next allow 1 or 2 more depending on how many self loops we have
-               
-               IF  x1head = x1tail 
+
+               IF  x1head = x1tail
                AND y1head = y1tail
                THEN
-               
+
                   loop_allow_kount := loop_allow_kount + 1;
-                  
+
                END IF;
-               
-               IF  x2head = x2tail 
+
+               IF  x2head = x2tail
                AND y2head = y2tail
                THEN
-               
-                  loop_allow_kount := loop_allow_kount + 1;
-                  
-               END IF;  
 
-               
+                  loop_allow_kount := loop_allow_kount + 1;
+
+               END IF;
+
+
                IF ix_kount <= loop_allow_kount
                THEN
-               
+
                   RETURN 'TRUE';
-               
+
                ELSE
-               
+
                   RETURN 'FALSE';
-               
+
                END IF;
-               
+
             END IF;
-               
+
          ELSE
-            
+
             --4 intersections?  Hopefully never
             RETURN 'FALSE';
-            
+
          END IF;
 
       ELSE
@@ -5882,30 +6027,30 @@ END;
       RETURN output;
 
    END EXPAND_MBR_PERCENT;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
-   
+
    FUNCTION DO_ORDINATES_MATCH (
       p_sdogeometry1       IN SDO_GEOMETRY,
       p_sdogeometry2       IN SDO_GEOMETRY,
       p_round              IN NUMBER DEFAULT NULL
    ) RETURN PLS_INTEGER DETERMINISTIC
    AS
-   
+
       --Matt! 2/7/14
-      --Not just are the geometries equal within tolerance, 
+      --Not just are the geometries equal within tolerance,
       --but are the ordinates at each position the same
       --1 for match, 0 for mismatch
-      
+
       --sample
       --select gz_geom_utils.do_ordinates_match(a.sdogeometry, b.sdogeometry)
       --from gzcpb1.z899in_face a,
       --schel010.z899in_face b
       --where a.face_id = 1017
       --and b.face_id = 1017
-      
+
          psql              VARCHAR2(4000);
          kount             PLS_INTEGER;
 
@@ -5914,11 +6059,11 @@ END;
       IF p_sdogeometry1.sdo_gtype NOT IN (2002, 2003, 2007)
       OR p_sdogeometry2.sdo_gtype NOT IN (2002, 2003, 2007)
       THEN
-         
+
          RAISE_APPLICATION_ERROR(-20001, 'Unexpected gtype ' || p_sdogeometry1.sdo_gtype || ' ' || p_sdogeometry2.sdo_gtype);
-         
+
       END IF;
-      
+
       psql := 'SELECT COUNT(*) FROM '
            || '(select a.column_value coordinate, rownum position '
            || 'FROM '
@@ -5929,95 +6074,95 @@ END;
            || 'TABLE(:p2) b '
            || ') bb '
            || 'WHERE aa.position = bb.position AND ';
-           
+
       IF p_round IS NULL
       THEN
-      
+
          psql := psql
            || 'aa.coordinate <> bb.coordinate ';
-           
+
          EXECUTE IMMEDIATE psql INTO kount USING p_sdogeometry1.sdo_ordinates,
                                                  p_sdogeometry2.sdo_ordinates;
-           
+
       ELSE
-      
+
          psql := psql
            || 'ROUND(aa.coordinate, :p3) <> ROUND(bb.coordinate, :p4) ';
-           
+
          EXECUTE IMMEDIATE psql INTO kount USING p_sdogeometry1.sdo_ordinates,
                                                  p_sdogeometry2.sdo_ordinates,
                                                  p_round,
                                                  p_round;
-      
+
       END IF;
-             
-                                  
+
+
       IF kount = 0
       THEN
-         
+
          RETURN 1;
-            
+
       ELSE
-         
+
          RETURN 0;
-         
+
       END IF;
-         
-      
+
+
    END DO_ORDINATES_MATCH;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   ------------------------------------------------------------------------------------    
-      
+   ------------------------------------------------------------------------------------
+
    FUNCTION SHOW_FACE_ORDINATE_DIFFERENCES (
       p_sdogeometry1       IN SDO_GEOMETRY,
       p_sdogeometry2       IN SDO_GEOMETRY,
       p_round              IN NUMBER DEFAULT NULL
    ) RETURN SDO_GEOMETRY DETERMINISTIC
    AS
-   
+
       --Matt! 2/7/14
-      --Not just are the geometries equal within tolerance like sdo_equals, 
+      --Not just are the geometries equal within tolerance like sdo_equals,
       --but are the ordinates at each position the same down to the last digit (maybe round param?)
       --Return a line geometry of the coordinate mismatch zone using the first geometries' coordinates
       --Lazy Executive Decision: Outer ring of the face only.  Any inner rings are the domain of those faces
       --Overall totally sloppy since any string of segments can go in and out of match and mismatch
       --   but here just calling the whole range a mismatch
-      
+
       --Sample
       --select gz_geom_utils.show_ordinate_differences(a.sdogeometry, b.sdogeometry)
       --from z899in_face a,
       --radiusstudio_face b
       --where a.face_id = 768 and b.face_id = 768
-      
+
       psql                 VARCHAR2(4000);
       min_position         NUMBER;
       max_position         NUMBER;
-      output               SDO_GEOMETRY;  
-      outer_ring           SDO_GEOMETRY; 
-      kounter              PLS_INTEGER := 0;         
-   
+      output               SDO_GEOMETRY;
+      outer_ring           SDO_GEOMETRY;
+      kounter              PLS_INTEGER := 0;
+
    BEGIN
-   
+
       IF p_sdogeometry1.sdo_gtype <> 2003
       OR p_sdogeometry2.sdo_gtype <> 2003
       THEN
-         
+
             RAISE_APPLICATION_ERROR(-20001, 'Unexpected face gtype ' || p_sdogeometry1.sdo_gtype || ' ' || p_sdogeometry2.sdo_gtype);
-         
+
       END IF;
-   
+
       IF GZ_GEOM_UTILS.DO_ORDINATES_MATCH(p_sdogeometry1,
                                           p_sdogeometry2,
                                           p_round) = 1
       THEN
-      
+
          RAISE_APPLICATION_ERROR(-20001, 'Why you bugging me, ordinates match');
-      
+
       END IF;
-      
-      psql := 'SELECT MIN(aa.position), MAX(aa.position) FROM '  
+
+      psql := 'SELECT MIN(aa.position), MAX(aa.position) FROM '
            || '(select a.column_value coordinate, rownum position '
            || 'FROM '
            || 'TABLE(:p1) a '
@@ -6027,49 +6172,49 @@ END;
            || 'TABLE(:p2) b '
            || ') bb '
            || 'WHERE aa.position = bb.position AND ';
-           
+
       IF p_round IS NULL
       THEN
-      
+
          psql := psql
            || 'aa.coordinate <> bb.coordinate ';
-           
+
          EXECUTE IMMEDIATE psql INTO min_position,
                                      max_position USING p_sdogeometry1.sdo_ordinates,
                                                         p_sdogeometry2.sdo_ordinates;
-           
+
       ELSE
-      
+
          psql := psql
            || 'ROUND(aa.coordinate, :p3) <> ROUND(bb.coordinate, :p4) ';
-           
+
          EXECUTE IMMEDIATE psql INTO min_position,
                                      max_position USING p_sdogeometry1.sdo_ordinates,
                                                         p_sdogeometry2.sdo_ordinates,
                                                         p_round,
                                                         p_round;
-      
+
       END IF;
-                                         
+
       IF MOD(min_position, 2) = 0
       THEN
-      
+
          --starts on a Y, back that junk up to get the full x,y in play
          min_position := min_position - 1;
-      
+
       END IF;
-      
+
       IF MOD(max_position, 2) = 1
       THEN
-      
+
          --ends on an X, go 1 past to get our Y
          max_position := max_position + 1;
-      
+
       END IF;
-      
+
       IF (max_position - min_position) = 1
       THEN
-      
+
          --just a point
          output := SDO_GEOMETRY(2001,
                                 p_sdogeometry1.sdo_srid,
@@ -6084,76 +6229,76 @@ END;
                               );
 
          RETURN output;
-      
+
       ELSIF p_sdogeometry1.sdo_elem_info.COUNT = 3
       OR max_position <= p_sdogeometry1.sdo_elem_info(4)
       THEN
-      
+
          --single ring, simple line output
          --or bad spot is on initial outer ring and we can simply roll through
-      
-         output := SDO_GEOMETRY(2002, 
-                                p_sdogeometry1.sdo_srid, 
+
+         output := SDO_GEOMETRY(2002,
+                                p_sdogeometry1.sdo_srid,
                                 NULL,
                                 SDO_ELEM_INFO_ARRAY(1,2,1),
                                 SDO_ORDINATE_ARRAY()
                                 );
-                                
+
          output.sdo_ordinates.EXTEND(max_position - min_position + 1);
-         
+
          FOR i IN 1 .. (max_position - min_position + 1)
          LOOP
-            
+
             output.sdo_ordinates(kounter + 1) := p_sdogeometry1.sdo_ordinates(min_position + kounter);
-            
+
             kounter := kounter + 1;
-         
+
          END LOOP;
-      
+
          RETURN output;
-         
+
       ELSE
 
          --this guy has at least 1 inner ring
          --and the bad spot is at least partially on an inner ring
-         
+
          outer_ring := SDO_UTIL.EXTRACT(p_sdogeometry1, 1, 1);
-         
+
          IF min_position > outer_ring.sdo_ordinates.COUNT
          THEN
-         
+
             --meh I dunno, gonna use interactively for starts
             RAISE_APPLICATION_ERROR(-20001, 'Only difference is on inner rings');
             --RETURN NULL;
-            
+
          ELSE
-         
-            output := SDO_GEOMETRY(2002, 
-                                   p_sdogeometry1.sdo_srid, 
+
+            output := SDO_GEOMETRY(2002,
+                                   p_sdogeometry1.sdo_srid,
                                    NULL,
                                    SDO_ELEM_INFO_ARRAY(1,2,1),
                                    SDO_ORDINATE_ARRAY()
                                    );
-                                
+
             output.sdo_ordinates.EXTEND(outer_ring.sdo_ordinates.COUNT - min_position + 1);
-            
+
             FOR i IN 1 .. (outer_ring.sdo_ordinates.COUNT - min_position + 1)
-            LOOP   
-               
+            LOOP
+
                output.sdo_ordinates(kounter + 1) := outer_ring.sdo_ordinates(min_position + kounter);
-               
+
                kounter := kounter + 1;
-            
+
             END LOOP;
-      
+
             RETURN output;
-         
+
          END IF;
-      
+
       END IF;
-   
+
    END SHOW_FACE_ORDINATE_DIFFERENCES;
-      
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------

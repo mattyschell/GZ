@@ -5989,6 +5989,140 @@ END UPDATE_FACE_MEASUREMENTS;
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------------------
 
+   FUNCTION LIST_TYPE_TO_NUMARRAY (
+      p_input     IN MDSYS.SDO_LIST_TYPE
+   ) RETURN GZ_TYPES.NUMBERARRAY
+   AS
+
+     output          GZ_TYPES.NUMBERARRAY;
+     pcounter        PLS_INTEGER := 1;
+     pkey            PLS_INTEGER;
+
+   BEGIN
+
+     pkey := p_input.FIRST;
+
+     LOOP
+
+       EXIT WHEN NOT p_input.EXISTS(pkey);
+
+       output(pcounter) := p_input(pkey);
+       pcounter := pcounter + 1;
+
+       pkey  := p_input.NEXT(pkey);
+
+     END LOOP;
+
+      RETURN output;
+
+   END LIST_TYPE_TO_NUMARRAY;
+
+   ------------------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------------------
+
+   FUNCTION NUMARRAY_TO_LIST_TYPE (
+      p_input     IN GZ_TYPES.NUMBERARRAY
+   ) RETURN MDSYS.SDO_LIST_TYPE
+   AS
+
+     output          MDSYS.SDO_LIST_TYPE := MDSYS.SDO_LIST_TYPE();
+     pcounter        PLS_INTEGER := 1;
+     pkey            PLS_INTEGER;
+
+   BEGIN
+
+      output.EXTEND(p_input.COUNT);
+      pkey := p_input.FIRST;
+
+     LOOP
+
+       EXIT WHEN NOT p_input.EXISTS(pkey);
+
+       output(pcounter) := p_input(pkey);
+       pcounter := pcounter + 1;
+
+       pkey  := p_input.NEXT(pkey);
+
+     END LOOP;
+
+      RETURN output;
+
+   END NUMARRAY_TO_LIST_TYPE;
+   
+   ------------------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   -----------------------------------------------------------------------------------------------
+   
+   FUNCTION STRINGLIST_TO_STRINGARRAY (
+      p_input     IN MDSYS.STRINGLIST
+   ) RETURN GZ_TYPES.stringarray DETERMINISTIC
+   AS
+   
+      --! 4/10/14
+      
+      output      GZ_TYPES.stringarray;
+      pcounter    PLS_INTEGER := 1;
+      pkey        PLS_INTEGER;
+      
+   BEGIN
+   
+      pkey := p_input.FIRST;
+      
+      LOOP
+      
+         EXIT WHEN NOT p_input.EXISTS(pkey);
+         
+         output(pcounter) := p_input(pkey);
+         pcounter := pcounter + 1;
+         
+         pkey := p_input.NEXT(pkey);
+         
+      END LOOP;
+      
+      RETURN output;
+   
+   END STRINGLIST_TO_STRINGARRAY;
+   
+   ------------------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   -----------------------------------------------------------------------------------------------
+   
+   FUNCTION STRINGARRAY_TO_STRINGLIST (
+      p_input     IN GZ_TYPES.stringarray
+   ) RETURN MDSYS.STRINGLIST DETERMINISTIC
+   AS
+   
+     --! 4/10/14
+     
+     output          MDSYS.STRINGLIST := MDSYS.STRINGLIST();
+     pcounter        PLS_INTEGER := 1;
+     pkey            PLS_INTEGER;
+      
+   BEGIN
+   
+      output.EXTEND(p_input.COUNT);
+      pkey := p_input.FIRST;
+      
+      LOOP
+      
+         EXIT WHEN NOT p_input.EXISTS(pkey);
+         
+         output(pcounter) := p_input(pkey);
+         pcounter := pcounter + 1;
+         
+         pkey := p_input.NEXT(pkey);
+         
+      END LOOP;
+      
+      RETURN output;  
+   
+   END STRINGARRAY_TO_STRINGLIST;
+
+   ------------------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------------------
+
    FUNCTION STRINGARRAY_ADD (
      p_input_1   IN GZ_TYPES.stringarray,
      p_input_2   IN GZ_TYPES.stringarray
@@ -6125,20 +6259,87 @@ END UPDATE_FACE_MEASUREMENTS;
       RETURN output;
 
    END NUMBERARRAY_ADD_UNIQUE;
+
+   ------------------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------------------
+
+   FUNCTION LIST_TYPE_ADD_UNIQUE (
+     p_input_1   IN MDSYS.SDO_LIST_TYPE,
+     p_input_2   IN MDSYS.SDO_LIST_TYPE
+   ) RETURN MDSYS.SDO_LIST_TYPE DETERMINISTIC
+   AS
+
+
+   BEGIN
+
+      RETURN GZ_BUSINESS_UTILS.NUMARRAY_TO_LIST_TYPE(
+                               GZ_BUSINESS_UTILS.NUMBERARRAY_ADD_UNIQUE(
+                                                 GZ_BUSINESS_UTILS.LIST_TYPE_TO_NUMARRAY(p_input_1),
+                                                 GZ_BUSINESS_UTILS.LIST_TYPE_TO_NUMARRAY(p_input_2)
+                                                                       )
+                                                    );
+
+   END LIST_TYPE_ADD_UNIQUE;
    
    ------------------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------------------
    
+   FUNCTION LIST_TYPE_ADD (
+     p_input_1   IN MDSYS.SDO_LIST_TYPE,
+     p_input_2   IN MDSYS.SDO_LIST_TYPE
+   ) RETURN MDSYS.SDO_LIST_TYPE DETERMINISTIC
+   AS
+   
+      --! 4/10/14
+   
+   BEGIN
+   
+      RETURN GZ_BUSINESS_UTILS.NUMARRAY_TO_LIST_TYPE(
+                                  GZ_BUSINESS_UTILS.NUMBERARRAY_ADD(
+                                                    GZ_BUSINESS_UTILS.LIST_TYPE_TO_NUMARRAY(p_input_1),
+                                                    GZ_BUSINESS_UTILS.LIST_TYPE_TO_NUMARRAY(p_input_2)
+                                                                    )
+                                                       );
+   
+   END LIST_TYPE_ADD; 
+
+   ------------------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------------------
+
+   FUNCTION STRINGLIST_ADD (
+     p_input_1   IN MDSYS.STRINGLIST,
+     p_input_2   IN MDSYS.STRINGLIST
+   ) RETURN MDSYS.STRINGLIST DETERMINISTIC
+   AS
+   
+      --! 4/10/14
+   
+   BEGIN
+   
+      RETURN GZ_BUSINESS_UTILS.STRINGARRAY_TO_STRINGLIST(
+                                     GZ_BUSINESS_UTILS.STRINGARRAY_ADD(
+                                                       GZ_BUSINESS_UTILS.STRINGLIST_TO_STRINGARRAY(p_input_1),
+                                                       GZ_BUSINESS_UTILS.STRINGLIST_TO_STRINGARRAY(p_input_2)
+                                                                       )
+                                                          );
+                                                          
+   END STRINGLIST_ADD;
+   ------------------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------------------
+
     FUNCTION NUMBERARRAY_SUBTRACT (
       p_input_1           IN GZ_TYPES.numberarray,
       p_input_2           IN GZ_TYPES.numberarray
    ) RETURN GZ_TYPES.numberarray DETERMINISTIC
    AS
-   
-      --Matt! 12/24/13   
+
+      --Matt! 12/24/13
       -- (set 1) minus (set 2)
-   
+
       output         GZ_TYPES.numberarray;
       tester         GZ_TYPES.numberhash;
       pcounter       PLS_INTEGER := 1;
@@ -6148,66 +6349,66 @@ END UPDATE_FACE_MEASUREMENTS;
 
       --convert the array to subtract to a convenient hash so someone smarter
       --does the double dos dos
-      
+
       pkey := p_input_2.FIRST;
-      
+
       LOOP
-        
+
          EXIT WHEN NOT p_input_2.EXISTS(pkey);
 
          tester(p_input_2(pkey)) := '1';
 
          pkey  := p_input_2.NEXT(pkey);
-        
+
       END LOOP;
 
       --loop thru first array and add to output
       --only when no exist in the hash
-      
+
       pkey := p_input_1.FIRST;
-      
+
       LOOP
-      
+
          EXIT WHEN NOT p_input_1.EXISTS(pkey);
 
          IF NOT tester.EXISTS(p_input_1(pkey))
          THEN
-         
+
             output(pcounter) := p_input_1(pkey);
             pcounter := pcounter + 1;
-         
+
          END IF;
-         
+
          pkey  := p_input_1.NEXT(pkey);
-      
+
       END LOOP;
 
      RETURN output;
-   
+
    END NUMBERARRAY_SUBTRACT;
-   
+
    ------------------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------------------
-   
+
    FUNCTION NUMBERARRAY_SUBTRACT (
       p_input_1           IN GZ_TYPES.numberarray,
       p_input_2           IN NUMBER
    ) RETURN GZ_TYPES.numberarray DETERMINISTIC
    AS
-   
+
       --Matt! 12/24/13
       --Convenience wrapper to numberarray_subtract above
-      
+
       tempy             GZ_TYPES.numberarray;
-   
+
    BEGIN
-   
+
       tempy(1) := p_input_2;
-   
+
       RETURN GZ_BUSINESS_UTILS.NUMBERARRAY_SUBTRACT(p_input_1,
                                                     tempy);
-   
+
    END NUMBERARRAY_SUBTRACT;
 
    ------------------------------------------------------------------------------------------------
@@ -6467,4 +6668,5 @@ END UPDATE_FACE_MEASUREMENTS;
    -----------------------------------------------------------------------------------------
 
 END GZ_BUSINESS_UTILS;
+
 /

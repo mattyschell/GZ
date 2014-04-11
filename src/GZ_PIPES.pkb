@@ -17790,30 +17790,30 @@ end;
    --
 PROCEDURE UNPACK_GEOMETRY(pInTable VARCHAR2,pInIDColumn VARCHAR2,pInGeomColumn VARCHAR2,pOutTable VARCHAR2,Renumber BOOLEAN default FALSE) AS
 /**
-##############################################################################################################
-# Program Name: unpack_geometry
-# Author: Sidey Timmins
-# Creation Date: 06/01/07
-#
-# Usage:
-#    This PL/SQL procedure has 5 parameters:
-#                    pInTable: table to be converted
-#                    pInIdColumn: a column containing a unique id
-#                    pInGeomColumn: the SDOGEOMETRY column to unpack
-#                    pOutTable: a new output table name that will be created
-#                    Renumber: when TRUE, rings from each id are renumbered
-#
-# Purpose: This procedure makes a new output table with 2007 geometries
-#          unpacked.  New records are made containing single ring geometries.
-#          Indexes are built on the columns.
-#          If parameter Renumber is set TRUE, the Id column is incremented by a
-#          fraction (0.0001) for each subgeometry. (For example if the input
-#          Id was 1234 the output ids would be 1234.0001, 1234.0002, ..)
-#
-# Restriction:
-# Dependencies: Uses Mbr_List_Obj Type
-#
-##############################################################################################################
+ ##############################################################################################################
+ # Program Name: unpack_geometry
+ # Author: Sidey Timmins
+ # Creation Date: 06/01/07
+ #
+ # Usage:
+ #    This PL/SQL procedure has 5 parameters:
+ #                    pInTable: table to be converted
+ #                    pInIdColumn: a column containing a unique id
+ #                    pInGeomColumn: the SDOGEOMETRY column to unpack
+ #                    pOutTable: a new output table name that will be created
+ #                    Renumber: when TRUE, rings from each id are renumbered
+ #
+ # Purpose: This procedure makes a new output table with 2007 geometries
+ #          unpacked.  New records are made containing single ring geometries.
+ #          Indexes are built on the columns.
+ #          If parameter Renumber is set TRUE, the Id column is incremented by a
+ #          fraction (0.0001) for each subgeometry. (For example if the input
+ #          Id was 1234 the output ids would be 1234.0001, 1234.0002, ..)
+ #
+ # Restriction:
+ # Dependencies: Uses Mbr_List_Obj Type
+ #
+ ##############################################################################################################
 */
     TYPE GEOM_ARRAY    IS VARRAY(1048576) OF MDSYS.SDO_GEOMETRY;
     TYPE TblCursorType IS REF CURSOR;

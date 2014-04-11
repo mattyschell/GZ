@@ -914,7 +914,7 @@ PROCEDURE  GENERALIZATION_SP_REMOVAL (
     p_validate_topo     IN VARCHAR2 DEFAULT 'Y',
     p_fix_edge          IN VARCHAR2 DEFAULT 'Y',
     p_fix_2edge         IN VARCHAR2 DEFAULT 'N',
-    p_topofix_qa        IN VARCHAR2 DEFAULT 'N'    
+    p_topofix_qa        IN VARCHAR2 DEFAULT 'N'
 ) AS
 
    --Matt! 6/7/13 added ptopofix_qa management
@@ -1083,7 +1083,7 @@ BEGIN
                         || ' p_fix_edge: ' || p_fix_edge
                         || ' p_fix_2edge: ' || p_fix_2edge
                         || ' p_topofix_qa: ' || p_topofix_qa;
-                        
+
    GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                      p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
@@ -1208,7 +1208,10 @@ BEGIN
       GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
-       GZ_TOPO_HELPER.DEREGISTER_FSL(vFromTopo, 'FSL', vSchema);
+       GZ_TOPO_UTIL.DEREGISTER_FEATURE_TABLES(UPPER(vschema),
+                                              UPPER(vFromTopo),
+                                              p_likeclause=> '%' || UPPER(vFromTopo) || '_' || 'FSL%');
+
 
        vNote := 'Done with gz_topo_helper.deregister_fsl.';
        dbms_output.put_line(vNote);
@@ -1484,7 +1487,7 @@ BEGIN
                                   vProcess,
                                   vStepNum);
 
-      -- log FINISHED message 
+      -- log FINISHED message
       GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
       --------------------------------------------------------------------------
@@ -1902,11 +1905,11 @@ BEGIN
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
       --
       edgefix_val := GZ_TOPOFIX.GZ_FIX_EDGE (vJobID ,
-                                             vTopo, 
-                                             'SP', 
-                                             'Y', 
+                                             vTopo,
+                                             'SP',
+                                             'Y',
                                              0.05,  --no parameterized tolerance in SP?
-                                             NULL, 
+                                             NULL,
                                              p_fix_2edge);  --check close edge pairs, expensive if Y
 
       IF edgefix_val = '0'
@@ -2082,20 +2085,20 @@ BEGIN
                         p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
    END IF;
-   
+
    -- Validate Topology 2
    vStepNum := 160;
    vStep := 'Validate Topology '||vTopo;
-   
+
    IF vSPModules(16) = 'Y'
    AND p_validate_topo = 'Y'
    THEN
-   
+
       DBMS_APPLICATION_INFO.SET_ACTION(vStepNum);
       DBMS_APPLICATION_INFO.SET_CLIENT_INFO('Validate Topology 2');
-      
+
       vNote := 'Step '||vStepNum||' - Begin '||vStep;
-      
+
       GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                                                    p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
@@ -2167,7 +2170,7 @@ BEGIN
    ELSE
 
       vNote := 'Step '||vStepNum||' - SKIPPING '||vStep;
-      
+
       GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', vTopo, vProcess,
                                                   p_step=>vStepNum, p_sqlstmt=>vStep, p_error_msg=>vNote);
 
@@ -5602,7 +5605,7 @@ END ELIMINATE_SMALL_POLYS;
               || '(' || p_where_clause || ')';
 
          dbms_output.put_line(psql);
-         
+
          EXECUTE IMMEDIATE psql INTO kount USING p_geoid;
 
          IF kount = 1
@@ -10157,7 +10160,7 @@ END ELIMINATE_SMALL_POLYS;
                                 p_spe_table        IN VARCHAR2,
                                 p_topo             IN VARCHAR2,
                                 p_process          IN VARCHAR2,
-                                p_stepnum          IN VARCHAR2 
+                                p_stepnum          IN VARCHAR2
                                )
       RETURN VARCHAR2
    AS
@@ -10215,11 +10218,11 @@ END ELIMINATE_SMALL_POLYS;
       -- a place to hold log info about what the function did to the SPE table.
 
       vnote                VARCHAR2 (4000);
-      
+
       --dummy return val. replace with something meaningful if necessary
       --just put in the log by the caller
       vnote_return         VARCHAR2(32) := 'FINISHED';
-      
+
    BEGIN
 
      vspetab := UPPER(p_spe_table);
@@ -10242,7 +10245,7 @@ END ELIMINATE_SMALL_POLYS;
             'UPDATE_SPE_RESULTS: Found '
          || vfacelist.COUNT
          || ' faces to examine. ';
-         
+
       GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_process,
                                                   p_step=>p_stepnum, p_error_msg=>vNote);
 
@@ -10281,7 +10284,7 @@ END ELIMINATE_SMALL_POLYS;
             -- actually drop the row where face is a not_keep
 
             vsql := 'DELETE FROM ' || vspetab || ' a WHERE a.not_keep  = :p1';
-            
+
             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_process,
                                                   p_step=>p_stepnum, p_sqlstmt => vsql, p_error_msg=>vNote);
 
@@ -10290,7 +10293,7 @@ END ELIMINATE_SMALL_POLYS;
          ELSE
 
             vnote := 'Face ' || vfacelist (i) || ' can be removed.';
-            
+
             GZ_BUSINESS_UTILS.GEN_EXTENDED_TRACKING_LOG('SP', p_topo, p_process,
                                                          p_step=>p_stepnum, p_error_msg=>vNote);
 

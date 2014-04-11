@@ -6,59 +6,14 @@ AS
    -- Face Fixing
    -- Best entry point: Wrapper gz_topofix.check_face_tab
    -- Main logical entry: gz_topofix.gz_fix_face
-   
+
    --For edge fixing
    --GZ_FIX_EDGE
-   
-   --For coastal slivers
-   --GZ_COASTAL_SLIVERS
-
-   ------------------------------------------------------------------------------------
-   --   | MATT | ++++++++++++++++++++++++++++++++++++++++++++++++++ | MATT |  +++++++--
-   ----\/-----\/----------------------------------------------------\/-----\/----------
-   
-   ------------------------------------------------------------------------------------
-   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   ------------------------------------------------------------------------------------
-   
-   FUNCTION VERIFY_CS_INPUTS (
-      p_release               IN VARCHAR2,
-      p_gen_project_id        IN VARCHAR2,
-      p_topo                  IN VARCHAR2,
-      p_face_table            IN VARCHAR2,
-      p_sliver_restart_flag   IN VARCHAR2,
-      p_sliver_width          IN NUMBER,
-      p_segment_length        IN NUMBER,
-      p_expendable_review     IN VARCHAR2,
-      p_reshape_review        IN VARCHAR2,
-      p_update_feature_geom   IN VARCHAR2
-   ) RETURN VARCHAR2;
-   
+  
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
 
-   FUNCTION GZ_COASTAL_SLIVERS (
-      p_release               IN VARCHAR2,
-      p_gen_project_id        IN VARCHAR2,
-      p_topo                  IN VARCHAR2,
-      p_face_table            IN VARCHAR2,
-      p_log_type              IN VARCHAR2,
-      p_sliver_restart_flag   IN VARCHAR2 DEFAULT 'N',
-      p_sliver_width          IN NUMBER DEFAULT NULL,
-      p_segment_length        IN NUMBER DEFAULT NULL,
-      p_expendable_review     IN VARCHAR2 DEFAULT 'N',
-      p_reshape_review        IN VARCHAR2 DEFAULT 'Y',
-      p_update_feature_geom   IN VARCHAR2 DEFAULT 'N', 
-      p_tolerance             IN NUMBER DEFAULT .05,
-      p_srid                  IN NUMBER DEFAULT 8265
-   ) RETURN VARCHAR2;
-
-   ------------------------------------------------------------------------------------
-   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   ------------------------------------------------------------------------------------
-
-   --Main entry point
    PROCEDURE START_TOPOFIX_LOGGING (
       p_gz_jobid       IN VARCHAR2,
       p_topo_out       IN VARCHAR2,
@@ -449,20 +404,20 @@ AS
       p_edge_id                  IN NUMBER,
       p_shorty_index             IN NUMBER
    );
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
-   
+
    FUNCTION GET_LINEAR_FEATURE_TABS (
       p_topo                  IN VARCHAR2,
       p_tg_layer_level        IN NUMBER DEFAULT 0
    ) RETURN GZ_TYPES.stringarray;
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
-   
+
    PROCEDURE ANNIHILATE_LINEAR_FEATURES (
       p_topo                  IN VARCHAR2,
       p_edge_id               IN VARCHAR2
@@ -471,14 +426,14 @@ AS
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
-   
+
    PROCEDURE GZ_TOPOFIX_REMOVE_EDGE (
       p_topo                  IN VARCHAR2,
       p_edge_id               IN VARCHAR2,
       p_delete_features       IN VARCHAR2 DEFAULT 'N',
       p_depth                 IN NUMBER DEFAULT 0
    );
-   
+
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
@@ -760,8 +715,8 @@ procedure test_circulate_node(Edge_id NUMBER,Topology VARCHAR2);
       p_repeat                    IN NUMBER DEFAULT 2,
       p_checkcloseedge       IN VARCHAR2 DEFAULT 'N'
    ) RETURN VARCHAR2;
-   
-   
+
+
    PROCEDURE CHECK_CLOSE_EDGE_MGR (
       p_topo               IN VARCHAR2,
       p_tolerance          IN NUMBER,
@@ -781,7 +736,7 @@ procedure test_circulate_node(Edge_id NUMBER,Topology VARCHAR2);
       p_tolerance                IN NUMBER DEFAULT .05,
       p_debug                    IN NUMBER DEFAULT NULL
    ) RETURN VARCHAR2;
-   
+
    FUNCTION IS_LOOP_EDGE_SELF_INTERSECTING (
       p_line                     IN SDO_GEOMETRY,
       p_tolerance                IN NUMBER DEFAULT .05,
@@ -798,4 +753,5 @@ procedure test_circulate_node(Edge_id NUMBER,Topology VARCHAR2);
 --
 
 END;
+
 /

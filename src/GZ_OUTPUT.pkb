@@ -8660,35 +8660,35 @@ AS
 
 
    END ADD_TO_NAME_BASED_ON_SOURCE;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    --Public---------------------------------------------------------------------------------
-   
+
    FUNCTION GET_CDB_LSAD_ABB (
       p_lsad               IN VARCHAR2,
       p_cdb_lsad_table     IN VARCHAR2   --ex acs13cdb.lut_lsad
    ) RETURN VARCHAR2 DETERMINISTIC
    AS
-   
+
       --Matt! 2/3/14
       --Attempt to allow us to avoid having the lut_lsad live in the GZ schema
       --Of course now the CDB name will have to change in our param tables with each release
-      
+
       --sample usage in gz_layers_fields.update_fields
-      --set a.lsad = GZ_OUTPUT.GET_CDB_LSAD_ABB(a.lsad, 'ACS13CDB.LUT_LSAD') 
-      
+      --set a.lsad = GZ_OUTPUT.GET_CDB_LSAD_ABB(a.lsad, 'ACS13CDB.LUT_LSAD')
+
       --or a tester
       --select GZ_OUTPUT.GET_CDB_LSAD_ABB('M1','ACS13CDB.LUT_LSAD') from dual
-   
+
    BEGIN
-   
+
       RETURN GZ_OUTPUT.GET_RELATED_VALUE_FROM_LUT(p_lsad,
-                                                  p_cdb_lsad_table, 
+                                                  p_cdb_lsad_table,
                                                   'standard',
                                                   'lsad',
-                                                  'Y');           --allow nulls.  00 usually   
-   
+                                                  'Y');           --allow nulls.  00 usually
+
    END GET_CDB_LSAD_ABB;
 
    -----------------------------------------------------------------------------------------
@@ -8705,7 +8705,7 @@ AS
       --Matt! 5/16/12
       --simplified wrapper with our standard usage of GET_RELATED_VALUE_FROM_LUT
       --intended to be used with a local copy of the LUT_LSAD table. If you dont have one,
-      --   see GET_CDB_LSAD_ABB above      
+      --   see GET_CDB_LSAD_ABB above
 
       --Sample parameter in gz_layers_fields.update_fields -- your local LUT_LSAD table has no RELEASE column
       --a.lsad = GZ_OUTPUT.GET_STANDARD_LSAD_ABB(a.lsad)
@@ -8739,7 +8739,7 @@ AS
                                                      'Y',           --allow nulls.  00 usually
                                                      p_release,
                                                      p_release_col);
-                                                     
+
       RETURN output;
 
    END GET_STANDARD_LSAD_ABB;
@@ -8770,7 +8770,7 @@ AS
       psql                 VARCHAR2(4000);
 
    BEGIN
-      
+
       psql := 'SELECT a.' || p_lut_col_we_want || ' '
            || 'FROM '
            || p_lut_table || ' a '
@@ -8778,7 +8778,7 @@ AS
 
       IF p_value2 IS NULL
       THEN
-         
+
          EXECUTE IMMEDIATE psql INTO output USING p_value;
 
       ELSE
@@ -8840,7 +8840,7 @@ AS
            Removes apostophes and replaces them with escaped apostophes
            (' becomes '') to accomodate the need to escape apostrophe
            characters in some functions
-           
+
            Should probably use q'^^' quotes instead, but I don't really know how.
 
         Dependencies:
@@ -8853,7 +8853,7 @@ AS
       v_newstring   VARCHAR2 (4000);
 
    BEGIN
-   
+
       -- Replace apostrophes in the given string with escaped apostrophes
       -- This is used by the PUBL name creator (GET_PUBL_NAME) to prep
       -- the string for use in REGEX REPLACE.
@@ -8891,7 +8891,7 @@ AS
 
           REQUIRED parameters:
 
-                 pLsad - the two digit LSAD for the entity as a string 
+                 pLsad - the two digit LSAD for the entity as a string
                          ('06' for county, etc.  Must be a string!)
 
                  pBaseName - the base name of the entity to append to the Lsad
@@ -8901,9 +8901,9 @@ AS
 
                  pLUT_LSAD - the name of the LSAD look up table to use.
                              This table is created with each benchmark
-                             and stored in the CPB_LSAD schema or somewhere 
+                             and stored in the CPB_LSAD schema or somewhere
                              in the cartographic DB.
-                             If you leave this parameter off, it will assume 
+                             If you leave this parameter off, it will assume
                              you have a table or view called LUT_LSAD in your
                              schema.
 
@@ -8915,19 +8915,19 @@ AS
                          'shrt' - this returns the short name
                          if the user enters an illegal value, an error is
                          raised.
-                         
-                  p_release  - the "release" name.  This is used and required to 
-                               get a unique record when more than one release 
+
+                  p_release  - the "release" name.  This is used and required to
+                               get a unique record when more than one release
                                is stored in the referenced LUT_LSAD table
                                or the "release" column in the LUT_LSAD is filled in.
-                  
-                  p_release_col  - the column name in the LUT_LSAD table where 
+
+                  p_release_col  - the column name in the LUT_LSAD table where
                                    the "release" value is stored (see above).
-                                   This is used to get a unique 
+                                   This is used to get a unique
                                    record when more than one release is stored
                                    in the referenced LUT_LSAD table.
-                                   If the column name is something other than 
-                                   "release," you must pass a value for this 
+                                   If the column name is something other than
+                                   "release," you must pass a value for this
                                    parameter.
 
         Purpose:
@@ -8939,7 +8939,7 @@ AS
           This program relies on an LUT_LSAD table (the benhcmark-tied
           snapshot of MTFNS info with easy to substitute name styles)
 
-          This fucntion uses GET_RELATED_VALUE_FROM_LUT to obtain the default 
+          This fucntion uses GET_RELATED_VALUE_FROM_LUT to obtain the default
           publication name string we need to insert the base name into.
 
       */
@@ -8990,11 +8990,11 @@ AS
       -- PubName := replace "<NAME>" with pBasename in PubSuf;
 
       -- get full name format string from LUT.
-      vfull_name_format :=  get_related_value_from_LUT(pLsad,pLUT_LSAD , vNameType, 'LSAD', 'Y', p_release, p_release_col); 
+      vfull_name_format :=  get_related_value_from_LUT(pLsad,pLUT_LSAD , vNameType, 'LSAD', 'Y', p_release, p_release_col);
 
       -- replace <NAME> in full name string with the name passed in.
       -- PubName := replace "<NAME>" with pBasename in publ_name or stnd_name or shrt_name;
-      
+
       vPubName := regexp_replace(vfull_name_format,'<NAME>',pBaseName);
 
       RETURN vPubName;
@@ -9931,19 +9931,16 @@ AS
 
          BEGIN
 
-            sliver_output := GZ_TOPOFIX.GZ_COASTAL_SLIVERS(p_release,
-                                                           p_gen_project_id,
-                                                           p_output_topology,
-                                                           p_face_table,
-                                                           'OUTPUT',
-                                                           'N',
-                                                           p_sliver_width,
-                                                           p_segment_length,
-                                                           p_expendable_review,
-                                                           p_reshape_review,
-                                                           'N', --no, dont deal with sdogeometry. Will calculated it in the module next
-                                                           p_tolerance,
-                                                           topo_srid); --with no sdo, the only srid needed is the topo's
+            sliver_output := GZ_SLIVER.PROCESS_COASTAL_SLIVERS(p_release,
+                                                               p_gen_project_id,
+                                                               p_output_topology,
+                                                               'OUTPUT',
+                                                               p_sliver_width,
+                                                               p_segment_length,                                                               
+                                                               'N',
+                                                               p_expendable_review,
+                                                               p_reshape_review,
+                                                               'N'); --no, dont deal with sdogeometry. Will calculate it in the module next
 
          EXCEPTION
          WHEN OTHERS
@@ -10389,20 +10386,17 @@ AS
 
             BEGIN
 
-               sliver_output := GZ_TOPOFIX.GZ_COASTAL_SLIVERS(p_release,
-                                                              p_gen_project_id,
-                                                              p_output_topology,
-                                                              p_face_table,
-                                                              'OUTPUT',
-                                                              'N',
-                                                              p_sliver_width,
-                                                              p_segment_length,
-                                                              p_expendable_review,
-                                                              p_reshape_review,
-                                                              'Y', --Yes, maintain feature sdo
-                                                              p_tolerance,
-                                                              p_srid); --with the srid to use in sdo calculation
-
+               sliver_output := GZ_SLIVER.PROCESS_COASTAL_SLIVERS(p_release,
+                                                                  p_gen_project_id,
+                                                                  p_output_topology,
+                                                                  'OUTPUT',
+                                                                  p_sliver_width,
+                                                                  p_segment_length,
+                                                                  'Y',  --yes restart
+                                                                  p_expendable_review,
+                                                                  p_reshape_review,
+                                                                  'Y');  --Yes, maintain feature sdo
+                                                                  
             EXCEPTION
             WHEN OTHERS
             THEN
@@ -12019,4 +12013,5 @@ AS
 
 
 END GZ_OUTPUT;
+
 /

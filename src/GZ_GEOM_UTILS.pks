@@ -149,13 +149,6 @@ RETURN VARCHAR2;
       p_distance      IN NUMBER DEFAULT .05
    ) RETURN SDO_GEOMETRY DETERMINISTIC;
 
-   FUNCTION GZ_LOCATE_PT_DISTANCE (
-      p_edge_geom       IN SDO_GEOMETRY,
-      p_distance        IN NUMBER,
-      p_tip             IN VARCHAR2,
-      p_tolerance       IN NUMBER
-   ) RETURN SDO_GEOMETRY DETERMINISTIC;
-
    FUNCTION WHERE_GEOM (
       g        IN SDO_GEOMETRY
    ) RETURN VARCHAR2 deterministic;
@@ -215,10 +208,31 @@ RETURN VARCHAR2;
    ------------------------------------------------------------------------------------
    --++LRS LRS  LRS  LRS+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
+   
+   FUNCTION GZ_LOCATE_PT_DISTANCE (
+      p_edge_geom       IN SDO_GEOMETRY,
+      p_distance        IN NUMBER,
+      p_tip             IN VARCHAR2,
+      p_tolerance       IN NUMBER
+   ) RETURN SDO_GEOMETRY DETERMINISTIC;
 
+   ------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------
+   
    FUNCTION GZ_FIND_MEASURE (
       p_point          IN SDO_GEOMETRY,
       p_edge           IN SDO_GEOMETRY
+   ) RETURN NUMBER DETERMINISTIC;
+   
+   ------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------
+   
+   FUNCTION GZ_FIND_MEASURE_PERCENT (
+      p_point          IN SDO_GEOMETRY,
+      p_edge           IN SDO_GEOMETRY,
+      p_rounding       IN NUMBER DEFAULT 2
    ) RETURN NUMBER DETERMINISTIC;
 
    ------------------------------------------------------------------------------------
@@ -229,7 +243,7 @@ RETURN VARCHAR2;
       p_edge           IN SDO_GEOMETRY,
       p_measure        IN NUMBER
    ) RETURN SDO_GEOMETRY DETERMINISTIC;
-
+   
    ------------------------------------------------------------------------------------
    --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    ------------------------------------------------------------------------------------
@@ -239,6 +253,22 @@ RETURN VARCHAR2;
       p_edge           IN SDO_GEOMETRY,
       p_tolerance      IN NUMBER DEFAULT 0.00000001
    ) RETURN SDO_GEOMETRY DETERMINISTIC;
+   
+   ------------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------
+   
+   FUNCTION GET_COORD_INDEX (
+      p_point          IN SDO_GEOMETRY,
+      p_edge           IN SDO_GEOMETRY,
+      p_debug          IN PLS_INTEGER DEFAULT 0
+   ) RETURN PLS_INTEGER DETERMINISTIC;
+   
+   ------------------------------------------------------------------------------------
+   --++END LRS+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   ------------------------------------------------------------------------------------
+   
+   
 
 
    FUNCTION REMOVE_DUPE_VERTEX (
@@ -291,19 +321,19 @@ RETURN VARCHAR2;
       p_mbr             IN SDO_GEOMETRY,
       p_percent         IN NUMBER DEFAULT 1
    ) RETURN SDO_GEOMETRY;
-   
+
    FUNCTION DO_ORDINATES_MATCH (
       p_sdogeometry1       IN SDO_GEOMETRY,
       p_sdogeometry2       IN SDO_GEOMETRY,
       p_round              IN NUMBER DEFAULT NULL
    ) RETURN PLS_INTEGER DETERMINISTIC;
-   
+
    FUNCTION SHOW_FACE_ORDINATE_DIFFERENCES (
       p_sdogeometry1       IN SDO_GEOMETRY,
       p_sdogeometry2       IN SDO_GEOMETRY,
       p_round              IN NUMBER DEFAULT NULL
    ) RETURN SDO_GEOMETRY DETERMINISTIC;
-      
+
 
 
 
