@@ -658,11 +658,11 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       CLAYERID_ARR.DELETE;
       Return Valid;
    END;
-   
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
    -----------------------------------------------------------------------------------------
-   
+
    PROCEDURE COPY_TOPOLOGY(
       pSRC_SCHEMA IN VARCHAR2,
       pSRC_TOPOLOGY IN VARCHAR2,
@@ -686,11 +686,11 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
          'Y'); --pCOPY_FTABLES
 
    END;
-    
+
    -----------------------------------------------------------------------------------------
    --+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
-   -----------------------------------------------------------------------------------------   
-   
+   -----------------------------------------------------------------------------------------
+
    PROCEDURE COPY_TOPOLOGY(
       pSRC_SCHEMA IN VARCHAR2,
       pSRC_TOPOLOGY IN VARCHAR2,
@@ -730,7 +730,7 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       TMP_NUM INTEGER;
 
    BEGIN
-   
+
       /*
       1.  Create target topology
           PURGE_TOPOLOGY(SRC_SCHEMA IN VARCHAR2, SRC_TOPOLOGY IN VARCHAR2);
@@ -755,15 +755,15 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       6.  Sdo_topo.Initialize_metadata
           INIT_METADATA(TGT_SCHEMA IN VARCHAR2, TGT_TOPOLOGY IN VARCHAR2);
       */
-      
+
       --2/3/14! Changed default pVERIFY_SRC_TOPOLOGY (in wrapper) to N
       --        Added pGRANT_PRIVS option, default Y, and code below checks for REFERENCE_SCHEMAS table
-      
+
       Select user into curr_user From dual;
       IF (user <> tgt_schema) THEN
          RAISE_APPLICATION_ERROR(-20001, 'You should be logged on to ' || TGT_SCHEMA || ' to run this program');
       END IF;
-      
+
       -- Check if Source Topology exists
       Select count(*) into TOPO_CNT
         From all_sdo_topo_metadata
@@ -771,7 +771,7 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
          And topology = SRC_TOPOLOGY
          And rownum = 1;
       DBMS_OUTPUT.PUT_LINE('SRC TOPO_CNT: ' || TOPO_CNT);
-      
+
       IF (TOPO_CNT = 0) THEN
          RAISE_APPLICATION_ERROR(-20001, 'Source Topology ' || SRC_TOPOLOGY || ' does not exist in ' || SRC_SCHEMA);
       ELSE
@@ -841,14 +841,14 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
 */
 
       END IF;
-      
+
       -- Check if Target Topology exists
       Select count(*) into TOPO_CNT
         From all_sdo_topo_metadata
        Where owner = TGT_SCHEMA
          And topology = TGT_TOPOLOGY
          And rownum = 1;
-         
+
       DBMS_OUTPUT.PUT_LINE('TGT TOPO_CNT: ' || TOPO_CNT);
       IF (TOPO_CNT >=1 AND PURGE_TGT_TOPOLOGY = 'Y') THEN
       --Purge target topology
@@ -882,9 +882,9 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       CREATE_RELATION_SHELL(TGT_SCHEMA, TGT_TOPOLOGY);
       --Initialize_metadata
       INIT_METADATA(TGT_SCHEMA, TGT_TOPOLOGY);
-      
+
       --4.  Select new topology_id
-      
+
       SQL1 := 'Select TABLE_NAME, TG_LAYER_ID, TG_LAYER_TYPE, CHILD_LAYER_ID ' ||
               '  From all_sdo_topo_metadata ' ||
               ' Where owner = :1 ' ||
@@ -892,17 +892,17 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
              -- ' AND table_name not in (''FSL400'', ''FSL510'')' ||
              -- ' Order By TG_LAYER_LEVEL, CHILD_LAYER_ID ';
               ' Order By TG_LAYER_ID ';
-              
+
       EXECUTE IMMEDIATE SQL1 BULK COLLECT INTO FTABLE_ARR, TGLAYERID_ARR, TGLAYERTYPE_ARR, CLAYERID_ARR USING SRC_SCHEMA, SRC_TOPOLOGY;
-      
+
       IF pCOPY_FTABLES = 'Y' and FTABLE_ARR.COUNT > 0 THEN
          -- Check FTable Prefix.
          -- If the table name is prefixed with topology name, then replace the topology name
          -- else append the topology name
-         
-         FOR i in FTABLE_ARR.FIRST..FTABLE_ARR.LAST 
+
+         FOR i in FTABLE_ARR.FIRST..FTABLE_ARR.LAST
          LOOP
-         
+
             --DBMS_OUTPUT.PUT_LINE('FTABLE: ' || FTABLE_ARR(i));
             SRC_FTABLE := FTABLE_ARR(i);
             IF (SRC_TOPOLOGY = substr(FTABLE_ARR(i), 1, length(SRC_TOPOLOGY))) THEN
@@ -910,7 +910,7 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
             ELSE
                TGT_FTABLE  := TGT_TOPOLOGY || '_' || FTABLE_ARR(i);
             END IF;
-            
+
             --DBMS_OUTPUT.PUT_LINE('NEW FTABLE: ' || FTABLE_ARR(i));
             --Create each feature table
             PROCESS_FEATURE(SRC_SCHEMA, SRC_TOPOLOGY, TGT_SCHEMA, TGT_TOPOLOGY, NEW_TOPOLOGY_ID, SRC_FTABLE, TGT_FTABLE, TGLAYERID_ARR(i), TGLAYERTYPE_ARR(i), CLAYERID_ARR(i));
@@ -918,16 +918,16 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       ELSE
          DBMS_OUTPUT.PUT_LINE('Did not find any Feature Layers in Source Topology');
       END IF;
-      
+
       --Initialize_metadata
       INIT_METADATA(TGT_SCHEMA, TGT_TOPOLOGY);
       -- Now rebuild all indexes
       REBUILD_INDEXES(TGT_TOPOLOGY);
       CREATE_INDEXES(pSRC_SCHEMA, pSRC_TOPOLOGY, pTGT_TOPOLOGY);
-      
+
       --validate_topology
       --VALIDATE_TOPOLOGY(TGT_SCHEMA, TGT_TOPOLOGY);
-      
+
       FTABLE_ARR.DELETE;
       TGLAYERID_ARR.DELETE;
       TGLAYERTYPE_ARR.DELETE;
@@ -951,16 +951,16 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       End;
 
       Begin
-      
+
          IF UPPER(pGRANT_PRIVS) = 'Y'
          AND GZ_BUSINESS_UTILS.GZ_TABLE_EXISTS('REFERENCE_SCHEMAS')
          THEN
-         
+
             GZ_BUSINESS_UTILS.GZ_PRIV_GRANTER('REFERENCE_SCHEMAS', TGT_TOPOLOGY || '%');
             dbms_output.put_line('Done with GZ_PRIV_GRANTER');
-            
+
          END IF;
-         
+
       Exception
           When others then
               retVal := 'Unable to grant pivileges ' || SQLCODE || '-' || SQLERRM;
@@ -975,7 +975,7 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       DBMS_OUTPUT.PUT_LINE('============================');
       DBMS_OUTPUT.PUT_LINE(' ');
       DBMS_OUTPUT.PUT_LINE(' ');
-      
+
    END;
 
    Procedure Validate_TGID(
@@ -1169,29 +1169,61 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
          Close Cur1;
          COMMIT;
    END;
-   PROCEDURE REBUILD_INDEXES(
+
+   --------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --------------------------------------------------------------------------------
+
+   PROCEDURE REBUILD_INDEXES (
       pTOPOLOGY IN VARCHAR2
    ) IS
-      vTopology Varchar2(100) := UPPER(pTOPOLOGY); --'MT91';
-      SQL1 Varchar2(4000);
-      SQL2 Varchar2(4000);
-      INDEX_NAME Varchar2(100);
-      TYPE RefCursorType IS REF CURSOR;
-      Cur1     RefCursorType;
+
+      --! 6/2/14 Limit to only tables in the topology
+      --  Prior to this update it would rebuild both Z899IN% and Z899INBAK% for ex
+
+      SQL1                    Varchar2(4000);
+      SQL2                    Varchar2(4000);
+      INDEX_NAME              Varchar2(100);
+      TYPE RefCursorType      IS REF CURSOR;
+      Cur1                    RefCursorType;
+
    Begin
-      SQL1 := 'Select Index_Name FROM USER_INDEXES WHERE TABLE_NAME LIKE ''' || vTopology || '%'' AND INDEX_TYPE = ''DOMAIN''';
-      --DBMS_OUTPUT.PUT_LINE(SQL1);
-      OPEN Cur1 for SQL1; -- using tglayerid_arr(i);
+
+      SQL1 := 'SELECT a.index_name FROM '
+           || 'user_indexes a '
+           || 'WHERE '
+           || 'a.table_name LIKE :p1 AND '             --for performance, uses index
+           || 'REGEXP_LIKE(a.table_name, :p2) AND '    --limits
+           || 'a.index_type = :p3 AND '
+           || '(a.table_name IN  '
+           || '(SELECT table_name FROM user_sdo_topo_info '
+           || 'WHERE topology = :p4) OR a.table_name LIKE :p5) ';
+
+      OPEN Cur1 for SQL1 USING UPPER(pTopology) || '%',
+                               '^' || UPPER(pTopology) || '_.',
+                               'DOMAIN',
+                               UPPER(pTopology),
+                               '%$';
+
       LOOP
+
          FETCH Cur1 INTO INDEX_NAME;
          EXIT WHEN Cur1%NOTFOUND;
+
          SQL2 := 'Alter Index ' || Index_Name || ' ReBuild';
-         --DBMS_OUTPUT.PUT_LINE(SQL2);
+
          Execute Immediate SQL2;
+
       END LOOP;
+
       Close Cur1;
       DBMS_OUTPUT.PUT_LINE('Successfully rebuilt all indexes');
+
    End;
+
+   --------------------------------------------------------------------------------
+   --++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+   --------------------------------------------------------------------------------
 
    PROCEDURE CREATE_INDEXES (
          pSRC_SCHEMA        IN VARCHAR2,
@@ -2726,12 +2758,14 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
       p_xUR                IN NUMBER DEFAULT NULL,
       p_yUR                IN NUMBER DEFAULT NULL,
       p_delta              IN NUMBER DEFAULT 0.0001,
-      p_memory_size        IN NUMBER DEFAULT NULL
+      p_memory_size        IN NUMBER DEFAULT NULL,
+      p_cost_adj           IN NUMBER DEFAULT 100
    ) RETURN NUMBER
    AS
 
       --Matt! 6/23/10
       --Matt! 3/17/11 Added memory management
+      --Matt! 9/8/14 Added cost adjustment option
 
       --p_create_it
       -- 1: Create (only) topomap
@@ -2761,6 +2795,13 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
          raise_the_roof := 2147483648;
       ELSE
          raise_the_roof := p_memory_size;
+      END IF;
+      
+      IF p_cost_adj <> 100
+      THEN
+      
+         EXECUTE IMMEDIATE 'ALTER SESSION SET OPTIMIZER_INDEX_COST_ADJ = ' || TO_CHAR(p_cost_adj);
+      
       END IF;
 
 
@@ -2856,8 +2897,6 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
 
                   create_it := 3;
 
-                  RETURN create_it;
-
                END IF;
 
             ELSIF UPPER(SQLERRM) LIKE '%OUTOFMEMORYERROR%'
@@ -2899,6 +2938,14 @@ CREATE OR REPLACE PACKAGE BODY GZ_TOPO_UTIL AS
          END;
 
 
+         IF p_cost_adj <> 100
+         THEN
+         
+            --set back if we modified from default
+            EXECUTE IMMEDIATE 'ALTER SESSION SET OPTIMIZER_INDEX_COST_ADJ = ' || TO_CHAR(p_cost_adj);
+         
+         END IF;
+         
          RETURN create_it;
 
       END IF;
@@ -3368,22 +3415,22 @@ END remove_isolated_nodes;
       --This is meant to be a general purpose wrapper for SDO_TOPO_MAP.CHANGE_EDGE_COORDS
       --Like Oracle topo functions, pass in NULL for the topology if an appropriate topomap is already open
       --   If a topology comes in as the first param, we will build a window topomap in here
-      
+
       --Sample usage
       --
       --begin
-      --gz_topo_util.gz_change_edge_coords('Z899INT', 
-      --                                    6831, 
+      --gz_topo_util.gz_change_edge_coords('Z899INT',
+      --                                    6831,
       --                                    SDO_GEOMETRY(
       --                                                2002, 8265, NULL,
       --                                                SDO_ELEM_INFO_ARRAY ( 1,2,1 ),
-      --                                                SDO_ORDINATE_ARRAY 
+      --                                                SDO_ORDINATE_ARRAY
       --                                                (-72.99027999999999849478626856580376625061, 41.23473700000000263798938249237835407257,
       --                                                 -72.98675699999999721967469668015837669373, 41.23544700000000062800609157420694828033,
       --                                                 -72.98672100000000284580892184749245643616, 41.23542499999999932924765744246542453766))
       --                                   );
       --end;
-      
+
       --11/08/11 Changed p_clean_edge to NUMBER default .05.  Passed along as the tolerance
       --12/14/11 Attempt to manage "edge_id X not found in cache" oracle bug
       --! 2/3/14 Added p_delta option. Allows user to add more than the default .0001 buffer
@@ -3439,11 +3486,11 @@ END remove_isolated_nodes;
          THEN
 
             RAISE_APPLICATION_ERROR(-20001,'Bad window. Bad. ');
-            
+
          ELSIF p_delta <> 0
          THEN
-         
-            --user is working around 
+
+            --user is working around
             window_geom.sdo_ordinates(1) := window_geom.sdo_ordinates(1) - p_delta;
             window_geom.sdo_ordinates(2) := window_geom.sdo_ordinates(2) - p_delta;
             window_geom.sdo_ordinates(3) := window_geom.sdo_ordinates(3) + p_delta;
@@ -4716,7 +4763,6 @@ END remove_isolated_nodes;
 
 
       psql                 VARCHAR2(4000);
-      kount                PLS_INTEGER;
       toponame             VARCHAR2(32) := UPPER(p_toponame);
       featuretable         VARCHAR2(32) := UPPER(p_featuretable);
       featuretable_pkc     VARCHAR2(32) := UPPER(p_featuretable_pkc);
@@ -4887,7 +4933,9 @@ END remove_isolated_nodes;
                                                                topotab(i).sdogeometry);
                      END IF;
 
-                     RAISE_APPLICATION_ERROR(-20001,'You said no splits, but we got ' || stupid_number_array.COUNT || ' primitives');
+                     RAISE_APPLICATION_ERROR(-20001,'Comrade: Expecting to create 1 edge (or face) from each input record. '
+                                                 || 'Got ' || stupid_number_array.COUNT || ' primitives '
+                                                 || 'on ' || featuretable_pkc || ' ' || topotab(i).id || ' in table ' || featuretable);
 
                   END IF;
 
@@ -4967,7 +5015,7 @@ END remove_isolated_nodes;
 
                   ELSE
 
-                     RAISE;
+                     RAISE_APPLICATION_ERROR(-20001, SQLERRM || ' ' || DBMS_UTILITY.format_error_backtrace);
 
                   END IF;
 
